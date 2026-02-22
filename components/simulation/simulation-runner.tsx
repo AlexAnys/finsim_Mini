@@ -426,9 +426,9 @@ export function SimulationRunner({
             <GraduationCap className="size-5" />
           </div>
           <span className="text-lg font-bold">FinSim AI</span>
-          <Badge className={`${moodInfo.bg} ${moodInfo.text} border-0`}>
-            {moodInfo.label}
-          </Badge>
+          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${moodInfo.bg} ${moodInfo.text} shadow-sm`}>
+            客户情绪：{moodInfo.label}
+          </div>
           {isPreview && <Badge variant="outline" className="border-orange-300 text-orange-600">预览模式</Badge>}
         </div>
         <div className="flex items-center gap-2">
@@ -465,112 +465,123 @@ export function SimulationRunner({
             <User className="size-4 text-muted-foreground" />
             <span className="text-sm font-semibold">客户档案</span>
           </div>
-          <ScrollArea className="flex-1">
-            <div className="space-y-4 p-4">
-              {/* Scenario */}
-              <div>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  背景情景
-                </h4>
-                <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                  {scenario}
-                </p>
-              </div>
+          <div className="min-h-0 flex-1">
+            <ScrollArea className="h-full">
+              <div className="space-y-4 p-4">
+                {/* Scenario */}
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    背景情景
+                  </h4>
+                  <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                    {scenario}
+                  </p>
+                </div>
 
-              <Separator />
+                <Separator />
 
-              {/* Requirements */}
-              {requirements && requirements.length > 0 && (
-                <>
-                  <div>
-                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      任务要求
-                    </h4>
-                    <ul className="space-y-1 text-sm text-muted-foreground">
-                      {requirements.map((req, i) => (
-                        <li key={i} className="flex gap-2">
-                          <span className="mt-0.5 shrink-0 text-blue-500">-</span>
-                          <span>{req}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <Separator />
-                </>
-              )}
-
-              {/* Scoring criteria */}
-              <div>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  对话目标
-                </h4>
-                <div className="space-y-2">
-                  {scoringCriteria.map((c) => (
-                    <div key={c.id} className="rounded-md border p-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{c.label}</span>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {c.maxScore} 分
-                        </Badge>
-                      </div>
-                      {c.description && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {c.description}
-                        </p>
-                      )}
+                {/* Requirements */}
+                {requirements && requirements.length > 0 && (
+                  <>
+                    <div>
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        任务要求
+                      </h4>
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        {requirements.map((req, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="mt-0.5 shrink-0 text-blue-500">-</span>
+                            <span>{req}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                  ))}
+                    <Separator />
+                  </>
+                )}
+
+                {/* Scoring criteria */}
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    对话目标
+                  </h4>
+                  <div className="space-y-2">
+                    {scoringCriteria.map((c) => (
+                      <div key={c.id} className="rounded-md border p-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{c.label}</span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {c.maxScore} 分
+                          </Badge>
+                        </div>
+                        {c.description && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {c.description}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          </ScrollArea>
+            </ScrollArea>
+          </div>
         </div>
 
         {/* Center panel - Chat */}
         <div className="flex flex-1 flex-col bg-slate-50">
           {/* Messages */}
-          <ScrollArea className="flex-1">
-            <div className="mx-auto max-w-2xl space-y-3 p-4">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${
-                    msg.role === "student" ? "justify-end" : "justify-start"
-                  }`}
-                >
+          <div className="min-h-0 flex-1">
+            <ScrollArea className="h-full">
+              <div className="mx-auto max-w-2xl space-y-3 p-4">
+                {messages.map((msg) => (
                   <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
-                      msg.role === "student"
-                        ? "bg-primary text-primary-foreground rounded-br-md"
-                        : "rounded-bl-md bg-white shadow-sm"
+                    key={msg.id}
+                    className={`flex ${
+                      msg.role === "student" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
-                    <p
-                      className={`mt-1 text-[10px] ${
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
                         msg.role === "student"
-                          ? "text-primary-foreground/60"
-                          : "text-muted-foreground"
+                          ? "bg-primary text-primary-foreground rounded-br-md"
+                          : "rounded-bl-md bg-white shadow-sm"
                       }`}
                     >
-                      {new Date(msg.timestamp).toLocaleTimeString("zh-CN", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      <p
+                        className={`mt-1 text-[10px] ${
+                          msg.role === "student"
+                            ? "text-primary-foreground/60"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {new Date(msg.timestamp).toLocaleTimeString("zh-CN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                      {msg.role === "ai" && msg.mood && MOOD_COLORS[msg.mood] && (
+                        <div className="mt-1">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${MOOD_COLORS[msg.mood].bg} ${MOOD_COLORS[msg.mood].text}`}>
+                            {MOOD_COLORS[msg.mood].label}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {isSending && (
-                <div className="flex justify-start">
-                  <div className="rounded-2xl rounded-bl-md bg-white px-4 py-3 shadow-sm">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                ))}
+                {isSending && (
+                  <div className="flex justify-start">
+                    <div className="rounded-2xl rounded-bl-md bg-white px-4 py-3 shadow-sm">
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    </div>
                   </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </ScrollArea>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+          </div>
 
           {/* Input */}
           <div className="border-t bg-white p-4">
@@ -611,9 +622,10 @@ export function SimulationRunner({
             <Settings className="size-4 text-muted-foreground" />
             <span className="text-sm font-semibold">配置方案工具</span>
           </div>
-          <ScrollArea className="flex-1">
-            <div className="p-4">
-              {allocations.length > 0 ? (
+          <div className="min-h-0 flex-1">
+            <ScrollArea className="h-full">
+              <div className="p-4">
+                {allocations.length > 0 ? (
                 <div className="space-y-5">
                   {allocations.map((section, sIdx) => {
                     const sectionTotal = section.items.reduce(
@@ -683,8 +695,9 @@ export function SimulationRunner({
                   此任务无需资产配置
                 </p>
               )}
-            </div>
-          </ScrollArea>
+              </div>
+            </ScrollArea>
+          </div>
         </div>
       </div>
 

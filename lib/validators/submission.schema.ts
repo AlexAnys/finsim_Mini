@@ -95,6 +95,12 @@ export const createSubjectiveSubmissionSchema = z.object({
   taskId: z.string().uuid(),
   taskInstanceId: z.string().uuid().optional(),
   textAnswer: z.string().optional(),
+  attachments: z.array(z.object({
+    fileName: z.string(),
+    filePath: z.string(),
+    fileSize: z.number(),
+    contentType: z.string(),
+  })).optional(),
 });
 
 // 统一创建提交

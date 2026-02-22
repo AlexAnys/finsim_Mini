@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Sparkles,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -142,6 +143,7 @@ export default function CreateTaskPage() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormData>(initialFormData);
   const [submitting, setSubmitting] = useState(false);
+  const [aiGenerating, setAIGenerating] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // ---------- Helpers ----------
@@ -293,6 +295,92 @@ export default function CreateTaskPage() {
     opts[oIdx] = { ...opts[oIdx], text };
     next[qIdx] = { ...next[qIdx], options: opts };
     updateForm("questions", next);
+  }
+
+  // ---------- AI Generation ----------
+
+  async function handleAIGenerateQuiz() {
+    if (!form.taskName.trim()) {
+      toast.error("请先输入任务名称");
+      return;
+    }
+    setAIGenerating(true);
+    try {
+      const res = await fetch("/api/ai/task-draft/quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseName: form.taskName,
+          chapterName: form.description || form.taskName,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "AI 出题失败");
+        return;
+      }
+      const generated = json.data.questions;
+      const mapped = generated.map((q: Record<string, unknown>) => ({
+        type: q.type as QuizQuestionType,
+        stem: q.prompt as string,
+        options: (q.options as QuizOption[]) || [
+          { id: "A", text: "" },
+          { id: "B", text: "" },
+          { id: "C", text: "" },
+          { id: "D", text: "" },
+        ],
+        correctOptionIds: (q.correctOptionIds as string[]) || [],
+        correctAnswer: (q.correctAnswer as string) || "",
+        points: (q.points as number) || 1,
+        explanation: (q.explanation as string) || "",
+      }));
+      updateForm("questions", mapped);
+      toast.success(`AI 已生成 ${mapped.length} 道题目`);
+    } catch {
+      toast.error("AI 出题失败，请重试");
+    } finally {
+      setAIGenerating(false);
+    }
+  }
+
+  async function handleAIGenerateSubjective() {
+    if (!form.taskName.trim()) {
+      toast.error("请先输入任务名称");
+      return;
+    }
+    setAIGenerating(true);
+    try {
+      const res = await fetch("/api/ai/task-draft/subjective", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseName: form.taskName,
+          chapterName: form.description || form.taskName,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "AI 出题失败");
+        return;
+      }
+      const data = json.data;
+      updateForm("prompt", data.prompt);
+      if (data.scoringCriteria) {
+        updateForm("scoringCriteria", data.scoringCriteria.map((c: Record<string, unknown>) => ({
+          name: c.name as string,
+          maxPoints: c.maxPoints as number,
+          description: (c.description as string) || "",
+        })));
+      }
+      if (data.requirements) {
+        updateForm("requirements", (data.requirements as string).split("\n").filter(Boolean));
+      }
+      toast.success("AI 已生成主观题配置");
+    } catch {
+      toast.error("AI 出题失败，请重试");
+    } finally {
+      setAIGenerating(false);
+    }
   }
 
   // ---------- Validation ----------
@@ -795,10 +883,25 @@ export default function CreateTaskPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>题目列表</CardTitle>
-                <Button variant="outline" size="sm" onClick={addQuestion}>
-                  <Plus className="size-3 mr-1" />
-                  添加题目
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAIGenerateQuiz}
+                    disabled={aiGenerating}
+                  >
+                    {aiGenerating ? (
+                      <Loader2 className="size-3 mr-1 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3 mr-1" />
+                    )}
+                    AI 出题
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={addQuestion}>
+                    <Plus className="size-3 mr-1" />
+                    添加题目
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -963,7 +1066,22 @@ export default function CreateTaskPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>主观题配置</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>主观题配置</CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAIGenerateSubjective}
+                  disabled={aiGenerating}
+                >
+                  {aiGenerating ? (
+                    <Loader2 className="size-3 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3 mr-1" />
+                  )}
+                  AI 出题
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">

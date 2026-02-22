@@ -56,12 +56,26 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
         },
       });
     } else if (input.taskType === "subjective") {
-      await tx.subjectiveSubmission.create({
+      const subSub = await tx.subjectiveSubmission.create({
         data: {
           submissionId: submission.id,
           textAnswer: input.textAnswer,
         },
       });
+
+      if (input.attachments && input.attachments.length > 0) {
+        for (const att of input.attachments) {
+          await tx.attachment.create({
+            data: {
+              subjectiveSubmissionId: subSub.id,
+              fileName: att.fileName,
+              filePath: att.filePath,
+              fileSize: att.fileSize,
+              contentType: att.contentType,
+            },
+          });
+        }
+      }
     }
 
     return submission;

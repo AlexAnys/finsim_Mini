@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -15,6 +15,7 @@ import {
   HelpCircle,
   FileText,
   ExternalLink,
+  Upload,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -149,6 +150,8 @@ export default function TaskDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(searchParams.get("edit") === "true");
   const [saving, setSaving] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
   // Edit form state
   const [editName, setEditName] = useState("");
@@ -234,6 +237,71 @@ export default function TaskDetailPage() {
       toast.error("网络错误，请稍后重试");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleImportPDF(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("taskId", taskId);
+
+      const res = await fetch("/api/import-jobs", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "导入失败");
+        setImporting(false);
+        return;
+      }
+
+      const jobId = json.data.id;
+      toast.info("PDF 正在解析中，请稍候...");
+
+      // Poll for completion
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/import-jobs/${jobId}`);
+          const statusJson = await statusRes.json();
+          if (!statusJson.success) {
+            clearInterval(pollInterval);
+            setImporting(false);
+            toast.error("查询导入状态失败");
+            return;
+          }
+          const job = statusJson.data;
+          if (job.status === "completed") {
+            clearInterval(pollInterval);
+            setImporting(false);
+            toast.success(`成功导入 ${job.totalQuestions} 道题目`);
+            fetchTask();
+          } else if (job.status === "failed") {
+            clearInterval(pollInterval);
+            setImporting(false);
+            toast.error(`导入失败: ${job.error || "未知错误"}`);
+          }
+        } catch {
+          clearInterval(pollInterval);
+          setImporting(false);
+          toast.error("查询导入状态失败");
+        }
+      }, 2000);
+
+      // Timeout after 60 seconds
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setImporting(false);
+      }, 60000);
+    } catch {
+      toast.error("导入失败，请重试");
+      setImporting(false);
     }
   }
 
@@ -523,10 +591,34 @@ export default function TaskDetailPage() {
       )}
 
       {/* Quiz Questions */}
-      {task.quizQuestions.length > 0 && (
+      {task.taskType === "quiz" && (
         <Card>
           <CardHeader>
-            <CardTitle>题目列表（{task.quizQuestions.length} 题）</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>题目列表（{task.quizQuestions.length} 题）</CardTitle>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf"
+                  onChange={handleImportPDF}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => importFileRef.current?.click()}
+                  disabled={importing}
+                >
+                  {importing ? (
+                    <Loader2 className="size-3 mr-1 animate-spin" />
+                  ) : (
+                    <Upload className="size-3 mr-1" />
+                  )}
+                  从 PDF 导入题目
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {task.quizQuestions

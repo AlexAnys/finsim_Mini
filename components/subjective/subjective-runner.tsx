@@ -56,6 +56,8 @@ interface UploadedFile {
   name: string;
   size: number;
   type: string;
+  filePath?: string;
+  contentType?: string;
 }
 
 // ---------- Constants ----------
@@ -199,14 +201,13 @@ export function SubjectiveRunner({
     return null;
   }
 
-  // Add files
-  function handleAddFiles(fileList: FileList | null) {
+  // Add files — upload to server
+  async function handleAddFiles(fileList: FileList | null) {
     if (!fileList || !allowAttachment) return;
-    const newFiles: UploadedFile[] = [];
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
-      if (files.length + newFiles.length >= maxAttachments) {
+      if (files.length >= maxAttachments) {
         toast.error(`最多允许上传 ${maxAttachments} 个附件`);
         break;
       }
@@ -215,17 +216,34 @@ export function SubjectiveRunner({
         toast.error(error);
         continue;
       }
-      newFiles.push({
-        id: crypto.randomUUID(),
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      });
-    }
 
-    if (newFiles.length > 0) {
-      setFiles((prev) => [...prev, ...newFiles]);
-      toast.success(`已添加 ${newFiles.length} 个文件`);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("/api/files/upload", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          toast.error(errData?.error?.message || `上传 ${file.name} 失败`);
+          continue;
+        }
+        const data = await res.json();
+        const uploaded = data.data;
+        setFiles((prev) => [...prev, {
+          id: crypto.randomUUID(),
+          name: uploaded.fileName,
+          size: uploaded.fileSize,
+          type: uploaded.contentType,
+          filePath: uploaded.filePath,
+          contentType: uploaded.contentType,
+        }]);
+        toast.success(`已上传 ${file.name}`);
+      } catch {
+        toast.error(`上传 ${file.name} 失败`);
+      }
     }
   }
 
@@ -272,13 +290,16 @@ export function SubjectiveRunner({
 
     try {
       const payload = {
+        taskType: "subjective" as const,
         taskId,
         taskInstanceId,
-        type: "subjective" as const,
-        payload: {
-          content: content.trim(),
-          attachmentIds: files.map((f) => f.id),
-        },
+        textAnswer: content.trim(),
+        attachments: files.filter(f => f.filePath).map(f => ({
+          fileName: f.name,
+          filePath: f.filePath!,
+          fileSize: f.size,
+          contentType: f.contentType || f.type,
+        })),
       };
 
       const res = await fetch("/api/submissions", {

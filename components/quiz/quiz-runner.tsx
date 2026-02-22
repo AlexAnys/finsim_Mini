@@ -249,16 +249,19 @@ export function QuizRunner({
 
     try {
       const payload = {
+        taskType: "quiz" as const,
         taskId,
         taskInstanceId,
-        type: "quiz" as const,
-        payload: {
-          answers: questions.map((q) => ({
-            questionId: q.id,
-            answer: answers[q.id] ?? (q.type === "multiple_choice" ? [] : ""),
-          })),
-          timeSpent,
-        },
+        answers: questions.map((q) => {
+          const raw = answers[q.id];
+          if (q.type === "short_answer") {
+            return { questionId: q.id, textAnswer: typeof raw === "string" ? raw : "" };
+          }
+          // single_choice, multiple_choice, true_false
+          const ids = Array.isArray(raw) ? raw : raw ? [raw] : [];
+          return { questionId: q.id, selectedOptionIds: ids };
+        }),
+        durationSeconds: timeSpent,
       };
 
       const res = await fetch("/api/submissions", {

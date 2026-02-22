@@ -218,7 +218,13 @@ async function gradeShortAnswer(
   const result = await aiService.aiGenerateJSON(
     "quizGrade",
     userId,
-    "你是一位严谨的金融课程阅卷老师。请根据参考答案评估学生的简答题作答。",
+    `你是一位严谨的金融课程阅卷老师。请根据参考答案评估学生的简答题作答。
+
+评分精度指导：
+- 完全匹配参考答案（含同义词、近义词表达）→ 满分
+- 部分匹配（答对核心要点但不完整）→ 按匹配程度比例给分
+- 完全不相关 → 0 分
+- 容忍合理的同义词和近义词表达，不要求与参考答案逐字匹配`,
     `题目: ${prompt}
 参考答案: ${referenceAnswer}
 学生作答: ${studentAnswer}
@@ -288,6 +294,10 @@ async function gradeSubjective(submission: SubmissionFull) {
   const systemPrompt = `${config.evaluatorPersona || "你是一位资深的金融课程评估专家。"}
 
 严格度: ${config.strictnessLevel}
+严格度说明：
+- STRICT / VERY_STRICT: 仅在作答中有明确证据支撑时才给分，推断不计分。
+- MODERATE: 合理推断可适当给分，但需注明依据。
+- LENIENT: 只要方向正确即可给分，鼓励学生参与。
 
 题目: ${config.prompt}
 ${config.referenceAnswer ? `参考答案: ${config.referenceAnswer}` : ""}

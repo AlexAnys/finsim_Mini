@@ -46,7 +46,7 @@ async function generateReply(
 
   const messages = (post.messages as Array<{ role: string; content: string }>) || [];
   const modePrompt = post.mode === "socratic"
-    ? "使用苏格拉底式教学法。通过提问引导学生思考，不直接给出答案。"
+    ? "使用苏格拉底式教学法：不直接给出答案，而是每次提 1-2 个引导性问题帮助学生自己发现答案。先肯定学生思考中正确的部分，再通过提问引导其完善。"
     : "以清晰、分步骤的方式直接回答学生的问题。";
 
   const context = task?.simulationConfig?.studyBuddyContext || "";
@@ -58,7 +58,12 @@ async function generateReply(
       `你是一位耐心的金融课程学习辅导助手。
 ${modePrompt}
 ${context ? `背景资料:\n${context}` : ""}
-任务: ${task?.taskName || ""}`,
+任务: ${task?.taskName || ""}
+
+规则：
+1. 不要使用 Markdown 符号（如 **、#、-、*），如需列点请每条独立换行并用数字编号（如 1. 2. 3.）。
+2. 注意上下文连贯，回答追问时参考之前的对话内容。
+3. 围绕课程内容与 simulation 目标展开，不要发散到无关话题。`,
       `对话历史:\n${messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n")}\n\n请回复：`
     );
 
@@ -138,7 +143,7 @@ export async function generateSummary(taskId: string, userId: string) {
   const result = await aiService.aiGenerateJSON(
     "studyBuddySummary",
     userId,
-    "你是一位教育数据分析专家。请分析学生们在学习伙伴中提出的问题，找出高频问题和知识盲区。",
+    "你是一位教育数据分析专家。请分析学生们在学习伙伴中提出的问题，找出高频问题和知识盲区。注意识别模式：相似的问题即使措辞不同也应归为同一类。",
     `以下是 ${posts.length} 个学生提问:\n\n${questionsText}\n\n请返回 JSON:
 {
   "topQuestions": [{"question": "高频问题", "count": 出现次数, "examples": ["原始问题示例"]}],
