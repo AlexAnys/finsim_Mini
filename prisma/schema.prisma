@@ -1,0 +1,783 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 枚举类型
+// ============================================
+
+enum Role {
+  student
+  teacher
+  admin
+}
+
+enum TaskType {
+  simulation
+  quiz
+  subjective
+}
+
+enum TaskInstanceStatus {
+  draft
+  published
+  closed
+  archived
+}
+
+enum SubmissionStatus {
+  submitted
+  grading
+  graded
+  failed
+}
+
+enum SlotType {
+  pre
+  in
+  post
+}
+
+enum ContentBlockType {
+  markdown
+  resource
+  simulation_config
+  quiz
+  subjective
+  custom
+}
+
+enum QuizQuestionType {
+  single_choice
+  multiple_choice
+  true_false
+  short_answer
+}
+
+enum QuizMode {
+  fixed
+  adaptive
+}
+
+enum StrictnessLevel {
+  LENIENT
+  MODERATE
+  STRICT
+  VERY_STRICT
+}
+
+enum StudyBuddyMode {
+  socratic
+  direct
+}
+
+enum StudyBuddyStatus {
+  pending
+  answered
+  error
+}
+
+enum AnnouncementStatus {
+  published
+  draft
+  archived
+}
+
+enum Visibility {
+  private
+  shared
+  department
+  public
+}
+
+enum GroupType {
+  manual
+  auto_score_bucket
+}
+
+enum ImportJobStatus {
+  uploaded
+  processing
+  completed
+  failed
+}
+
+// ============================================
+// 表 1: User（用户）
+// ============================================
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String   @db.VarChar(100)
+  role         Role
+  classId      String?
+  avatarUrl    String?  @db.VarChar(500)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  class              Class?               @relation(fields: [classId], references: [id])
+  createdCourses     Course[]             @relation("CourseCreator")
+  createdChapters    Chapter[]            @relation("ChapterCreator")
+  createdSections    Section[]            @relation("SectionCreator")
+  createdTasks       Task[]               @relation("TaskCreator")
+  createdInstances   TaskInstance[]        @relation("TaskInstanceCreator")
+  submissions        Submission[]         @relation("StudentSubmissions")
+  studyBuddyPosts    StudyBuddyPost[]     @relation("StudentStudyBuddy")
+  createdClasses     Class[]              @relation("ClassCreator")
+  announcements      Announcement[]       @relation("AnnouncementAuthor")
+  taskPosts          TaskPost[]           @relation("TaskPostAuthor")
+  scheduleSlots      ScheduleSlot[]       @relation("ScheduleCreator")
+  studentGroups      StudentGroup[]       @relation("GroupTeacher")
+  groupMemberships   StudentGroupMember[] @relation("GroupMember")
+  analysisReports    AnalysisReport[]     @relation("ReportCreator")
+  importJobs         ImportJob[]          @relation("ImportTeacher")
+  auditLogs          AuditLog[]           @relation("AuditActor")
+
+  @@index([role])
+  @@index([classId])
+}
+
+// ============================================
+// 表 2: Class（班级）
+// ============================================
+model Class {
+  id             String   @id @default(uuid())
+  name           String   @unique @db.VarChar(100)
+  code           String?  @db.VarChar(50)
+  academicYear   String?  @db.VarChar(20)
+  departmentName String?  @db.VarChar(200)
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  creator        User           @relation("ClassCreator", fields: [createdBy], references: [id])
+  students       User[]
+  courses        Course[]
+  taskInstances  TaskInstance[]
+  studentGroups  StudentGroup[]
+
+  @@index([createdBy])
+}
+
+// ============================================
+// 表 3: Course（课程）
+// ============================================
+model Course {
+  id          String   @id @default(uuid())
+  courseTitle  String   @db.VarChar(200)
+  courseCode   String?  @db.VarChar(50)
+  description String?  @db.Text
+  classId     String
+  versionId   String   @default("v1") @db.VarChar(20)
+  createdBy   String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  semesterStartDate DateTime?
+
+  creator        User           @relation("CourseCreator", fields: [createdBy], references: [id])
+  class          Class          @relation(fields: [classId], references: [id])
+  chapters       Chapter[]
+  sections       Section[]
+  contentBlocks  ContentBlock[]
+  taskInstances  TaskInstance[]
+  announcements  Announcement[]
+  scheduleSlots  ScheduleSlot[]
+
+  @@index([classId])
+  @@index([createdBy])
+}
+
+// ============================================
+// 表 4: Chapter（章节）
+// ============================================
+model Chapter {
+  id        String   @id @default(uuid())
+  courseId   String
+  title     String   @db.VarChar(200)
+  order     Int
+  createdBy String
+  createdAt DateTime @default(now())
+
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  creator       User           @relation("ChapterCreator", fields: [createdBy], references: [id])
+  sections      Section[]
+  contentBlocks ContentBlock[]
+  taskInstances TaskInstance[]
+
+  @@unique([courseId, order])
+}
+
+// ============================================
+// 表 5: Section（小节）
+// ============================================
+model Section {
+  id        String   @id @default(uuid())
+  courseId   String
+  chapterId String
+  title     String   @db.VarChar(200)
+  order     Int
+  createdBy String
+  createdAt DateTime @default(now())
+
+  course        Course         @relation(fields: [courseId], references: [id])
+  chapter       Chapter        @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  creator       User           @relation("SectionCreator", fields: [createdBy], references: [id])
+  contentBlocks ContentBlock[]
+  taskInstances TaskInstance[]
+
+  @@unique([chapterId, order])
+}
+
+// ============================================
+// 表 6: ContentBlock（内容块）
+// ============================================
+model ContentBlock {
+  id        String           @id @default(uuid())
+  courseId   String
+  chapterId String
+  sectionId String
+  slot      SlotType
+  blockType ContentBlockType
+  order     Int
+  data      Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  course  Course  @relation(fields: [courseId], references: [id])
+  chapter Chapter @relation(fields: [chapterId], references: [id])
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, slot, order])
+}
+
+// ============================================
+// 表 7: Task（任务定义）
+// ============================================
+model Task {
+  id               String      @id @default(uuid())
+  taskType         TaskType
+  taskName         String      @db.VarChar(200)
+  requirements     String?     @db.Text
+  visibility       Visibility  @default(private)
+  practiceEnabled  Boolean     @default(false)
+  creatorId        String
+  courseName       String?     @db.VarChar(200)
+  chapterName      String?     @db.VarChar(200)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  creator              User                  @relation("TaskCreator", fields: [creatorId], references: [id])
+  simulationConfig     SimulationConfig?
+  quizConfig           QuizConfig?
+  subjectiveConfig     SubjectiveConfig?
+  scoringCriteria      ScoringCriterion[]
+  allocationSections   AllocationSection[]
+  quizQuestions        QuizQuestion[]
+  taskInstances        TaskInstance[]
+  submissions          Submission[]
+  studyBuddyPosts      StudyBuddyPost[]
+  studyBuddySummaries  StudyBuddySummary[]
+  importJobs           ImportJob[]
+  analytics            TaskInstanceAnalytics[] @relation("TaskAnalytics")
+  analysisReports      AnalysisReport[]        @relation("ReportTask")
+
+  @@index([creatorId])
+  @@index([taskType])
+}
+
+// ============================================
+// 表 8: SimulationConfig（模拟对话配置）
+// ============================================
+model SimulationConfig {
+  id                    String          @id @default(uuid())
+  taskId                String          @unique
+  scenario              String          @db.Text
+  openingLine           String          @db.Text
+  dialogueRequirements  String?         @db.Text
+  studyBuddyContext     String?         @db.Text
+  evaluatorPersona      String?         @db.Text
+  strictnessLevel       StrictnessLevel @default(MODERATE)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// 表 9: QuizConfig（测验配置）
+// ============================================
+model QuizConfig {
+  id                String   @id @default(uuid())
+  taskId            String   @unique
+  mode              QuizMode
+  timeLimitMinutes  Int?
+  showCorrectAnswer Boolean  @default(false)
+  maxQuestions      Int?
+  startDifficulty   Int?
+  difficultyStep    Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// 表 10: SubjectiveConfig（主观题配置）
+// ============================================
+model SubjectiveConfig {
+  id                     String          @id @default(uuid())
+  taskId                 String          @unique
+  prompt                 String          @db.Text
+  allowTextAnswer        Boolean         @default(true)
+  allowedAttachmentTypes String[]        @db.VarChar(20)
+  referenceAnswer        String?         @db.Text
+  evaluatorPersona       String?         @db.Text
+  strictnessLevel        StrictnessLevel @default(MODERATE)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// 表 11: ScoringCriterion（评分标准项）
+// ============================================
+model ScoringCriterion {
+  id          String   @id @default(uuid())
+  taskId      String
+  name        String   @db.VarChar(200)
+  description String?  @db.Text
+  maxPoints   Int
+  order       Int
+  createdAt   DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, order])
+}
+
+// ============================================
+// 表 12: AllocationSection（资产配置分区）
+// ============================================
+model AllocationSection {
+  id        String   @id @default(uuid())
+  taskId    String
+  label     String   @db.VarChar(200)
+  order     Int
+  createdAt DateTime @default(now())
+
+  task  Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  items AllocationItem[]
+
+  @@index([taskId, order])
+}
+
+// ============================================
+// 表 13: AllocationItem（资产配置选项）
+// ============================================
+model AllocationItem {
+  id        String   @id @default(uuid())
+  sectionId String
+  label     String   @db.VarChar(200)
+  order     Int
+  createdAt DateTime @default(now())
+
+  section AllocationSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, order])
+}
+
+// ============================================
+// 表 14: QuizQuestion（测验题目）
+// ============================================
+model QuizQuestion {
+  id               String           @id @default(uuid())
+  taskId           String
+  type             QuizQuestionType
+  prompt           String           @db.Text
+  options          Json?
+  correctOptionIds String[]         @db.VarChar(50)
+  correctAnswer    String?          @db.Text
+  points           Int
+  difficulty       Int?
+  explanation      String?          @db.Text
+  order            Int
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, order])
+  @@index([taskId, difficulty])
+}
+
+// ============================================
+// 表 15: TaskInstance（任务实例）
+// ============================================
+model TaskInstance {
+  id               String             @id @default(uuid())
+  title            String             @db.VarChar(200)
+  description      String?            @db.Text
+  taskId           String
+  taskType         TaskType
+  classId          String
+  groupIds         String[]
+  courseId          String?
+  chapterId        String?
+  sectionId        String?
+  slot             SlotType?
+  dueAt            DateTime
+  publishAt        DateTime?
+  publishedAt      DateTime?
+  status           TaskInstanceStatus @default(draft)
+  attemptsAllowed  Int?
+  taskSnapshot     Json?
+  createdBy        String
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  task            Task                   @relation(fields: [taskId], references: [id])
+  class           Class                  @relation(fields: [classId], references: [id])
+  course          Course?                @relation(fields: [courseId], references: [id])
+  chapter         Chapter?               @relation(fields: [chapterId], references: [id])
+  section         Section?               @relation(fields: [sectionId], references: [id])
+  creator         User                   @relation("TaskInstanceCreator", fields: [createdBy], references: [id])
+  submissions     Submission[]
+  analytics       TaskInstanceAnalytics?
+  taskPosts       TaskPost[]
+  studyBuddyPosts StudyBuddyPost[]
+  analysisReports AnalysisReport[]       @relation("ReportInstance")
+
+  @@index([taskId])
+  @@index([classId])
+  @@index([courseId])
+  @@index([status])
+  @@index([sectionId, slot])
+}
+
+// ============================================
+// 表 16: Submission（提交记录）
+// ============================================
+model Submission {
+  id             String           @id @default(uuid())
+  studentId      String
+  taskId         String
+  taskType       TaskType
+  status         SubmissionStatus @default(submitted)
+  score          Decimal?         @db.Decimal(10, 2)
+  maxScore       Decimal?         @db.Decimal(10, 2)
+  taskInstanceId String?
+  submittedAt    DateTime         @default(now())
+  gradedAt       DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  student              User                   @relation("StudentSubmissions", fields: [studentId], references: [id])
+  task                 Task                   @relation(fields: [taskId], references: [id])
+  taskInstance         TaskInstance?           @relation(fields: [taskInstanceId], references: [id])
+  simulationSubmission SimulationSubmission?
+  quizSubmission       QuizSubmission?
+  subjectiveSubmission SubjectiveSubmission?
+
+  @@index([studentId])
+  @@index([taskId])
+  @@index([taskInstanceId])
+  @@index([status])
+  @@index([taskInstanceId, studentId])
+}
+
+// ============================================
+// 表 17: SimulationSubmission（模拟对话提交详情）
+// ============================================
+model SimulationSubmission {
+  id           String   @id @default(uuid())
+  submissionId String   @unique
+  transcript   Json?
+  assets       Json?
+  evaluation   Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// 表 18: QuizSubmission（测验提交详情）
+// ============================================
+model QuizSubmission {
+  id              String    @id @default(uuid())
+  submissionId    String    @unique
+  answers         Json?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  durationSeconds Int?
+  evaluation      Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// 表 19: SubjectiveSubmission（主观题提交详情）
+// ============================================
+model SubjectiveSubmission {
+  id            String   @id @default(uuid())
+  submissionId  String   @unique
+  textAnswer    String?  @db.Text
+  extractedText String?  @db.Text
+  evaluation    Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  submission  Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+}
+
+// ============================================
+// 表 20: Attachment（附件）
+// ============================================
+model Attachment {
+  id                      String   @id @default(uuid())
+  subjectiveSubmissionId  String
+  fileName                String   @db.VarChar(500)
+  filePath                String   @db.VarChar(1000)
+  fileSize                Int
+  contentType             String   @db.VarChar(100)
+  createdAt               DateTime @default(now())
+
+  subjectiveSubmission SubjectiveSubmission @relation(fields: [subjectiveSubmissionId], references: [id], onDelete: Cascade)
+
+  @@index([subjectiveSubmissionId])
+}
+
+// ============================================
+// 表 21: StudyBuddyPost（学习伙伴帖子）
+// ============================================
+model StudyBuddyPost {
+  id               String           @id @default(uuid())
+  studentId        String
+  taskId           String
+  taskInstanceId   String?
+  title            String           @db.VarChar(500)
+  question         String           @db.Text
+  mode             StudyBuddyMode
+  anonymous        Boolean
+  status           StudyBuddyStatus @default(pending)
+  aiReply          String?          @db.Text
+  replyGeneratedAt DateTime?
+  messages         Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  student      User          @relation("StudentStudyBuddy", fields: [studentId], references: [id])
+  task         Task          @relation(fields: [taskId], references: [id])
+  taskInstance TaskInstance?  @relation(fields: [taskInstanceId], references: [id])
+
+  @@index([studentId])
+  @@index([taskId])
+  @@index([taskInstanceId])
+}
+
+// ============================================
+// 表 22: StudyBuddySummary（学习伙伴汇总）
+// ============================================
+model StudyBuddySummary {
+  id            String   @id @default(uuid())
+  taskId        String
+  generatedAt   DateTime
+  topQuestions  Json
+  knowledgeGaps Json
+  createdAt     DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id])
+
+  @@index([taskId])
+}
+
+// ============================================
+// 表 23: Announcement（公告）
+// ============================================
+model Announcement {
+  id        String             @id @default(uuid())
+  courseId   String
+  title     String             @db.VarChar(500)
+  body      String             @db.Text
+  status    AnnouncementStatus @default(draft)
+  createdBy String
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  course  Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  creator User   @relation("AnnouncementAuthor", fields: [createdBy], references: [id])
+
+  @@index([courseId])
+  @@index([status])
+}
+
+// ============================================
+// 表 24: TaskPost（任务讨论帖）
+// ============================================
+model TaskPost {
+  id             String    @id @default(uuid())
+  taskInstanceId String
+  authorId       String
+  content        String    @db.Text
+  replyToPostId  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  taskInstance TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+  author       User        @relation("TaskPostAuthor", fields: [authorId], references: [id])
+  replyTo      TaskPost?   @relation("PostReplies", fields: [replyToPostId], references: [id])
+  replies      TaskPost[]  @relation("PostReplies")
+
+  @@index([taskInstanceId])
+  @@index([replyToPostId])
+}
+
+// ============================================
+// 表 25: ScheduleSlot（课表时段）
+// ============================================
+model ScheduleSlot {
+  id         String   @id @default(uuid())
+  courseId    String
+  dayOfWeek  Int
+  slotIndex  Int
+  startWeek  Int
+  endWeek    Int
+  timeLabel  String   @db.VarChar(50)
+  classroom  String?  @db.VarChar(100)
+  weekType   String   @default("all") @db.VarChar(10)
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  course  Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  creator User   @relation("ScheduleCreator", fields: [createdBy], references: [id])
+
+  @@index([courseId])
+  @@index([courseId, dayOfWeek, slotIndex])
+}
+
+// ============================================
+// 表 26: StudentGroup（学生分组）
+// ============================================
+model StudentGroup {
+  id        String    @id @default(uuid())
+  teacherId String
+  classId   String
+  name      String    @db.VarChar(200)
+  type      GroupType
+  meta      Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  teacher User                 @relation("GroupTeacher", fields: [teacherId], references: [id])
+  class   Class                @relation(fields: [classId], references: [id])
+  members StudentGroupMember[]
+
+  @@index([teacherId])
+  @@index([classId])
+}
+
+// ============================================
+// 表 27: StudentGroupMember（学生分组成员）
+// ============================================
+model StudentGroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  studentId String
+  createdAt DateTime @default(now())
+
+  group   StudentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  student User         @relation("GroupMember", fields: [studentId], references: [id])
+
+  @@unique([groupId, studentId])
+  @@index([studentId])
+}
+
+// ============================================
+// 表 28: TaskInstanceAnalytics（任务实例统计）
+// ============================================
+model TaskInstanceAnalytics {
+  id                   String   @id @default(uuid())
+  taskInstanceId       String   @unique
+  taskId               String
+  submissionCount      Int      @default(0)
+  avgScore             Decimal? @db.Decimal(10, 2)
+  scoreDist            Json?
+  quizQuestionStats    Json?
+  subjectiveRubricStats Json?
+  updatedAt            DateTime @updatedAt
+
+  taskInstance TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+  task         Task         @relation("TaskAnalytics", fields: [taskId], references: [id])
+}
+
+// ============================================
+// 表 29: AnalysisReport（分析报告）
+// ============================================
+model AnalysisReport {
+  id             String   @id @default(uuid())
+  taskId         String?
+  taskInstanceId String?
+  createdBy      String
+  studentCount   Int
+  report         Json
+  createdAt      DateTime @default(now())
+
+  creator      User          @relation("ReportCreator", fields: [createdBy], references: [id])
+  task         Task?         @relation("ReportTask", fields: [taskId], references: [id])
+  taskInstance TaskInstance?  @relation("ReportInstance", fields: [taskInstanceId], references: [id])
+
+  @@index([createdBy])
+  @@index([taskId])
+  @@index([taskInstanceId])
+}
+
+// ============================================
+// 表 30: ImportJob（导入任务）
+// ============================================
+model ImportJob {
+  id                 String          @id @default(uuid())
+  teacherId          String
+  taskId             String
+  fileName           String          @db.VarChar(500)
+  filePath           String          @db.VarChar(1000)
+  status             ImportJobStatus @default(uploaded)
+  totalQuestions     Int?
+  processedQuestions Int?
+  error              String?         @db.Text
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  teacher User @relation("ImportTeacher", fields: [teacherId], references: [id])
+  task    Task @relation(fields: [taskId], references: [id])
+
+  @@index([teacherId])
+}
+
+// ============================================
+// 表 31: AuditLog（审计日志）
+// ============================================
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String   @db.VarChar(100)
+  actorId    String?
+  targetId   String?
+  targetType String?  @db.VarChar(50)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
