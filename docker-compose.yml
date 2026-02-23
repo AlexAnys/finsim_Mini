@@ -1,5 +1,6 @@
 services:
   app:
+    image: ghcr.io/alexanys/finsim_mini:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
