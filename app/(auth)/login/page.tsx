@@ -55,12 +55,12 @@ export default function LoginPage() {
       const sessionRes = await fetch("/api/auth/session");
       const session = await sessionRes.json();
 
-      if (session?.user?.role === "teacher" || session?.user?.role === "admin") {
+      const role = session?.user?.role;
+      if (role === "teacher" || role === "admin") {
         router.push("/teacher/dashboard");
       } else {
         router.push("/dashboard");
       }
-      router.refresh();
     } catch {
       toast.error("登录失败，请稍后重试");
     } finally {

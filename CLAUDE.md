@@ -104,6 +104,10 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 9. Don't modify files outside the current task scope unless explicitly confirmed
 10. Beyond 5 conversation rounds: write progress to status, let user decide whether to continue
 
+### Bug Fix Rule
+
+- **Fix root causes, never bypass**: trace the failing code path, repair it, verify the original path works. Workarounds (e.g. replacing `router.push` with `window.location.href`) are not fixes.
+
 ### Code Standards
 
 - All UI text in Simplified Chinese; error messages returned to frontend must be Chinese
