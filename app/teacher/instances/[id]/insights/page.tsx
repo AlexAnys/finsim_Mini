@@ -187,6 +187,7 @@ export default function InsightsPage() {
 
       const sub = json.data;
       let transcript: TranscriptMessage[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let evaluation: any = null;
 
       if (sub.simulationSubmission) {
@@ -201,10 +202,11 @@ export default function InsightsPage() {
       let criterionComment = "";
       let criterionScore = 0;
       let criterionMaxScore = 0;
-      let feedback = evaluation?.feedback || "";
+      const feedback = evaluation?.feedback || "";
 
       if (evaluation?.rubricBreakdown) {
         const bd = evaluation.rubricBreakdown.find(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (b: any) => b.criterionId === criterionId
         );
         if (bd) {

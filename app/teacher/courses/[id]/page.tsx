@@ -201,7 +201,13 @@ export default function TeacherCourseDetailPage() {
   const [addTitle, setAddTitle] = useState("");
   const [addDescription, setAddDescription] = useState("");
   const [addDueAt, setAddDueAt] = useState("");
-  const [taskPreview, setTaskPreview] = useState<any>(null);
+  const [taskPreview, setTaskPreview] = useState<{
+    id: string;
+    taskType: string;
+    requirements?: string;
+    scoringCriteria?: Array<{ id: string; name: string; maxPoints: number }>;
+    questions?: Array<unknown>;
+  } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [submittingContent, setSubmittingContent] = useState(false);
 
@@ -1489,11 +1495,11 @@ export default function TeacherCourseDetailPage() {
                                 {taskPreview.requirements}
                               </p>
                             )}
-                            {taskPreview.scoringCriteria?.length > 0 && (
+                            {(taskPreview.scoringCriteria?.length ?? 0) > 0 && (
                               <div>
                                 <span className="text-muted-foreground">评分标准：</span>
                                 <ul className="ml-3 mt-0.5 space-y-0.5">
-                                  {taskPreview.scoringCriteria.map((c: any) => (
+                                  {taskPreview.scoringCriteria?.map((c) => (
                                     <li key={c.id}>
                                       {c.name}（{c.maxPoints}分）
                                     </li>
@@ -1501,10 +1507,10 @@ export default function TeacherCourseDetailPage() {
                                 </ul>
                               </div>
                             )}
-                            {taskPreview.questions?.length > 0 && (
+                            {(taskPreview.questions?.length ?? 0) > 0 && (
                               <p>
                                 <span className="text-muted-foreground">题目数量：</span>
-                                {taskPreview.questions.length} 道
+                                {taskPreview.questions?.length} 道
                               </p>
                             )}
                           </div>

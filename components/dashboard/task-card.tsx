@@ -67,6 +67,7 @@ const teacherStatusConfig: Record<
 };
 
 interface TaskCardProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   task: Record<string, any>;
   role: "student" | "teacher";
 }
@@ -88,9 +89,10 @@ export function TaskCard({ task, role }: TaskCardProps) {
       })
     : null;
 
-  const isPastDue = task.dueAt ? new Date(task.dueAt) < new Date() : false;
+  const now = new Date();
+  const isPastDue = task.dueAt ? new Date(task.dueAt) < now : false;
   const daysRemaining = task.dueAt
-    ? Math.ceil((new Date(task.dueAt).getTime() - Date.now()) / 86400000)
+    ? Math.ceil((new Date(task.dueAt).getTime() - now.getTime()) / 86400000)
     : null;
 
   if (role === "student") {

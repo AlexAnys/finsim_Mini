@@ -72,6 +72,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
       for (const sub of gradedSubs) {
         // Get evaluation from the type-specific submission
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let evaluation: any = null;
         if (sub.simulationSubmission?.evaluation) evaluation = sub.simulationSubmission.evaluation;
         else if (sub.quizSubmission?.evaluation) evaluation = sub.quizSubmission.evaluation;
@@ -79,6 +80,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
         if (evaluation?.rubricBreakdown) {
           const breakdown = evaluation.rubricBreakdown.find(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (b: any) => b.criterionId === criterion.id
           );
           if (breakdown) {

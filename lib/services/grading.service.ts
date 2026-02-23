@@ -86,6 +86,7 @@ async function gradeSimulation(submission: SubmissionFull) {
     evaluatorPersona: config.evaluatorPersona || undefined,
     strictnessLevel: config.strictnessLevel,
     transcript,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rubric: submission.task.scoringCriteria.map((c: any) => ({
       id: c.id,
       name: c.name,
@@ -258,6 +259,7 @@ async function gradeSubjective(submission: SubmissionFull) {
   const combinedText = [textAnswer, extractedText].filter(Boolean).join("\n\n");
 
   if (!combinedText.trim()) {
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     await updateSubmissionGrade(submission.id, {
       status: "graded",
       score: 0,
@@ -274,6 +276,7 @@ async function gradeSubjective(submission: SubmissionFull) {
         })),
       },
     });
+    /* eslint-enable @typescript-eslint/no-explicit-any */
     return;
   }
 
@@ -288,6 +291,7 @@ async function gradeSubjective(submission: SubmissionFull) {
     })),
   });
 
+  /* eslint-disable @typescript-eslint/no-explicit-any */
   const rubric = submission.task.scoringCriteria;
   const maxScore = rubric.reduce((sum: number, c: any) => sum + c.maxPoints, 0);
 
@@ -326,6 +330,7 @@ criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}`,
     };
   });
   const totalScore = breakdown.reduce((sum: number, b: any) => sum + b.score, 0);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   await updateSubmissionGrade(submission.id, {
     status: "graded",

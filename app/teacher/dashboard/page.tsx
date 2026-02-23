@@ -13,6 +13,7 @@ interface TimelineItem {
   date: string;
   courseName: string;
   courseId?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: Record<string, any>;
 }
 
@@ -29,6 +30,7 @@ interface ScheduleSlotItem {
   course: { courseTitle: string; semesterStartDate: string | null };
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 interface DashboardData {
   courses: Array<Record<string, any>>;
   taskInstances: Array<Record<string, any>>;
@@ -43,6 +45,7 @@ interface DashboardData {
     publishedCount: number;
   };
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function transformToTimeline(data: DashboardData): TimelineItem[] {
   const items: TimelineItem[] = [];

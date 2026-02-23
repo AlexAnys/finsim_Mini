@@ -279,6 +279,7 @@ export default function InstanceDetailPage() {
     }
     setSaving(true);
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body: Record<string, any> = {
         title: editTitle.trim(),
         description: editDescription.trim() || undefined,

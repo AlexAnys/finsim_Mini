@@ -11,6 +11,7 @@ interface TimelineItem {
   date: string;
   courseName: string;
   courseId?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: Record<string, any>;
 }
 
@@ -20,9 +21,13 @@ interface DashboardData {
     courseTitle: string;
     class: { id: string; name: string };
   }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tasks: Array<Record<string, any>>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   recentSubmissions: Array<Record<string, any>>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   announcements: Array<Record<string, any>>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   scheduleSlots: Array<Record<string, any>>;
 }
 
@@ -58,6 +63,7 @@ function transformToTimeline(data: DashboardData): TimelineItem[] {
   const todayDayOfWeek = jsDay === 0 ? 7 : jsDay;
 
   for (const slot of data.scheduleSlots || []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const s = slot as Record<string, any>;
     if (s.dayOfWeek !== todayDayOfWeek) continue;
 
