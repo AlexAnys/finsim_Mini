@@ -100,6 +100,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           envs: GHCR_TOKEN,GIT_ACTOR,GIT_SHA
+          command_timeout: 30m
           script: |
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GIT_ACTOR" --password-stdin
             cd /opt/finsim
