@@ -165,15 +165,37 @@ export function Timeline({ items, role }: TimelineProps) {
 
                   return (
                     <div key={`${item.type}-${item.id}`} className="flex items-start gap-2">
-                      {/* Course badge */}
-                      {item.courseName && color && (
-                        <Badge
-                          variant="outline"
-                          className={`shrink-0 text-[10px] px-1.5 py-0 mt-2.5 max-w-[80px] truncate ${color.bg} ${color.text} ${color.border}`}
-                        >
-                          {item.courseName}
-                        </Badge>
-                      )}
+                      {/* Left labels column */}
+                      <div className="shrink-0 max-w-[120px] flex flex-col gap-1 mt-2.5">
+                        {item.courseName && color && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-1.5 py-0 truncate w-fit ${color.bg} ${color.text} ${color.border}`}
+                          >
+                            {item.courseName}
+                          </Badge>
+                        )}
+                        {item.type === "task" && role === "teacher" && item.data?.class?.name && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit">
+                            {item.data.class.name}
+                          </Badge>
+                        )}
+                        {item.type === "task" && item.data?.chapter?.title && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit bg-amber-50 text-amber-700 border-amber-200">
+                            {item.data.chapter.title}
+                          </Badge>
+                        )}
+                        {item.type === "task" && item.data?.section?.title && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit bg-cyan-50 text-cyan-700 border-cyan-200">
+                            {item.data.section.title}
+                          </Badge>
+                        )}
+                        {item.type === "task" && item.data?.slot && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit bg-indigo-50 text-indigo-700 border-indigo-200">
+                            {item.data.slot === "pre" ? "课前" : item.data.slot === "in" ? "课中" : item.data.slot === "post" ? "课后" : item.data.slot}
+                          </Badge>
+                        )}
+                      </div>
 
                       {/* Card */}
                       <div className={`flex-1 min-w-0 ${isPast ? "opacity-60" : ""}`}>

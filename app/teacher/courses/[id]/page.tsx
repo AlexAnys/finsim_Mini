@@ -18,6 +18,8 @@ import {
   Pencil,
   Check,
   X,
+  Upload,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +60,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 
 interface TaskInstance {
   id: string;
@@ -162,6 +165,30 @@ interface AllocationSection {
   items: AllocationItem[];
 }
 
+type QuizQuestionType = "single_choice" | "multiple_choice" | "true_false" | "short_answer";
+
+interface QuizOption {
+  id: string;
+  text: string;
+}
+
+interface QuizQuestion {
+  type: QuizQuestionType;
+  stem: string;
+  options: QuizOption[];
+  correctOptionIds: string[];
+  correctAnswer: string;
+  points: number;
+  explanation: string;
+}
+
+const quizQuestionTypeLabels: Record<QuizQuestionType, string> = {
+  single_choice: "单选题",
+  multiple_choice: "多选题",
+  true_false: "判断题",
+  short_answer: "简答题",
+};
+
 export default function TeacherCourseDetailPage() {
   const params = useParams();
   const courseId = params.id as string;
@@ -230,6 +257,13 @@ export default function TeacherCourseDetailPage() {
   const [newStudyBuddyContext, setNewStudyBuddyContext] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
+
+  // Quiz inline creation state
+  const [newQuizMode, setNewQuizMode] = useState<"fixed" | "adaptive">("fixed");
+  const [newTimeLimitMinutes, setNewTimeLimitMinutes] = useState("");
+  const [newShowCorrectAnswer, setNewShowCorrectAnswer] = useState(false);
+  const [newQuizQuestions, setNewQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [importingPDF, setImportingPDF] = useState(false);
 
   // Published tab state
   const [publishedInstances, setPublishedInstances] = useState<TaskInstance[]>([]);
@@ -327,6 +361,11 @@ export default function TeacherCourseDetailPage() {
     setNewEvaluatorPersona("");
     setNewStudyBuddyContext("");
     setNewDueAt("");
+    setNewQuizMode("fixed");
+    setNewTimeLimitMinutes("");
+    setNewShowCorrectAnswer(false);
+    setNewQuizQuestions([]);
+    setImportingPDF(false);
   }
 
   function openAddDialog(chapterId: string, sectionId: string, slot: SlotType) {
@@ -498,6 +537,26 @@ export default function TeacherCourseDetailPage() {
         requirements: newRequirements.trim() || undefined,
       };
 
+      if (newTaskType === "quiz") {
+        taskBody.quizConfig = {
+          mode: newQuizMode,
+          timeLimitMinutes: newTimeLimitMinutes ? parseInt(newTimeLimitMinutes) : undefined,
+          showCorrectAnswer: newShowCorrectAnswer,
+        };
+        if (newQuizQuestions.length > 0) {
+          taskBody.quizQuestions = newQuizQuestions.map((q, i) => ({
+            type: q.type,
+            prompt: q.stem,
+            options: q.type === "short_answer" ? undefined : q.options,
+            correctOptionIds: q.type === "short_answer" ? undefined : q.correctOptionIds,
+            correctAnswer: q.type === "short_answer" ? q.correctAnswer : undefined,
+            points: q.points,
+            explanation: q.explanation || undefined,
+            order: i,
+          }));
+        }
+      }
+
       if (newTaskType === "simulation") {
         taskBody.simulationConfig = {
           scenario: newScenario.trim(),
@@ -653,6 +712,223 @@ export default function TeacherCourseDetailPage() {
       };
       return next;
     });
+  }
+
+  // ---------- Quiz question helpers ----------
+
+  function createEmptyQuestion(): QuizQuestion {
+    return {
+      type: "single_choice",
+      stem: "",
+      options: [
+        { id: "A", text: "" },
+        { id: "B", text: "" },
+        { id: "C", text: "" },
+        { id: "D", text: "" },
+      ],
+      correctOptionIds: [],
+      correctAnswer: "",
+      points: 1,
+      explanation: "",
+    };
+  }
+
+  function addQuizQuestion() {
+    setNewQuizQuestions((prev) => [...prev, createEmptyQuestion()]);
+  }
+
+  function removeQuizQuestion(idx: number) {
+    setNewQuizQuestions((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateQuizQuestion(idx: number, updates: Partial<QuizQuestion>) {
+    setNewQuizQuestions((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...updates };
+      return next;
+    });
+  }
+
+  function updateQuizQuestionType(idx: number, type: QuizQuestionType) {
+    setNewQuizQuestions((prev) => {
+      const next = [...prev];
+      const q = { ...next[idx], type };
+      if (type === "true_false") {
+        q.options = [
+          { id: "A", text: "正确" },
+          { id: "B", text: "错误" },
+        ];
+        q.correctOptionIds = [];
+      } else if (type === "short_answer") {
+        q.options = [];
+        q.correctOptionIds = [];
+      } else {
+        if (q.options.length === 0 || (q.options.length === 2 && q.options[0].text === "正确")) {
+          q.options = [
+            { id: "A", text: "" },
+            { id: "B", text: "" },
+            { id: "C", text: "" },
+            { id: "D", text: "" },
+          ];
+        }
+        q.correctOptionIds = [];
+      }
+      next[idx] = q;
+      return next;
+    });
+  }
+
+  function updateQuizOptionText(qIdx: number, optIdx: number, text: string) {
+    setNewQuizQuestions((prev) => {
+      const next = [...prev];
+      const opts = [...next[qIdx].options];
+      opts[optIdx] = { ...opts[optIdx], text };
+      next[qIdx] = { ...next[qIdx], options: opts };
+      return next;
+    });
+  }
+
+  async function handlePDFImport(file: File) {
+    if (!course || !addDialogContext) return;
+    setImportingPDF(true);
+    try {
+      // Step 1: Create a temporary task to hold the quiz
+      const taskRes = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskType: "quiz",
+          taskName: newTaskName.trim() || "PDF导入测验",
+          quizConfig: {
+            mode: newQuizMode,
+            timeLimitMinutes: newTimeLimitMinutes ? parseInt(newTimeLimitMinutes) : undefined,
+            showCorrectAnswer: newShowCorrectAnswer,
+          },
+        }),
+      });
+      const taskJson = await taskRes.json();
+      if (!taskJson.success) {
+        toast.error(taskJson.error?.message || "创建任务失败");
+        return;
+      }
+      const taskId = taskJson.data.id;
+
+      // Step 2: Upload PDF
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("taskId", taskId);
+      const uploadRes = await fetch("/api/import-jobs", {
+        method: "POST",
+        body: formData,
+      });
+      const uploadJson = await uploadRes.json();
+      if (!uploadJson.success) {
+        toast.error(uploadJson.error?.message || "上传失败");
+        return;
+      }
+      const jobId = uploadJson.data.id;
+
+      // Step 3: Poll for completion
+      toast.info("PDF 正在解析中...");
+      let attempts = 0;
+      const maxAttempts = 30;
+      while (attempts < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const pollRes = await fetch(`/api/import-jobs/${jobId}`);
+        const pollJson = await pollRes.json();
+        if (!pollJson.success) break;
+        const status = pollJson.data.status;
+        if (status === "completed") {
+          // Fetch the created questions
+          const qRes = await fetch(`/api/tasks/${taskId}`);
+          const qJson = await qRes.json();
+          if (qJson.success && qJson.data.questions) {
+            const imported: QuizQuestion[] = qJson.data.questions.map(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (q: any) => ({
+                type: q.type || "single_choice",
+                stem: q.prompt || q.stem || "",
+                options: q.options || [],
+                correctOptionIds: q.correctOptionIds || [],
+                correctAnswer: q.correctAnswer || "",
+                points: q.points || 1,
+                explanation: q.explanation || "",
+              })
+            );
+            setNewQuizQuestions((prev) => [...prev, ...imported]);
+            toast.success(`成功导入 ${imported.length} 道题目`);
+          }
+          break;
+        }
+        if (status === "failed") {
+          toast.error("PDF 解析失败: " + (pollJson.data.error || "未知错误"));
+          break;
+        }
+        attempts++;
+      }
+      if (attempts >= maxAttempts) {
+        toast.error("PDF 解析超时，请稍后查看");
+      }
+    } catch {
+      toast.error("PDF 导入失败");
+    } finally {
+      setImportingPDF(false);
+    }
+  }
+
+  async function handleAIGenerateQuestions() {
+    if (!newTaskName.trim()) {
+      toast.error("请先输入任务名称，AI 将根据名称生成题目");
+      return;
+    }
+    setImportingPDF(true);
+    try {
+      const taskRes = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskType: "quiz",
+          taskName: newTaskName.trim(),
+          quizConfig: {
+            mode: newQuizMode,
+            timeLimitMinutes: newTimeLimitMinutes ? parseInt(newTimeLimitMinutes) : undefined,
+            showCorrectAnswer: newShowCorrectAnswer,
+          },
+        }),
+      });
+      const taskJson = await taskRes.json();
+      if (!taskJson.success) {
+        toast.error(taskJson.error?.message || "创建任务失败");
+        return;
+      }
+      const taskId = taskJson.data.id;
+
+      // Trigger AI generation
+      const genRes = await fetch(`/api/tasks/${taskId}/generate-questions`, {
+        method: "POST",
+      });
+      const genJson = await genRes.json();
+      if (genJson.success && genJson.data?.questions) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const generated: QuizQuestion[] = genJson.data.questions.map((q: any) => ({
+          type: q.type || "single_choice",
+          stem: q.prompt || q.stem || "",
+          options: q.options || [],
+          correctOptionIds: q.correctOptionIds || [],
+          correctAnswer: q.correctAnswer || "",
+          points: q.points || 1,
+          explanation: q.explanation || "",
+        }));
+        setNewQuizQuestions((prev) => [...prev, ...generated]);
+        toast.success(`AI 生成了 ${generated.length} 道题目`);
+      } else {
+        toast.error(genJson.error?.message || "AI 生成失败");
+      }
+    } catch {
+      toast.error("AI 生成失败");
+    } finally {
+      setImportingPDF(false);
+    }
   }
 
   // ---------- Chapter / Section handlers ----------
@@ -1341,13 +1617,310 @@ export default function TeacherCourseDetailPage() {
                 </>
               )}
 
-              {/* Quiz type - basic fields */}
+              {/* Quiz type - full inline config */}
               {newTaskType === "quiz" && (
                 <>
                   <Separator />
-                  <p className="text-sm text-muted-foreground">
-                    测验类型的详细配置（题目等）请在创建后到任务详情页编辑，或使用「任务模板」标签选择已有测验。
-                  </p>
+                  <h3 className="text-sm font-semibold">测验配置</h3>
+
+                  {/* Quiz mode */}
+                  <div className="space-y-2">
+                    <Label>测验模式</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={newQuizMode === "fixed" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setNewQuizMode("fixed")}
+                      >
+                        固定题目
+                      </Button>
+                      <Button
+                        variant={newQuizMode === "adaptive" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setNewQuizMode("adaptive")}
+                      >
+                        自适应
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Time limit */}
+                  <div className="space-y-2">
+                    <Label>时间限制（分钟）</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      placeholder="留空不限时"
+                      value={newTimeLimitMinutes}
+                      onChange={(e) => setNewTimeLimitMinutes(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Show correct answer */}
+                  <div className="flex items-center justify-between">
+                    <Label>提交后显示正确答案</Label>
+                    <Switch
+                      checked={newShowCorrectAnswer}
+                      onCheckedChange={setNewShowCorrectAnswer}
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* Question sources */}
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold">题目来源</h3>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={importingPDF}
+                        onClick={() => {
+                          const input = document.createElement("input");
+                          input.type = "file";
+                          input.accept = ".pdf";
+                          input.onchange = (e) => {
+                            const file = (e.target as HTMLInputElement).files?.[0];
+                            if (file) handlePDFImport(file);
+                          };
+                          input.click();
+                        }}
+                      >
+                        {importingPDF ? (
+                          <Loader2 className="size-3 mr-1 animate-spin" />
+                        ) : (
+                          <Upload className="size-3 mr-1" />
+                        )}
+                        从 PDF 导入
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={addQuizQuestion}>
+                        <Plus className="size-3 mr-1" />
+                        手动添加
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={importingPDF}
+                        onClick={handleAIGenerateQuestions}
+                      >
+                        {importingPDF ? (
+                          <Loader2 className="size-3 mr-1 animate-spin" />
+                        ) : (
+                          <Sparkles className="size-3 mr-1" />
+                        )}
+                        AI 出题
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Question list editor */}
+                  {newQuizQuestions.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold">
+                          题目列表（{newQuizQuestions.length} 题）
+                        </h3>
+                        <span className="text-xs text-muted-foreground">
+                          总分: {newQuizQuestions.reduce((s, q) => s + q.points, 0)}
+                        </span>
+                      </div>
+                      {newQuizQuestions.map((q, qi) => (
+                        <div key={qi} className="rounded-lg border p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="secondary" className="text-xs">
+                              第 {qi + 1} 题
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeQuizQuestion(qi)}
+                              className="size-6 text-destructive"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+
+                          <div className="grid gap-2 grid-cols-2">
+                            <div>
+                              <Label className="text-xs">题目类型</Label>
+                              <Select
+                                value={q.type}
+                                onValueChange={(v) =>
+                                  updateQuizQuestionType(qi, v as QuizQuestionType)
+                                }
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(
+                                    Object.entries(quizQuestionTypeLabels) as [
+                                      QuizQuestionType,
+                                      string,
+                                    ][]
+                                  ).map(([val, label]) => (
+                                    <SelectItem key={val} value={val}>
+                                      {label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-xs">分值</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={5}
+                                value={q.points}
+                                onChange={(e) =>
+                                  updateQuizQuestion(qi, {
+                                    points: parseInt(e.target.value) || 1,
+                                  })
+                                }
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Question stem */}
+                          <div>
+                            <Label className="text-xs">题干</Label>
+                            <Textarea
+                              placeholder="请输入题目内容..."
+                              value={q.stem}
+                              onChange={(e) =>
+                                updateQuizQuestion(qi, { stem: e.target.value })
+                              }
+                              rows={2}
+                              className="text-sm"
+                            />
+                          </div>
+
+                          {/* Options for choice/true_false */}
+                          {(q.type === "single_choice" ||
+                            q.type === "multiple_choice" ||
+                            q.type === "true_false") && (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">选项</Label>
+                              {q.options.map((opt, oi) => (
+                                <div key={oi} className="flex items-center gap-2">
+                                  <Badge
+                                    variant="outline"
+                                    className="size-6 flex items-center justify-center text-xs shrink-0"
+                                  >
+                                    {opt.id}
+                                  </Badge>
+                                  {q.type === "true_false" ? (
+                                    <span className="text-sm">{opt.text}</span>
+                                  ) : (
+                                    <Input
+                                      placeholder={`选项 ${opt.id}`}
+                                      value={opt.text}
+                                      onChange={(e) =>
+                                        updateQuizOptionText(qi, oi, e.target.value)
+                                      }
+                                      className="h-8 text-xs flex-1"
+                                    />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Correct answer */}
+                          <div>
+                            <Label className="text-xs">正确答案</Label>
+                            {q.type === "short_answer" ? (
+                              <Input
+                                placeholder="参考答案..."
+                                value={q.correctAnswer}
+                                onChange={(e) =>
+                                  updateQuizQuestion(qi, {
+                                    correctAnswer: e.target.value,
+                                  })
+                                }
+                                className="h-8 text-xs"
+                              />
+                            ) : q.type === "multiple_choice" ? (
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                {q.options.map((opt) => (
+                                  <Button
+                                    key={opt.id}
+                                    variant={
+                                      q.correctOptionIds.includes(opt.id)
+                                        ? "default"
+                                        : "outline"
+                                    }
+                                    size="sm"
+                                    className="h-7 text-xs px-2"
+                                    onClick={() => {
+                                      const ids = q.correctOptionIds.includes(opt.id)
+                                        ? q.correctOptionIds.filter(
+                                            (id) => id !== opt.id
+                                          )
+                                        : [...q.correctOptionIds, opt.id];
+                                      updateQuizQuestion(qi, {
+                                        correctOptionIds: ids,
+                                      });
+                                    }}
+                                  >
+                                    {opt.id}
+                                  </Button>
+                                ))}
+                              </div>
+                            ) : (
+                              <Select
+                                value={q.correctOptionIds[0] || ""}
+                                onValueChange={(v) =>
+                                  updateQuizQuestion(qi, {
+                                    correctOptionIds: [v],
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="选择正确答案" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {q.options.map((opt) => (
+                                    <SelectItem key={opt.id} value={opt.id}>
+                                      {opt.id}: {opt.text || "..."}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+
+                          {/* Explanation */}
+                          <div>
+                            <Label className="text-xs">解析（选填）</Label>
+                            <Textarea
+                              placeholder="题目解析..."
+                              value={q.explanation}
+                              onChange={(e) =>
+                                updateQuizQuestion(qi, {
+                                  explanation: e.target.value,
+                                })
+                              }
+                              rows={2}
+                              className="text-xs"
+                            />
+                          </div>
+                        </div>
+                      ))}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={addQuizQuestion}
+                      >
+                        <Plus className="size-3 mr-1" />
+                        添加题目
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
 

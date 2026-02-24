@@ -7,21 +7,12 @@ import { Button } from "@/components/ui/button";
 import {
   BarChart3,
   BookOpen,
-  Clock,
   FileText,
   HelpCircle,
   MessageSquare,
   Play,
-  Users,
-  Download,
   GraduationCap,
 } from "lucide-react";
-
-const slotLabels: Record<string, string> = {
-  pre: "课前",
-  in: "课中",
-  post: "课后",
-};
 
 const taskTypeLabels: Record<string, string> = {
   simulation: "模拟对话",
@@ -125,35 +116,21 @@ export function TaskCard({ task, role }: TaskCardProps) {
                       {task.latestScore}/{task.latestMaxScore}
                     </span>
                   )}
-                  {task.chapter?.title && (
-                    <Badge variant="outline" className="text-xs px-1.5 py-0 bg-amber-50 text-amber-700 border-amber-200">
-                      {task.chapter.title}
-                    </Badge>
-                  )}
-                  {task.section?.title && (
-                    <Badge variant="outline" className="text-xs px-1.5 py-0 bg-cyan-50 text-cyan-700 border-cyan-200">
-                      {task.section.title}
-                    </Badge>
-                  )}
-                  {task.slot && slotLabels[task.slot] && (
-                    <Badge variant="outline" className="text-xs px-1.5 py-0 bg-indigo-50 text-indigo-700 border-indigo-200">
-                      {slotLabels[task.slot]}
-                    </Badge>
-                  )}
                 </div>
               </div>
-              {task.canSubmit && (
-                <Button size="xs" asChild className="shrink-0">
-                  <Link href={`/tasks/${task.id}`}>开始作答</Link>
-                </Button>
-              )}
-            </div>
-            {dueDate && (
-              <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-                <Clock className="size-3" />
-                <span>截止: {dueDate}</span>
+              <div className="shrink-0 flex flex-col items-end gap-1">
+                {dueDate && (
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    截止: {dueDate}
+                  </span>
+                )}
+                {task.canSubmit && (
+                  <Button size="xs" asChild>
+                    <Link href={`/tasks/${task.id}`}>开始作答</Link>
+                  </Button>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -163,7 +140,6 @@ export function TaskCard({ task, role }: TaskCardProps) {
   // Teacher view
   const statusCfg = teacherStatusConfig[task.status] || teacherStatusConfig.draft;
   const submissionCount = task._count?.submissions || 0;
-  const className = task.class?.name || "";
   const studentCount = task.class?._count?.students || 0;
   const avgScore = task.analytics?.avgScore != null ? Number(task.analytics.avgScore) : null;
   const gradedCount = task.analytics?.submissionCount || 0;
@@ -187,30 +163,20 @@ export function TaskCard({ task, role }: TaskCardProps) {
                 <Badge variant={statusCfg.variant} className="text-xs px-1.5 py-0">
                   {statusCfg.label}
                 </Badge>
-                {className && (
-                  <Badge variant="outline" className="text-xs px-1.5 py-0">
-                    <Users className="size-2.5 mr-0.5" />
-                    {className}
-                  </Badge>
-                )}
-                {task.chapter?.title && (
-                  <Badge variant="outline" className="text-xs px-1.5 py-0 bg-amber-50 text-amber-700 border-amber-200">
-                    {task.chapter.title}
-                  </Badge>
-                )}
-                {task.section?.title && (
-                  <Badge variant="outline" className="text-xs px-1.5 py-0 bg-cyan-50 text-cyan-700 border-cyan-200">
-                    {task.section.title}
-                  </Badge>
-                )}
-                {task.slot && slotLabels[task.slot] && (
-                  <Badge variant="outline" className="text-xs px-1.5 py-0 bg-indigo-50 text-indigo-700 border-indigo-200">
-                    {slotLabels[task.slot]}
-                  </Badge>
-                )}
               </div>
             </div>
             <div className="shrink-0 text-right">
+              {dueDate && (
+                <span className={`text-xs whitespace-nowrap ${
+                  isPastDue
+                    ? "text-red-500"
+                    : daysRemaining !== null && daysRemaining <= 3
+                      ? "text-orange-500"
+                      : "text-muted-foreground"
+                }`}>
+                  截止: {dueDate}
+                </span>
+              )}
               {studentCount > 0 && (
                 <span className="text-xs text-muted-foreground">
                   {submissionCount}/{studentCount} 完成 {completionRate}%
@@ -247,60 +213,41 @@ export function TaskCard({ task, role }: TaskCardProps) {
             </div>
           )}
 
-          {dueDate && (
-            <div className={`mt-1.5 flex items-center gap-1 text-xs ${
-              isPastDue
-                ? "text-red-500"
-                : daysRemaining !== null && daysRemaining <= 3
-                  ? "text-orange-500"
-                  : "text-muted-foreground"
-            }`}>
-              <Clock className="size-3" />
-              <span>
-                {isPastDue
-                  ? `已截止: ${dueDate}`
-                  : daysRemaining !== null && daysRemaining <= 3
-                    ? `剩余 ${daysRemaining} 天 - ${dueDate}`
-                    : `截止: ${dueDate}`
-                }
-              </span>
-            </div>
-          )}
           <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2.5">
+            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
               <Link href={`/teacher/instances/${task.id}`}>
                 <FileText className="size-3 mr-0.5" />
                 详情
               </Link>
             </Button>
-            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2.5">
+            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
               <Link href={`/teacher/instances/${task.id}/insights`}>
                 <BarChart3 className="size-3 mr-0.5" />
                 洞察
               </Link>
             </Button>
             {submissionCount > 0 && (
-              <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2.5">
+              <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
                 <Link href={`/teacher/instances/${task.id}#grades`}>
                   <GraduationCap className="size-3 mr-0.5" />
                   成绩
                 </Link>
               </Button>
             )}
-            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2.5">
+            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
               <Link href={`/teacher/instances/${task.id}`}>
                 <MessageSquare className="size-3 mr-0.5" />
                 学习伙伴
               </Link>
             </Button>
-            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2.5">
+            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
               <Link href={`/teacher/instances/${task.id}#discussion-section`}>
                 <BookOpen className="size-3 mr-0.5" />
                 讨论
               </Link>
             </Button>
             {taskType === "simulation" && (
-              <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2.5">
+              <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
                 <Link href={`/sim/${task.id}?preview=true`}>
                   <Play className="size-3 mr-0.5" />
                   测试
