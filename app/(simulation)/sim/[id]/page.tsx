@@ -40,6 +40,7 @@ interface TaskInstanceDetail {
       evaluatorPersona: string | null;
       strictnessLevel: string;
       studyBuddyContext: string | null;
+      systemPrompt: string | null;
     } | null;
     scoringCriteria: ScoringCriterion[];
     allocationSections: AllocationSection[];
@@ -118,6 +119,7 @@ export default function SimulationPage() {
       taskName={task.taskName}
       evaluatorPersona={simConfig.evaluatorPersona || undefined}
       strictnessLevel={simConfig.strictnessLevel || "MODERATE"}
+      systemPrompt={simConfig.systemPrompt || undefined}
       isPreview={isPreview}
       taskId={task.id}
       taskInstanceId={instance.id}

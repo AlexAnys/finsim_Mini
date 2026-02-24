@@ -75,6 +75,9 @@ interface FormData {
   requirements: string[];
   scoringCriteria: ScoringCriterion[];
   allocationSections: AllocationSection[];
+  simPersona: string;
+  simDialogueStyle: string;
+  simConstraints: string;
   // Quiz config
   timeLimitMinutes: string;
   quizMode: "fixed" | "adaptive";
@@ -88,6 +91,20 @@ interface FormData {
   maxAttachments: string;
 }
 
+const DEFAULT_SIM_PERSONA = `你是一个普通人，对理财知识了解不多，但愿意学习和听取专业建议。
+你有自己的顾虑和偏好，但你不是一个"油盐不进"的人。当理财经理给出合理解释时，你会逐渐理解和接受。
+你会主动提出与对话目标相关的问题，推动对话朝有意义的方向发展。`;
+
+const DEFAULT_SIM_DIALOGUE_STYLE = `用中文回复，语气自然，像真实客户聊天一样。不要使用 Markdown 符号或列表格式。
+每条回复 2-4 句话。可以分享自己的想法、提出疑问、或回应理财经理的建议。
+当理财经理解释得好时，表示认可并追问更深入的问题。
+当理财经理说得不清楚时，礼貌地请求进一步解释，而不是直接拒绝。
+不要一味表达不信任或完全拒绝风险。你是来寻求帮助的，不是来刁难人的。`;
+
+const DEFAULT_SIM_CONSTRAINTS = `不要暴露你是 AI 或模拟角色。
+不要重复理财经理刚说过的话。
+不要无端制造对抗或拒绝所有建议。`;
+
 const initialFormData: FormData = {
   taskName: "",
   taskType: "simulation",
@@ -97,6 +114,9 @@ const initialFormData: FormData = {
   requirements: [""],
   scoringCriteria: [{ name: "", maxPoints: 10, description: "" }],
   allocationSections: [{ label: "", items: [{ label: "", defaultValue: 0 }] }],
+  simPersona: DEFAULT_SIM_PERSONA,
+  simDialogueStyle: DEFAULT_SIM_DIALOGUE_STYLE,
+  simConstraints: DEFAULT_SIM_CONSTRAINTS,
   timeLimitMinutes: "",
   quizMode: "fixed",
   shuffleQuestions: false,
@@ -421,11 +441,22 @@ export default function CreateTaskPage() {
       };
 
       if (form.taskType === "simulation") {
+        // Build systemPrompt from the 3 prompt sections
+        const promptParts = [
+          form.simPersona.trim() ? `【核心人设】\n${form.simPersona.trim()}` : "",
+          form.simDialogueStyle.trim() ? `【对话风格】\n${form.simDialogueStyle.trim()}` : "",
+          form.simConstraints.trim() ? `【禁止行为】\n${form.simConstraints.trim()}` : "",
+        ].filter(Boolean);
+        const systemPrompt = promptParts.length > 0
+          ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}\n\n【情绪标签】\n在每条回复末尾附加：[MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY]\n- HAPPY: 理财经理的建议让你觉得有道理、有帮助\n- NEUTRAL: 正常交流、信息确认\n- CONFUSED: 理财经理用了太多术语或解释不够清楚\n- SKEPTICAL: 理财经理的建议明显不符合你的实际情况\n- ANGRY: 仅在理财经理反复推销明显不适合的产品时才使用（极少出现）`
+          : undefined;
+
         body.simulationConfig = {
           scenario: form.scenario.trim(),
           openingLine: form.openingLine.trim(),
           dialogueRequirements: form.requirements.filter((r) => r.trim()).join("\n") || undefined,
           strictnessLevel: "MODERATE",
+          systemPrompt,
         };
         const validCriteria = form.scoringCriteria.filter((c) => c.name.trim());
         if (validCriteria.length > 0) {
@@ -640,6 +671,44 @@ export default function CreateTaskPage() {
                 {errors.openingLine && (
                   <p className="text-sm text-destructive">{errors.openingLine}</p>
                 )}
+              </div>
+
+              <Separator />
+              <p className="text-sm text-muted-foreground">
+                以下提示词控制 AI 客户的行为方式，已预填默认值，可根据需要自定义。
+              </p>
+
+              <div className="space-y-2">
+                <Label htmlFor="simPersona">核心人设</Label>
+                <Textarea
+                  id="simPersona"
+                  placeholder="描述 AI 客户的性格、背景和态度..."
+                  value={form.simPersona}
+                  onChange={(e) => updateForm("simPersona", e.target.value)}
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="simDialogueStyle">对话风格</Label>
+                <Textarea
+                  id="simDialogueStyle"
+                  placeholder="描述 AI 客户的说话方式和回复规则..."
+                  value={form.simDialogueStyle}
+                  onChange={(e) => updateForm("simDialogueStyle", e.target.value)}
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="simConstraints">禁止行为</Label>
+                <Textarea
+                  id="simConstraints"
+                  placeholder="列出 AI 客户不应做的事情..."
+                  value={form.simConstraints}
+                  onChange={(e) => updateForm("simConstraints", e.target.value)}
+                  rows={3}
+                />
               </div>
             </CardContent>
           </Card>

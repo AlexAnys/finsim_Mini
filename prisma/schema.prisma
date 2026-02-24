@@ -303,6 +303,7 @@ model SimulationConfig {
   studyBuddyContext     String?         @db.Text
   evaluatorPersona      String?         @db.Text
   strictnessLevel       StrictnessLevel @default(MODERATE)
+  systemPrompt          String?         @db.Text
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 

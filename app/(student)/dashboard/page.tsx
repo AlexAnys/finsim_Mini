@@ -35,7 +35,7 @@ function transformToTimeline(data: DashboardData): TimelineItem[] {
   const items: TimelineItem[] = [];
 
   // Transform tasks
-  for (const task of data.tasks) {
+  for (const task of data.tasks || []) {
     items.push({
       id: task.id,
       type: "task",
@@ -47,7 +47,7 @@ function transformToTimeline(data: DashboardData): TimelineItem[] {
   }
 
   // Transform announcements
-  for (const ann of data.announcements) {
+  for (const ann of data.announcements || []) {
     items.push({
       id: ann.id,
       type: "announcement",

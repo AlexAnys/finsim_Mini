@@ -89,6 +89,7 @@ interface TaskDetail {
     openingLine: string;
     dialogueRequirements: string | null;
     strictnessLevel: string;
+    systemPrompt: string | null;
   } | null;
   quizConfig?: {
     mode: string;
@@ -159,6 +160,9 @@ export default function TaskDetailPage() {
   const [editScenario, setEditScenario] = useState("");
   const [editOpeningLine, setEditOpeningLine] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
+  const [editSimPersona, setEditSimPersona] = useState("");
+  const [editSimDialogueStyle, setEditSimDialogueStyle] = useState("");
+  const [editSimConstraints, setEditSimConstraints] = useState("");
 
   const fetchTask = useCallback(async () => {
     try {
@@ -175,6 +179,16 @@ export default function TaskDetailPage() {
       if (json.data.simulationConfig) {
         setEditScenario(json.data.simulationConfig.scenario);
         setEditOpeningLine(json.data.simulationConfig.openingLine);
+        // Parse systemPrompt back into sections
+        const sp = json.data.simulationConfig.systemPrompt || "";
+        if (sp) {
+          const personaMatch = sp.match(/【核心人设】\n([\s\S]*?)(?=\n\n【|$)/);
+          const styleMatch = sp.match(/【对话风格】\n([\s\S]*?)(?=\n\n【|$)/);
+          const constraintMatch = sp.match(/【禁止行为】\n([\s\S]*?)(?=\n\n【|$)/);
+          setEditSimPersona(personaMatch?.[1]?.trim() || "");
+          setEditSimDialogueStyle(styleMatch?.[1]?.trim() || "");
+          setEditSimConstraints(constraintMatch?.[1]?.trim() || "");
+        }
       }
       if (json.data.subjectiveConfig) {
         setEditPrompt(json.data.subjectiveConfig.prompt);
@@ -203,11 +217,22 @@ export default function TaskDetailPage() {
       };
 
       if (task?.taskType === "simulation" && task.simulationConfig) {
+        // Build systemPrompt from the 3 prompt sections
+        const promptParts = [
+          editSimPersona.trim() ? `【核心人设】\n${editSimPersona.trim()}` : "",
+          editSimDialogueStyle.trim() ? `【对话风格】\n${editSimDialogueStyle.trim()}` : "",
+          editSimConstraints.trim() ? `【禁止行为】\n${editSimConstraints.trim()}` : "",
+        ].filter(Boolean);
+        const systemPrompt = promptParts.length > 0
+          ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}\n\n【情绪标签】\n在每条回复末尾附加：[MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY]\n- HAPPY: 理财经理的建议让你觉得有道理、有帮助\n- NEUTRAL: 正常交流、信息确认\n- CONFUSED: 理财经理用了太多术语或解释不够清楚\n- SKEPTICAL: 理财经理的建议明显不符合你的实际情况\n- ANGRY: 仅在理财经理反复推销明显不适合的产品时才使用（极少出现）`
+          : undefined;
+
         body.simulationConfig = {
           scenario: editScenario.trim(),
           openingLine: editOpeningLine.trim(),
           dialogueRequirements: task.simulationConfig.dialogueRequirements,
           strictnessLevel: task.simulationConfig.strictnessLevel,
+          systemPrompt,
         };
       }
       if (task?.taskType === "subjective" && task.subjectiveConfig) {
@@ -374,6 +399,17 @@ export default function TaskDetailPage() {
                   // Reset edit values
                   setEditName(task.taskName);
                   setEditRequirements(task.requirements || "");
+                  if (task.simulationConfig) {
+                    setEditScenario(task.simulationConfig.scenario);
+                    setEditOpeningLine(task.simulationConfig.openingLine);
+                    const sp = task.simulationConfig.systemPrompt || "";
+                    const pm = sp.match(/【核心人设】\n([\s\S]*?)(?=\n\n【|$)/);
+                    const sm = sp.match(/【对话风格】\n([\s\S]*?)(?=\n\n【|$)/);
+                    const cm = sp.match(/【禁止行为】\n([\s\S]*?)(?=\n\n【|$)/);
+                    setEditSimPersona(pm?.[1]?.trim() || "");
+                    setEditSimDialogueStyle(sm?.[1]?.trim() || "");
+                    setEditSimConstraints(cm?.[1]?.trim() || "");
+                  }
                 }}
               >
                 <X className="size-4 mr-1" />
@@ -458,6 +494,71 @@ export default function TaskDetailPage() {
                 </p>
               </div>
             )}
+
+            <Separator />
+            <p className="text-xs text-muted-foreground">
+              以下提示词控制 AI 客户的行为方式。{!editing && "点击「编辑」可修改。"}
+            </p>
+
+            <div className="space-y-1">
+              <Label className="text-muted-foreground">核心人设</Label>
+              {editing ? (
+                <Textarea
+                  value={editSimPersona}
+                  onChange={(e) => setEditSimPersona(e.target.value)}
+                  placeholder="描述 AI 客户的性格、背景和态度..."
+                  rows={4}
+                />
+              ) : (
+                <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                  {(() => {
+                    const sp = task.simulationConfig!.systemPrompt || "";
+                    const m = sp.match(/【核心人设】\n([\s\S]*?)(?=\n\n【|$)/);
+                    return m?.[1]?.trim() || "（使用默认值）";
+                  })()}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-muted-foreground">对话风格</Label>
+              {editing ? (
+                <Textarea
+                  value={editSimDialogueStyle}
+                  onChange={(e) => setEditSimDialogueStyle(e.target.value)}
+                  placeholder="描述 AI 客户的说话方式和回复规则..."
+                  rows={4}
+                />
+              ) : (
+                <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                  {(() => {
+                    const sp = task.simulationConfig!.systemPrompt || "";
+                    const m = sp.match(/【对话风格】\n([\s\S]*?)(?=\n\n【|$)/);
+                    return m?.[1]?.trim() || "（使用默认值）";
+                  })()}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-muted-foreground">禁止行为</Label>
+              {editing ? (
+                <Textarea
+                  value={editSimConstraints}
+                  onChange={(e) => setEditSimConstraints(e.target.value)}
+                  placeholder="列出 AI 客户不应做的事情..."
+                  rows={3}
+                />
+              ) : (
+                <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                  {(() => {
+                    const sp = task.simulationConfig!.systemPrompt || "";
+                    const m = sp.match(/【禁止行为】\n([\s\S]*?)(?=\n\n【|$)/);
+                    return m?.[1]?.trim() || "（使用默认值）";
+                  })()}
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

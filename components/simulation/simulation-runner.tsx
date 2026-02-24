@@ -60,6 +60,7 @@ interface SimulationRunnerProps {
   evaluatorPersona?: string;
   strictnessLevel?: string;
   isPreview?: boolean;
+  systemPrompt?: string;
 }
 
 // ---------- Helpers ----------
@@ -68,7 +69,7 @@ interface SimulationRunnerProps {
  *  Fallback to crypto.getRandomValues() which works everywhere. */
 function generateId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return generateId();
+    return crypto.randomUUID();
   }
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -100,6 +101,7 @@ export function SimulationRunner({
   evaluatorPersona,
   strictnessLevel,
   isPreview,
+  systemPrompt,
 }: SimulationRunnerProps) {
   const router = useRouter();
   const {
@@ -247,6 +249,7 @@ export function SimulationRunner({
           transcript: updatedMessages.map(m => ({ role: m.role, text: m.text })),
           scenario,
           openingLine,
+          systemPrompt,
         }),
       });
 
@@ -305,43 +308,72 @@ export function SimulationRunner({
     toast.success("资产配置已提交");
   }
 
-  // Finish conversation
+  // Finish conversation — preview mode: evaluate on frontend; student mode: submit directly
   async function handleFinishConversation() {
     if (messages.filter((m) => m.role === "student").length === 0) {
       toast.error("请先进行对话后再结束");
       return;
     }
-    setIsEvaluating(true);
 
+    if (isPreview) {
+      // Preview mode: teacher needs instant evaluation feedback
+      setIsEvaluating(true);
+      try {
+        const res = await fetch("/api/ai/evaluate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskName,
+            requirements: requirements?.join("\n"),
+            scenario,
+            evaluatorPersona,
+            strictnessLevel: strictnessLevel || "MODERATE",
+            transcript: messages.map(m => ({ role: m.role, text: m.text })),
+            rubric: scoringCriteria.map(c => ({
+              id: c.id, name: c.label, description: c.description, maxPoints: c.maxScore,
+            })),
+            assets: allocations.length > 0 ? { sections: allocations } : undefined,
+          }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          throw new Error(errData?.error?.message || "评估失败");
+        }
+        const data = await res.json();
+        setEvaluation(data.data || data);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "评估失败，请重试");
+      } finally {
+        setIsEvaluating(false);
+      }
+      return;
+    }
+
+    // Student mode: submit directly, backend evaluates asynchronously
+    setIsSubmitting(true);
     try {
-      const res = await fetch("/api/ai/evaluate", {
+      const res = await fetch("/api/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskName,
-          requirements: requirements?.join("\n"),
-          scenario,
-          evaluatorPersona,
-          strictnessLevel: strictnessLevel || "MODERATE",
-          transcript: messages.map(m => ({ role: m.role, text: m.text })),
-          rubric: scoringCriteria.map(c => ({
-            id: c.id, name: c.label, description: c.description, maxPoints: c.maxScore,
-          })),
+          taskType: "simulation",
+          taskId,
+          taskInstanceId,
+          transcript: messages,
           assets: allocations.length > 0 ? { sections: allocations } : undefined,
         }),
       });
-
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
-        throw new Error(errData?.error?.message || "评估失败");
+        throw new Error(errData?.error?.message || "提交失败");
       }
-
-      const data = await res.json();
-      setEvaluation(data.data || data);
+      localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
+      toast.success("提交成功，评估将在后台完成");
+      router.back();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "评估失败，请重试");
+      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
     } finally {
-      setIsEvaluating(false);
+      setIsSubmitting(false);
     }
   }
 
@@ -403,7 +435,7 @@ export function SimulationRunner({
   }
 
   function handleClose() {
-    router.push("/dashboard");
+    router.back();
   }
 
   const moodInfo = MOOD_COLORS[mood];
@@ -456,12 +488,12 @@ export function SimulationRunner({
             variant="destructive"
             size="sm"
             onClick={handleFinishConversation}
-            disabled={isEvaluating || messages.length < 2}
+            disabled={isEvaluating || isSubmitting || messages.length < 2}
           >
-            {isEvaluating ? (
+            {isEvaluating || isSubmitting ? (
               <>
                 <Loader2 className="mr-1 size-4 animate-spin" />
-                评估中...
+                {isEvaluating ? "评估中..." : "提交中..."}
               </>
             ) : (
               <>

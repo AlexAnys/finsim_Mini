@@ -36,6 +36,7 @@ export const simulationConfigSchema = z.object({
   studyBuddyContext: z.string().optional(),
   evaluatorPersona: z.string().optional(),
   strictnessLevel: strictnessEnum.default("MODERATE"),
+  systemPrompt: z.string().optional(),
 });
 
 // 测验配置

@@ -11,6 +11,7 @@ const chatSchema = z.object({
   })),
   scenario: z.string(),
   openingLine: z.string().optional(),
+  systemPrompt: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
