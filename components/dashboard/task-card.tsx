@@ -14,6 +14,12 @@ import {
   GraduationCap,
 } from "lucide-react";
 
+const slotLabels: Record<string, string> = {
+  pre: "课前",
+  in: "课中",
+  post: "课后",
+};
+
 const taskTypeLabels: Record<string, string> = {
   simulation: "模拟对话",
   quiz: "测验",
@@ -146,115 +152,129 @@ export function TaskCard({ task, role }: TaskCardProps) {
   const maxScore = task.analytics?.maxScore || 100;
   const completionRate = studentCount > 0 ? Math.round((submissionCount / studentCount) * 100) : 0;
 
+  const completionBarColor =
+    completionRate >= 70
+      ? "bg-green-500"
+      : completionRate >= 30
+        ? "bg-orange-400"
+        : completionRate > 0
+          ? "bg-red-400"
+          : "bg-muted-foreground/30";
+
+  // Build subtitle parts: chapter · section · slot · class
+  const subtitleParts: string[] = [];
+  if (task.chapter?.title) subtitleParts.push(task.chapter.title);
+  if (task.section?.title) subtitleParts.push(task.section.title);
+  if (task.slot && slotLabels[task.slot]) subtitleParts.push(slotLabels[task.slot]);
+  if (task.class?.name) subtitleParts.push(task.class.name);
+
   return (
-    <Card className="py-3 gap-2">
-      <CardContent className="flex items-start gap-3">
-        <div className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${iconColorClass}`}>
-          <IconComp className="size-3.5" />
+    <Card className="group py-2.5 gap-0 transition-shadow hover:shadow-md">
+      <CardContent className="flex items-center gap-4">
+        {/* Col 1: Icon */}
+        <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${iconColorClass}`}>
+          <IconComp className="size-4" />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-base font-medium leading-tight">{taskName}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <Badge variant="outline" className={`text-xs px-1.5 py-0 ${typeBadgeClass}`}>
-                  {typeLabel}
-                </Badge>
-                <Badge variant={statusCfg.variant} className="text-xs px-1.5 py-0">
-                  {statusCfg.label}
-                </Badge>
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              {dueDate && (
-                <span className={`text-xs whitespace-nowrap ${
-                  isPastDue
-                    ? "text-red-500"
-                    : daysRemaining !== null && daysRemaining <= 3
-                      ? "text-orange-500"
-                      : "text-muted-foreground"
-                }`}>
-                  截止: {dueDate}
-                </span>
-              )}
-              {studentCount > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {submissionCount}/{studentCount} 完成 {completionRate}%
-                </span>
-              )}
-              {avgScore !== null && gradedCount > 0 && (
-                <p className="text-sm font-semibold text-blue-600">
-                  均分 {Math.round(avgScore)}/{maxScore}
-                </p>
-              )}
-            </div>
+
+        {/* Col 2: Title + meta */}
+        <div className="min-w-0 w-[280px] shrink-0">
+          <p className="text-sm font-medium leading-snug truncate">{taskName}</p>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="outline" className={`shrink-0 text-[11px] px-1.5 py-0 ${typeBadgeClass}`}>
+              {typeLabel}
+            </Badge>
+            <Badge variant={statusCfg.variant} className="shrink-0 text-[11px] px-1.5 py-0">
+              {statusCfg.label}
+            </Badge>
+            {subtitleParts.length > 0 && (
+              <span className="truncate">{subtitleParts.join(" · ")}</span>
+            )}
           </div>
+        </div>
 
-          {/* Score progress bar for graded submissions */}
-          {avgScore !== null && gradedCount > 0 && maxScore > 0 && (
-            <div className="mt-1.5 flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
-                <div
-                  className={`h-full rounded transition-all ${
-                    avgScore / maxScore > 0.7
-                      ? "bg-green-500"
-                      : avgScore / maxScore >= 0.5
-                        ? "bg-orange-500"
-                        : "bg-red-500"
-                  }`}
-                  style={{
-                    width: `${Math.min((avgScore / maxScore) * 100, 100)}%`,
-                  }}
-                />
-              </div>
-              <span className="text-xs text-muted-foreground shrink-0">
-                {gradedCount} 已批改
-              </span>
-            </div>
-          )}
-
-          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
+        {/* Col 3: Action buttons — in the gap, visible on hover */}
+        <div className="flex-1 min-w-0 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150">
+          <div className="grid grid-cols-3 gap-x-1 gap-y-0.5">
+            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2 justify-start">
               <Link href={`/teacher/instances/${task.id}`}>
-                <FileText className="size-3 mr-0.5" />
+                <FileText className="size-3 mr-1" />
                 详情
               </Link>
             </Button>
-            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
+            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2 justify-start">
               <Link href={`/teacher/instances/${task.id}/insights`}>
-                <BarChart3 className="size-3 mr-0.5" />
+                <BarChart3 className="size-3 mr-1" />
                 洞察
               </Link>
             </Button>
-            {submissionCount > 0 && (
-              <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
-                <Link href={`/teacher/instances/${task.id}#grades`}>
-                  <GraduationCap className="size-3 mr-0.5" />
-                  成绩
-                </Link>
-              </Button>
-            )}
-            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
+            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2 justify-start">
+              <Link href={`/teacher/instances/${task.id}#grades`}>
+                <GraduationCap className="size-3 mr-1" />
+                成绩
+              </Link>
+            </Button>
+            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2 justify-start">
               <Link href={`/teacher/instances/${task.id}`}>
-                <MessageSquare className="size-3 mr-0.5" />
+                <MessageSquare className="size-3 mr-1" />
                 学习伙伴
               </Link>
             </Button>
-            <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
+            <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2 justify-start">
               <Link href={`/teacher/instances/${task.id}#discussion-section`}>
-                <BookOpen className="size-3 mr-0.5" />
+                <BookOpen className="size-3 mr-1" />
                 讨论
               </Link>
             </Button>
-            {taskType === "simulation" && (
-              <Button variant="ghost" size="xs" asChild className="h-8 text-sm px-3">
-                <Link href={`/sim/${task.id}?preview=true`}>
-                  <Play className="size-3 mr-0.5" />
+            {(taskType === "simulation" || taskType === "quiz") && (
+              <Button variant="ghost" size="xs" asChild className="h-7 text-xs px-2 justify-start">
+                <Link href={taskType === "simulation" ? `/sim/${task.id}?preview=true` : `/tasks/${task.id}?preview=true`}>
+                  <Play className="size-3 mr-1" />
                   测试
                 </Link>
               </Button>
             )}
           </div>
+        </div>
+
+        {/* Col 4: Progress (fixed width) */}
+        {studentCount > 0 ? (
+          <div className="shrink-0 w-28 flex items-center gap-2">
+            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${completionBarColor}`}
+                style={{ width: `${Math.max(completionRate, 3)}%` }}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+              {completionRate}%
+            </span>
+          </div>
+        ) : (
+          <div className="shrink-0 w-28" />
+        )}
+
+        {/* Col 5: Deadline + score (fixed width) */}
+        <div className="shrink-0 w-28 text-right">
+          {dueDate && (
+            <p className={`text-xs whitespace-nowrap ${
+              isPastDue
+                ? "text-red-500 font-medium"
+                : daysRemaining !== null && daysRemaining <= 3
+                  ? "text-orange-500"
+                  : "text-muted-foreground"
+            }`}>
+              {isPastDue ? "已截止" : "截止"} {dueDate}
+            </p>
+          )}
+          {avgScore !== null && gradedCount > 0 ? (
+            <p className="text-xs font-semibold text-blue-600">
+              均分 {Math.round(avgScore)}/{maxScore}
+            </p>
+          ) : studentCount > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {submissionCount}/{studentCount} 已提交
+            </p>
+          ) : null}
         </div>
       </CardContent>
     </Card>

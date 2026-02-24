@@ -17,9 +17,12 @@ interface TimelineItem {
   data: any;
 }
 
+export type TimelineFilter = "all" | "simulation" | "quiz" | "subjective" | "announcement";
+
 interface TimelineProps {
   items: TimelineItem[];
   role: "student" | "teacher";
+  filter?: TimelineFilter;
 }
 
 // Consistent color palette for courses
@@ -62,7 +65,7 @@ function getDateStatus(dateKey: string): DateStatus {
   return dateKey < todayKey ? "past" : "future";
 }
 
-export function Timeline({ items, role }: TimelineProps) {
+export function Timeline({ items, role, filter = "all" }: TimelineProps) {
   const todayRef = useRef<HTMLDivElement>(null);
 
   // Build course color map
@@ -75,10 +78,19 @@ export function Timeline({ items, role }: TimelineProps) {
     return map;
   }, [items]);
 
-  // Group items by date
+  // Filter + group items by date
   const groupedItems = useMemo(() => {
+    const filtered = filter === "all"
+      ? items
+      : items.filter((item) => {
+          if (filter === "announcement") return item.type === "announcement";
+          if (item.type !== "task") return false;
+          const taskType = item.data?.task?.taskType || item.data?.taskType || "";
+          return taskType === filter;
+        });
+
     const groups = new Map<string, { dateStr: string; items: TimelineItem[] }>();
-    const sorted = [...items].sort(
+    const sorted = [...filtered].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
     for (const item of sorted) {
@@ -89,7 +101,7 @@ export function Timeline({ items, role }: TimelineProps) {
       groups.get(key)!.items.push(item);
     }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [items]);
+  }, [items, filter]);
 
   // Auto-scroll to today on mount
   useEffect(() => {
@@ -158,58 +170,55 @@ export function Timeline({ items, role }: TimelineProps) {
                 )}
               </div>
 
-              {/* Items */}
+              {/* Items — grouped by course */}
               <div className="sm:ml-[118px] space-y-2">
-                {group.items.map((item) => {
-                  const color = courseColorMap.get(item.courseName);
+                {(() => {
+                  // Sub-group consecutive items by courseName
+                  const courseGroups: { courseName: string; items: typeof group.items }[] = [];
+                  for (const item of group.items) {
+                    const last = courseGroups[courseGroups.length - 1];
+                    if (last && last.courseName === item.courseName) {
+                      last.items.push(item);
+                    } else {
+                      courseGroups.push({ courseName: item.courseName, items: [item] });
+                    }
+                  }
 
-                  return (
-                    <div key={`${item.type}-${item.id}`} className="flex items-start gap-2">
-                      {/* Left labels column */}
-                      <div className="shrink-0 max-w-[120px] flex flex-col gap-1 mt-2.5">
-                        {item.courseName && color && (
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] px-1.5 py-0 truncate w-fit ${color.bg} ${color.text} ${color.border}`}
-                          >
-                            {item.courseName}
-                          </Badge>
-                        )}
-                        {item.type === "task" && role === "teacher" && item.data?.class?.name && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit">
-                            {item.data.class.name}
-                          </Badge>
-                        )}
-                        {item.type === "task" && item.data?.chapter?.title && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit bg-amber-50 text-amber-700 border-amber-200">
-                            {item.data.chapter.title}
-                          </Badge>
-                        )}
-                        {item.type === "task" && item.data?.section?.title && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit bg-cyan-50 text-cyan-700 border-cyan-200">
-                            {item.data.section.title}
-                          </Badge>
-                        )}
-                        {item.type === "task" && item.data?.slot && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate w-fit bg-indigo-50 text-indigo-700 border-indigo-200">
-                            {item.data.slot === "pre" ? "课前" : item.data.slot === "in" ? "课中" : item.data.slot === "post" ? "课后" : item.data.slot}
-                          </Badge>
-                        )}
-                      </div>
+                  return courseGroups.map((cg, cgIdx) => {
+                    const color = courseColorMap.get(cg.courseName);
 
-                      {/* Card */}
-                      <div className={`flex-1 min-w-0 ${isPast ? "opacity-60" : ""}`}>
-                        {item.type === "schedule" ? (
-                          <ScheduleCard slot={item.data} />
-                        ) : item.type === "task" ? (
-                          <TaskCard task={item.data} role={role} />
-                        ) : (
-                          <AnnouncementCard announcement={item.data} role={role} />
-                        )}
+                    return (
+                      <div key={`cg-${cgIdx}`} className="flex items-start gap-2">
+                        {/* Left: course badge — once per group */}
+                        <div className="shrink-0 w-[100px] mt-2">
+                          {cg.courseName && color && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 max-w-[100px] truncate ${color.bg} ${color.text} ${color.border}`}
+                            >
+                              {cg.courseName}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Cards stacked */}
+                        <div className={`flex-1 min-w-0 space-y-1.5 ${isPast ? "opacity-60" : ""}`}>
+                          {cg.items.map((item) => (
+                            <div key={`${item.type}-${item.id}`}>
+                              {item.type === "schedule" ? (
+                                <ScheduleCard slot={item.data} />
+                              ) : item.type === "task" ? (
+                                <TaskCard task={item.data} role={role} />
+                              ) : (
+                                <AnnouncementCard announcement={item.data} role={role} />
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </div>
           );
