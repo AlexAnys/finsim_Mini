@@ -211,15 +211,16 @@ export function SimulationRunner({
   }, [messages, mood, allocations, saveDraft]);
 
   // Parse mood from AI response
+  // Supports both [MOOD: CONFUSED] and [CONFUSED] formats
   function parseMoodFromText(text: string): { cleanText: string; mood?: MoodType } {
-    const moodMatch = text.match(/\[MOOD:\s*(\w+)\]/i);
+    const moodPattern = /\[(?:MOOD:\s*)?(\w+)\]\s*$/i;
+    const moodMatch = text.match(moodPattern);
     if (moodMatch) {
       const moodStr = moodMatch[1].toUpperCase() as MoodType;
-      const cleanText = text.replace(/\[MOOD:\s*\w+\]/gi, "").trim();
       if (MOOD_COLORS[moodStr]) {
+        const cleanText = text.replace(moodPattern, "").trim();
         return { cleanText, mood: moodStr };
       }
-      return { cleanText };
     }
     return { cleanText: text };
   }

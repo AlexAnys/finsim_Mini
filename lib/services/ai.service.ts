@@ -21,7 +21,7 @@ function getProviderConfig(name: string): ProviderConfig | null {
         name: "qwen",
         apiKey: process.env.QWEN_API_KEY || "",
         baseURL: process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        defaultModel: process.env.QWEN_MODEL || "qwen-turbo",
+        defaultModel: process.env.QWEN_MODEL || "qwen3-max",
       };
     case "deepseek":
       return {
