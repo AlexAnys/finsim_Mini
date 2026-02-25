@@ -51,7 +51,7 @@ interface ScheduleSlot {
   timeLabel: string;
   classroom: string | null;
   weekType: string;
-  course: { courseTitle: string; classId: string };
+  course: { courseTitle: string; classId: string; class: { name: string } };
 }
 
 const DAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -64,7 +64,6 @@ const DEFAULT_TIME_LABELS: Record<number, string> = {
 
 export default function TeacherSchedulePage() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -72,6 +71,7 @@ export default function TeacherSchedulePage() {
 
   // Create dialog state
   const [createOpen, setCreateOpen] = useState(false);
+  const [createCourseId, setCreateCourseId] = useState("");
   const [createDayOfWeek, setCreateDayOfWeek] = useState(1);
   const [createSlotIndex, setCreateSlotIndex] = useState(1);
   const [createTimeLabel, setCreateTimeLabel] = useState("");
@@ -105,15 +105,11 @@ export default function TeacherSchedulePage() {
     fetchCourses();
   }, []);
 
-  // Fetch slots when course changes
-  const fetchSlots = useCallback(async (courseId: string) => {
-    if (!courseId) {
-      setSlots([]);
-      return;
-    }
+  // Fetch all slots for this teacher
+  const fetchSlots = useCallback(async () => {
     setSlotsLoading(true);
     try {
-      const res = await fetch(`/api/lms/schedule-slots?courseId=${courseId}`);
+      const res = await fetch("/api/lms/schedule-slots");
       const json = await res.json();
       if (json.success) {
         setSlots(json.data || []);
@@ -127,39 +123,49 @@ export default function TeacherSchedulePage() {
     }
   }, []);
 
+  // Load slots once on mount
   useEffect(() => {
-    if (selectedCourseId) {
-      fetchSlots(selectedCourseId);
-    } else {
-      setSlots([]);
-    }
-  }, [selectedCourseId, fetchSlots]);
+    fetchSlots();
+  }, [fetchSlots]);
 
-  function getSlot(dayOfWeek: number, slotIndex: number): ScheduleSlot | undefined {
-    return slots.find((s) => s.dayOfWeek === dayOfWeek && s.slotIndex === slotIndex);
+  function getSlotsForCell(dayOfWeek: number, slotIndex: number): ScheduleSlot[] {
+    return slots.filter((s) => s.dayOfWeek === dayOfWeek && s.slotIndex === slotIndex);
   }
 
   function handleCellClick(dayOfWeek: number, slotIndex: number) {
-    if (!selectedCourseId) {
-      toast.error("请先选择课程");
-      return;
-    }
-    const existing = getSlot(dayOfWeek, slotIndex);
-    if (existing) {
-      setDeleteSlot(existing);
-    } else {
+    const cellSlots = getSlotsForCell(dayOfWeek, slotIndex);
+    if (cellSlots.length === 0) {
+      // Open create dialog
       setCreateDayOfWeek(dayOfWeek);
       setCreateSlotIndex(slotIndex);
       setCreateTimeLabel(DEFAULT_TIME_LABELS[slotIndex] || "");
       setCreateClassroom("");
+      setCreateCourseId(courses.length === 1 ? courses[0].id : "");
       setCreateStartWeek(1);
       setCreateEndWeek(16);
       setCreateWeekType("all");
       setCreateOpen(true);
     }
+    // If there are existing slots, clicking doesn't open create - users click individual slot badges to delete
+  }
+
+  function handleAddToCell(dayOfWeek: number, slotIndex: number) {
+    setCreateDayOfWeek(dayOfWeek);
+    setCreateSlotIndex(slotIndex);
+    setCreateTimeLabel(DEFAULT_TIME_LABELS[slotIndex] || "");
+    setCreateClassroom("");
+    setCreateCourseId(courses.length === 1 ? courses[0].id : "");
+    setCreateStartWeek(1);
+    setCreateEndWeek(16);
+    setCreateWeekType("all");
+    setCreateOpen(true);
   }
 
   async function handleCreate() {
+    if (!createCourseId) {
+      toast.error("请选择课程");
+      return;
+    }
     if (!createTimeLabel.trim()) {
       toast.error("请填写时间标签");
       return;
@@ -175,7 +181,7 @@ export default function TeacherSchedulePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courseId: selectedCourseId,
+          courseId: createCourseId,
           dayOfWeek: createDayOfWeek,
           slotIndex: createSlotIndex,
           startWeek: createStartWeek,
@@ -192,7 +198,7 @@ export default function TeacherSchedulePage() {
       }
       toast.success("课表时段已添加");
       setCreateOpen(false);
-      fetchSlots(selectedCourseId);
+      fetchSlots();
     } catch {
       toast.error("创建失败，请重试");
     } finally {
@@ -214,7 +220,7 @@ export default function TeacherSchedulePage() {
       }
       toast.success("课表时段已删除");
       setDeleteSlot(null);
-      fetchSlots(selectedCourseId);
+      fetchSlots();
     } catch {
       toast.error("删除失败，请重试");
     } finally {
@@ -240,40 +246,13 @@ export default function TeacherSchedulePage() {
     );
   }
 
-  const selectedCourse = courses.find((c) => c.id === selectedCourseId);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">课表管理</h1>
       </div>
 
-      {/* Course selector */}
-      <div className="space-y-2">
-        <Label>选择课程</Label>
-        <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-          <SelectTrigger className="w-full max-w-md">
-            <SelectValue placeholder="请选择课程" />
-          </SelectTrigger>
-          <SelectContent>
-            {courses.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.courseTitle}
-                {c.courseCode ? ` (${c.courseCode})` : ""} - {c.class.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {!selectedCourseId ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <CalendarDays className="size-12 text-muted-foreground" />
-            <p className="mt-4 text-muted-foreground">请先选择课程以查看和编辑课表</p>
-          </CardContent>
-        </Card>
-      ) : slotsLoading ? (
+      {slotsLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
           <span className="ml-2 text-muted-foreground">加载课表...</span>
@@ -283,14 +262,10 @@ export default function TeacherSchedulePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <CalendarDays className="size-5" />
-              {selectedCourse?.courseTitle} - 周课表
-              {selectedCourse && (
-                <Badge variant="outline">{selectedCourse.class.name}</Badge>
-              )}
+              全部课程周课表
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Schedule grid */}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
@@ -301,7 +276,7 @@ export default function TeacherSchedulePage() {
                     {DAY_LABELS.map((day, i) => (
                       <th
                         key={i}
-                        className="border p-2 bg-muted text-muted-foreground min-w-[100px]"
+                        className="border p-2 bg-muted text-muted-foreground min-w-[120px]"
                       >
                         {day}
                       </th>
@@ -316,38 +291,62 @@ export default function TeacherSchedulePage() {
                         <div className="text-xs">{DEFAULT_TIME_LABELS[slotIndex]}</div>
                       </td>
                       {[1, 2, 3, 4, 5, 6, 7].map((dayOfWeek) => {
-                        const slot = getSlot(dayOfWeek, slotIndex);
+                        const cellSlots = getSlotsForCell(dayOfWeek, slotIndex);
                         return (
                           <td
                             key={dayOfWeek}
-                            className={`border p-1 text-center cursor-pointer transition-colors ${
-                              slot
-                                ? "bg-blue-50 hover:bg-blue-100 dark:bg-blue-950 dark:hover:bg-blue-900"
-                                : "hover:bg-muted/50"
+                            className={`border p-1 text-center transition-colors ${
+                              cellSlots.length > 0
+                                ? "bg-blue-50 dark:bg-blue-950"
+                                : "hover:bg-muted/50 cursor-pointer"
                             }`}
-                            onClick={() => handleCellClick(dayOfWeek, slotIndex)}
+                            onClick={() => {
+                              if (cellSlots.length === 0) handleCellClick(dayOfWeek, slotIndex);
+                            }}
                           >
-                            {slot ? (
-                              <div className="space-y-1 p-1">
-                                <div className="font-medium text-xs text-blue-700 dark:text-blue-300 truncate">
-                                  {slot.course.courseTitle}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {slot.timeLabel}
-                                </div>
-                                {slot.classroom && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {slot.classroom}
+                            {cellSlots.length > 0 ? (
+                              <div className="space-y-1.5 p-1">
+                                {cellSlots.map((slot) => (
+                                  <div
+                                    key={slot.id}
+                                    className="rounded border border-blue-200 dark:border-blue-800 bg-white dark:bg-blue-900/50 p-1.5 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteSlot(slot);
+                                    }}
+                                  >
+                                    <div className="font-medium text-xs text-blue-700 dark:text-blue-300">
+                                      {slot.course.courseTitle}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground">
+                                      {slot.course.class.name}
+                                    </div>
+                                    {slot.classroom && (
+                                      <div className="text-[11px] text-muted-foreground">
+                                        {slot.classroom}
+                                      </div>
+                                    )}
+                                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                                      <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                                        {slot.startWeek}-{slot.endWeek}周
+                                      </Badge>
+                                      {slot.weekType && slot.weekType !== "all" && (
+                                        <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                          {slot.weekType === "odd" ? "单周" : "双周"}
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </div>
-                                )}
-                                <Badge variant="secondary" className="text-xs">
-                                  {slot.startWeek}-{slot.endWeek}周
-                                </Badge>
-                                {slot.weekType && slot.weekType !== "all" && (
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {slot.weekType === "odd" ? "单周" : "双周"}
-                                  </Badge>
-                                )}
+                                ))}
+                                <button
+                                  className="w-full py-0.5 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAddToCell(dayOfWeek, slotIndex);
+                                  }}
+                                >
+                                  <Plus className="size-3 mx-auto" />
+                                </button>
                               </div>
                             ) : (
                               <div className="py-4 text-muted-foreground/40">
@@ -372,11 +371,25 @@ export default function TeacherSchedulePage() {
           <DialogHeader>
             <DialogTitle>添加课表时段</DialogTitle>
             <DialogDescription>
-              {selectedCourse?.courseTitle} -{" "}
               {DAY_LABELS[createDayOfWeek - 1]} 第{createSlotIndex}节
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>课程</Label>
+              <Select value={createCourseId} onValueChange={setCreateCourseId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="请选择课程" />
+                </SelectTrigger>
+                <SelectContent>
+                  {courses.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.courseTitle} - {c.class.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label>时间</Label>
               <Input
@@ -458,6 +471,7 @@ export default function TeacherSchedulePage() {
               确定删除{" "}
               {deleteSlot && (
                 <>
+                  {deleteSlot.course.courseTitle}（{deleteSlot.course.class.name}）
                   {DAY_LABELS[deleteSlot.dayOfWeek - 1]} 第{deleteSlot.slotIndex}节
                   （{deleteSlot.timeLabel}）
                 </>

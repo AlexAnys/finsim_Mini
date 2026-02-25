@@ -17,14 +17,22 @@ export async function createScheduleSlot(data: {
 export async function getScheduleSlots(filters: {
   courseId?: string;
   classId?: string;
+  teacherId?: string;
 }) {
   return prisma.scheduleSlot.findMany({
     where: {
       ...(filters.courseId && { courseId: filters.courseId }),
       ...(filters.classId && { course: { classId: filters.classId } }),
+      ...(filters.teacherId && { course: { createdBy: filters.teacherId } }),
     },
     include: {
-      course: { select: { courseTitle: true, classId: true } },
+      course: {
+        select: {
+          courseTitle: true,
+          classId: true,
+          class: { select: { name: true } },
+        },
+      },
     },
     orderBy: [{ dayOfWeek: "asc" }, { slotIndex: "asc" }],
   });

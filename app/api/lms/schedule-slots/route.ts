@@ -44,9 +44,12 @@ export async function GET(request: NextRequest) {
   const courseId = searchParams.get("courseId") || undefined;
 
   try {
-    const filters: { courseId?: string; classId?: string } = { courseId };
-    if (result.session.user.role === "student" && result.session.user.classId) {
-      filters.classId = result.session.user.classId;
+    const filters: { courseId?: string; classId?: string; teacherId?: string } = { courseId };
+    const { user } = result.session;
+    if (user.role === "student" && user.classId) {
+      filters.classId = user.classId;
+    } else if ((user.role === "teacher" || user.role === "admin") && !courseId) {
+      filters.teacherId = user.id;
     }
 
     const slots = await getScheduleSlots(filters);

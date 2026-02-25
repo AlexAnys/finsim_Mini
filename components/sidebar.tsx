@@ -39,7 +39,7 @@ const studentNav: NavItem[] = [
   { label: "仪表盘", href: "/dashboard", icon: LayoutDashboard },
   { label: "我的课程", href: "/courses", icon: BookOpen },
   { label: "我的成绩", href: "/grades", icon: Trophy },
-  { label: "学习伙伴", href: "/study-buddy", icon: Bot },
+  { label: "课表管理", href: "/schedule", icon: CalendarDays },
 ];
 
 const teacherNav: NavItem[] = [

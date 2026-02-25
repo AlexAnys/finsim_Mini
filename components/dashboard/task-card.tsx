@@ -100,8 +100,51 @@ export function TaskCard({ task, role }: TaskCardProps) {
       task.latestScore !== null &&
       task.latestScore !== undefined;
 
+    const isGraded = task.studentStatus === "graded";
+    const cardClass = isGraded ? "py-3 gap-2 bg-green-50 border-green-200" : "py-3 gap-2";
+
+    const taskHref = taskType === "simulation" ? `/sim/${task.id}` : `/tasks/${task.id}`;
+
+    const renderActionButton = () => {
+      const status = task.studentStatus as string;
+      if (status === "overdue") {
+        return (
+          <Button size="xs" disabled>
+            已过期
+          </Button>
+        );
+      }
+      if (status === "graded") {
+        return (
+          <Button size="xs" asChild className="bg-green-600 text-white hover:bg-green-700">
+            <Link href={taskHref}>查看结果</Link>
+          </Button>
+        );
+      }
+      if (status === "submitted") {
+        return (
+          <Button size="xs" variant="secondary" asChild>
+            <Link href={taskHref}>已提交，待评估</Link>
+          </Button>
+        );
+      }
+      // todo status
+      if (task.canSubmit) {
+        return (
+          <Button size="xs" asChild>
+            <Link href={taskHref}>开始作答</Link>
+          </Button>
+        );
+      }
+      return (
+        <Button size="xs" disabled>
+          开始作答
+        </Button>
+      );
+    };
+
     return (
-      <Card className="py-3 gap-2">
+      <Card className={cardClass}>
         <CardContent className="flex items-start gap-3">
           <div className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${iconColorClass}`}>
             <IconComp className="size-3.5" />
@@ -130,11 +173,7 @@ export function TaskCard({ task, role }: TaskCardProps) {
                     截止: {dueDate}
                   </span>
                 )}
-                {task.canSubmit && (
-                  <Button size="xs" asChild>
-                    <Link href={`/tasks/${task.id}`}>开始作答</Link>
-                  </Button>
-                )}
+                {renderActionButton()}
               </div>
             </div>
           </div>
