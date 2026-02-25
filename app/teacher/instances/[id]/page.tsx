@@ -7,20 +7,15 @@ import {
   Loader2,
   AlertCircle,
   ChevronRight,
-  Users,
-  Calendar,
   Send,
   XCircle,
   FileText,
   Download,
   Pencil,
-  BarChart3,
   MessageSquare,
-  BookOpen,
   Reply,
   HelpCircle,
   Clock,
-  GraduationCap,
   Eye,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -390,8 +385,6 @@ export default function InstanceDetailPage() {
   const gradedCount =
     submissions?.items.filter((s) => s.status === "graded").length || 0;
   const totalSubs = submissions?.total || 0;
-  const pendingCount =
-    submissions?.items.filter((s) => s.status === "submitted").length || 0;
   const avgScore =
     gradedCount > 0
       ? Math.round(
@@ -513,21 +506,9 @@ export default function InstanceDetailPage() {
       {/* Quick Action Buttons */}
       <div className="flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="sm" asChild>
-          <Link href={`/teacher/instances/${instanceId}/insights`}>
-            <BarChart3 className="size-3 mr-1" />
-            教学洞察
-          </Link>
-        </Button>
-        <Button variant="outline" size="sm" asChild>
           <Link href={`/teacher/tasks/${instance.task.id}`}>
             <Eye className="size-3 mr-1" />
             查看任务配置
-          </Link>
-        </Button>
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/teacher/analytics">
-            <BarChart3 className="size-3 mr-1" />
-            全局分析
           </Link>
         </Button>
         <Button variant="outline" size="sm" onClick={exportGrades}>
@@ -579,90 +560,32 @@ export default function InstanceDetailPage() {
         </Card>
       )}
 
-      {/* Instance Info Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Users className="size-4" />
-              班级
-            </div>
-            <p className="mt-1 font-medium">{instance.class.name}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <FileText className="size-4" />
-              原始任务
-            </div>
-            <Link
-              href={`/teacher/tasks/${instance.task.id}`}
-              className="mt-1 font-medium text-blue-600 hover:underline block truncate"
-            >
-              {instance.task.taskName}
-            </Link>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="size-4" />
-              截止日期
-            </div>
-            <p className="mt-1 font-medium">
-              {new Date(instance.dueAt).toLocaleDateString("zh-CN")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {new Date(instance.dueAt).toLocaleTimeString("zh-CN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <GraduationCap className="size-4" />
-              提交统计
-            </div>
-            <p className="mt-1 font-medium">
-              {totalSubs} 份提交
-            </p>
-            <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-              <span>{gradedCount} 已批改</span>
-              {pendingCount > 0 && (
-                <span className="text-orange-600">{pendingCount} 待批改</span>
-              )}
-            </div>
-            {gradedCount > 0 && (
-              <div className="mt-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">均分</span>
-                  <span className="font-medium">{avgScore}/{maxScoreVal}</span>
-                </div>
-                <div className="mt-1 h-1.5 bg-muted rounded overflow-hidden">
-                  <div
-                    className={`h-full rounded ${
-                      maxScoreVal > 0 && avgScore / maxScoreVal > 0.7
-                        ? "bg-green-500"
-                        : maxScoreVal > 0 && avgScore / maxScoreVal >= 0.5
-                          ? "bg-orange-500"
-                          : "bg-red-500"
-                    }`}
-                    style={{
-                      width: `${maxScoreVal > 0 ? Math.min((avgScore / maxScoreVal) * 100, 100) : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Metadata Row */}
+      <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+        <span>{instance.class?.name || "未分配班级"}</span>
+        <span>·</span>
+        <span>截止 {new Date(instance.dueAt).toLocaleDateString("zh-CN")}</span>
+        <span>·</span>
+        <span>来自任务「{instance.task?.taskName}」</span>
       </div>
 
-      <Separator />
+      {/* Inline Summary Bar */}
+      <div className="rounded-lg bg-muted/50 px-4 py-2.5 flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">提交</span>
+          <span className="font-medium">{totalSubs}</span>
+        </div>
+        <div className="h-4 w-px bg-border" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">已批改</span>
+          <span className="font-medium">{gradedCount}</span>
+        </div>
+        <div className="h-4 w-px bg-border" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">均分</span>
+          <span className="font-medium">{avgScore}/{maxScoreVal}</span>
+        </div>
+      </div>
 
       {/* Tabbed Content: Submissions / Discussion */}
       <Tabs defaultValue="submissions">

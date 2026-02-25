@@ -151,7 +151,7 @@ export default function RegisterPage() {
       if (role === "teacher") {
         router.push("/teacher/dashboard");
       } else {
-        router.push("/student/dashboard");
+        router.push("/dashboard");
       }
       router.refresh();
     } catch {

@@ -8,6 +8,7 @@ import {
   Loader2,
   AlertCircle,
   ChevronRight,
+  ChevronDown,
   Plus,
   Users,
   FileText,
@@ -20,8 +21,6 @@ import {
   X,
   Upload,
   Sparkles,
-  BarChart3,
-  Megaphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,8 +62,9 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { CourseAnalyticsPanel } from "@/components/course/course-analytics-panel";
+import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
+import { cn } from "@/lib/utils";
 
 interface TaskInstance {
   id: string;
@@ -273,9 +273,8 @@ export default function TeacherCourseDetailPage() {
   const [publishedInstances, setPublishedInstances] = useState<TaskInstance[]>([]);
   const [loadingPublished, setLoadingPublished] = useState(false);
 
-  // Analytics & Announcements sheet state
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
-  const [announcementsSheetOpen, setAnnouncementsSheetOpen] = useState(false);
+  // Chapter collapse state
+  const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(new Set());
 
   // Multi-class state
   const [courseClasses, setCourseClasses] = useState<{ id: string; classId: string; class: { id: string; name: string } }[]>([]);
@@ -1139,6 +1138,18 @@ export default function TeacherCourseDetailPage() {
     return section.taskInstances.filter((ti) => ti.slot === slot);
   }
 
+  function toggleChapter(chapterId: string) {
+    setCollapsedChapters((prev) => {
+      const next = new Set(prev);
+      if (next.has(chapterId)) {
+        next.delete(chapterId);
+      } else {
+        next.add(chapterId);
+      }
+      return next;
+    });
+  }
+
   // ---------- Loading / Error states ----------
 
   if (loading) {
@@ -1175,9 +1186,10 @@ export default function TeacherCourseDetailPage() {
       </div>
 
       {/* Course Header */}
+      <div className="rounded-lg bg-gradient-to-r from-blue-50 to-blue-100/50 p-6 dark:from-blue-950/30 dark:to-blue-900/20">
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
-          <div className="flex size-12 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+          <div className="flex size-12 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300">
             <BookOpen className="size-6" />
           </div>
           <div>
@@ -1295,14 +1307,6 @@ export default function TeacherCourseDetailPage() {
             <Users className="size-4 mr-1" />
             添加协作教师
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setAnalyticsOpen(true)}>
-            <BarChart3 className="size-4 mr-1" />
-            数据分析
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setAnnouncementsSheetOpen(true)}>
-            <Megaphone className="size-4 mr-1" />
-            公告
-          </Button>
           <Button
             variant="outline"
             onClick={() => setChapterDialogOpen(true)}
@@ -1312,8 +1316,17 @@ export default function TeacherCourseDetailPage() {
           </Button>
         </div>
       </div>
+      </div>
 
-      <Separator />
+      {/* Tabs Workbench */}
+      <Tabs defaultValue="structure" className="w-full">
+        <TabsList>
+          <TabsTrigger value="structure">课程结构</TabsTrigger>
+          <TabsTrigger value="analytics">数据分析</TabsTrigger>
+          <TabsTrigger value="announcements">公告管理</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="structure" className="space-y-6 mt-4">
 
       {/* Chapter jump navigation */}
       {course.chapters.length > 0 && (
@@ -1346,15 +1359,19 @@ export default function TeacherCourseDetailPage() {
         <div className="space-y-6">
           {course.chapters.map((chapter) => (
             <Card key={chapter.id} id={`chapter-${chapter.id}`}>
-              <CardHeader>
+              <CardHeader className="cursor-pointer select-none" onClick={() => toggleChapter(chapter.id)}>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">
-                    第 {chapter.order + 1} 章：{chapter.title}
-                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <ChevronDown className={cn("size-4 transition-transform", collapsedChapters.has(chapter.id) && "-rotate-90")} />
+                    <CardTitle className="text-lg">
+                      第 {chapter.order + 1} 章：{chapter.title}
+                    </CardTitle>
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setSectionChapterId(chapter.id);
                       setSectionDialogOpen(true);
                     }}
@@ -1364,7 +1381,7 @@ export default function TeacherCourseDetailPage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent>
+              {!collapsedChapters.has(chapter.id) && <CardContent>
                 {chapter.sections.length === 0 ? (
                   <p className="text-sm text-muted-foreground">暂无小节</p>
                 ) : (
@@ -1457,11 +1474,21 @@ export default function TeacherCourseDetailPage() {
                     </TableBody>
                   </Table>
                 )}
-              </CardContent>
+              </CardContent>}
             </Card>
           ))}
         </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="analytics" className="mt-4">
+          <CourseAnalyticsTab courseId={courseId} />
+        </TabsContent>
+
+        <TabsContent value="announcements" className="mt-4">
+          <CourseAnnouncementsPanel courseId={courseId} />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Chapter Dialog */}
       <Dialog open={chapterDialogOpen} onOpenChange={setChapterDialogOpen}>
@@ -2406,36 +2433,6 @@ export default function TeacherCourseDetailPage() {
               )}
             </TabsContent>
           </Tabs>
-        </SheetContent>
-      </Sheet>
-
-      {/* Analytics Sheet */}
-      <Sheet open={analyticsOpen} onOpenChange={setAnalyticsOpen}>
-        <SheetContent side="right" className="w-[600px] sm:w-[700px] sm:max-w-none overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>数据分析</SheetTitle>
-            <SheetDescription>
-              {course.courseTitle} 的任务统计和学生表现
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-4">
-            <CourseAnalyticsPanel courseId={courseId} />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Announcements Sheet */}
-      <Sheet open={announcementsSheetOpen} onOpenChange={setAnnouncementsSheetOpen}>
-        <SheetContent side="right" className="w-[500px] sm:w-[550px] sm:max-w-none overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>公告管理</SheetTitle>
-            <SheetDescription>
-              {course.courseTitle} 的公告列表
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-4">
-            <CourseAnnouncementsPanel courseId={courseId} />
-          </div>
         </SheetContent>
       </Sheet>
 
