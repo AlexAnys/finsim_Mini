@@ -53,12 +53,19 @@ interface Chapter {
   sections: Section[];
 }
 
+interface CourseClassItem {
+  id: string;
+  classId: string;
+  class: { id: string; name: string };
+}
+
 interface CourseDetail {
   id: string;
   courseTitle: string;
   courseCode: string | null;
   description: string | null;
   class: { id: string; name: string };
+  classes?: CourseClassItem[];
   chapters: Chapter[];
 }
 
@@ -163,9 +170,19 @@ export default function StudentCourseDetailPage() {
               {course.description}
             </p>
           )}
-          <Badge variant="secondary" className="mt-2">
-            {course.class.name}
-          </Badge>
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            {course.classes && course.classes.length > 0 ? (
+              course.classes.map((cc) => (
+                <Badge key={cc.id} variant="secondary">
+                  {cc.class.name}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="secondary">
+                {course.class.name}
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
 

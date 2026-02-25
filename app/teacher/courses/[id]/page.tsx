@@ -20,6 +20,8 @@ import {
   X,
   Upload,
   Sparkles,
+  BarChart3,
+  Megaphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +63,8 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { CourseAnalyticsPanel } from "@/components/course/course-analytics-panel";
+import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
 
 interface TaskInstance {
   id: string;
@@ -269,6 +273,23 @@ export default function TeacherCourseDetailPage() {
   const [publishedInstances, setPublishedInstances] = useState<TaskInstance[]>([]);
   const [loadingPublished, setLoadingPublished] = useState(false);
 
+  // Analytics & Announcements sheet state
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [announcementsSheetOpen, setAnnouncementsSheetOpen] = useState(false);
+
+  // Multi-class state
+  const [courseClasses, setCourseClasses] = useState<{ id: string; classId: string; class: { id: string; name: string } }[]>([]);
+  const [addClassDialogOpen, setAddClassDialogOpen] = useState(false);
+  const [addClassId, setAddClassId] = useState("");
+  const [addingClass, setAddingClass] = useState(false);
+  const [classesList, setClassesList] = useState<{ id: string; name: string }[]>([]);
+
+  // Collaborative teachers state
+  const [courseTeachers, setCourseTeachers] = useState<{ id: string; teacherId: string; teacher: { id: string; name: string; email: string } }[]>([]);
+  const [teacherDialogOpen, setTeacherDialogOpen] = useState(false);
+  const [teacherEmail, setTeacherEmail] = useState("");
+  const [addingTeacher, setAddingTeacher] = useState(false);
+
   const fetchCourse = useCallback(async () => {
     try {
       const res = await fetch(`/api/lms/courses/${courseId}`);
@@ -285,9 +306,135 @@ export default function TeacherCourseDetailPage() {
     }
   }, [courseId]);
 
+  const fetchCourseTeachers = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/teachers`);
+      const json = await res.json();
+      if (json.success) setCourseTeachers(json.data || []);
+    } catch {
+      // silent
+    }
+  }, [courseId]);
+
+  const fetchCourseClasses = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/classes`);
+      const json = await res.json();
+      if (json.success) setCourseClasses(json.data || []);
+    } catch {
+      // silent
+    }
+  }, [courseId]);
+
   useEffect(() => {
     fetchCourse();
-  }, [fetchCourse]);
+    fetchCourseTeachers();
+    fetchCourseClasses();
+  }, [fetchCourse, fetchCourseTeachers, fetchCourseClasses]);
+
+  async function fetchAvailableClasses() {
+    try {
+      const res = await fetch("/api/lms/classes");
+      const json = await res.json();
+      if (json.success) setClassesList(json.data || []);
+    } catch {
+      // silent
+    }
+  }
+
+  async function handleAddClass() {
+    if (!addClassId) {
+      toast.error("请选择班级");
+      return;
+    }
+    setAddingClass(true);
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/classes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId: addClassId }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "添加失败");
+        return;
+      }
+      toast.success("班级已添加");
+      setAddClassId("");
+      setAddClassDialogOpen(false);
+      fetchCourseClasses();
+    } catch {
+      toast.error("网络错误");
+    } finally {
+      setAddingClass(false);
+    }
+  }
+
+  async function handleRemoveClass(classId: string) {
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/classes`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "移除失败");
+        return;
+      }
+      toast.success("班级已移除");
+      fetchCourseClasses();
+    } catch {
+      toast.error("网络错误");
+    }
+  }
+
+  async function handleAddTeacher() {
+    if (!teacherEmail.trim()) {
+      toast.error("请输入教师邮箱");
+      return;
+    }
+    setAddingTeacher(true);
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/teachers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: teacherEmail.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "添加失败");
+        return;
+      }
+      toast.success("协作教师已添加");
+      setTeacherEmail("");
+      setTeacherDialogOpen(false);
+      fetchCourseTeachers();
+    } catch {
+      toast.error("网络错误");
+    } finally {
+      setAddingTeacher(false);
+    }
+  }
+
+  async function handleRemoveTeacher(teacherId: string) {
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/teachers`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teacherId }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "移除失败");
+        return;
+      }
+      toast.success("协作教师已移除");
+      fetchCourseTeachers();
+    } catch {
+      toast.error("网络错误");
+    }
+  }
 
   async function handleSaveSemesterDate() {
     if (!editSemesterDate) {
@@ -1044,10 +1191,29 @@ export default function TeacherCourseDetailPage() {
               </p>
             )}
             <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <Badge variant="secondary" className="flex items-center gap-1 w-fit">
-                <Users className="size-3" />
-                {course.class.name}
+              {/* Multi-class badges */}
+              {courseClasses.map((cc) => (
+                <Badge key={cc.id} variant="secondary" className="flex items-center gap-1">
+                  <Users className="size-3" />
+                  {cc.class.name}
+                  <button
+                    onClick={() => handleRemoveClass(cc.classId)}
+                    className="ml-0.5 hover:text-destructive"
+                  >
+                    <X className="size-2.5" />
+                  </button>
+                </Badge>
+              ))}
+              <Badge
+                variant="outline"
+                className="cursor-pointer hover:bg-muted text-muted-foreground"
+                onClick={() => { setAddClassDialogOpen(true); fetchAvailableClasses(); }}
+              >
+                <Plus className="size-3 mr-0.5" /> 添加班级
               </Badge>
+
+              <span className="text-muted-foreground">·</span>
+
               {editingSemesterDate ? (
                 <div className="flex items-center gap-1">
                   <Input
@@ -1105,9 +1271,38 @@ export default function TeacherCourseDetailPage() {
                 </Badge>
               )}
             </div>
+            {/* Collaborative teachers */}
+            {courseTeachers.length > 0 && (
+              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs text-muted-foreground">协作教师：</span>
+                {courseTeachers.map((ct) => (
+                  <Badge key={ct.id} variant="outline" className="flex items-center gap-1 text-xs">
+                    {ct.teacher.name}
+                    <button
+                      onClick={() => handleRemoveTeacher(ct.teacherId)}
+                      className="ml-0.5 hover:text-destructive"
+                    >
+                      <X className="size-2.5" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setTeacherDialogOpen(true)}>
+            <Users className="size-4 mr-1" />
+            添加协作教师
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setAnalyticsOpen(true)}>
+            <BarChart3 className="size-4 mr-1" />
+            数据分析
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setAnnouncementsSheetOpen(true)}>
+            <Megaphone className="size-4 mr-1" />
+            公告
+          </Button>
           <Button
             variant="outline"
             onClick={() => setChapterDialogOpen(true)}
@@ -1119,6 +1314,22 @@ export default function TeacherCourseDetailPage() {
       </div>
 
       <Separator />
+
+      {/* Chapter jump navigation */}
+      {course.chapters.length > 0 && (
+        <Select onValueChange={(id) => document.getElementById(`chapter-${id}`)?.scrollIntoView({ behavior: "smooth" })}>
+          <SelectTrigger className="w-64">
+            <SelectValue placeholder="跳转到章节..." />
+          </SelectTrigger>
+          <SelectContent>
+            {course.chapters.map((ch) => (
+              <SelectItem key={ch.id} value={ch.id}>
+                第{ch.order + 1}章：{ch.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       {/* Course Matrix */}
       {course.chapters.length === 0 ? (
@@ -1134,7 +1345,7 @@ export default function TeacherCourseDetailPage() {
       ) : (
         <div className="space-y-6">
           {course.chapters.map((chapter) => (
-            <Card key={chapter.id}>
+            <Card key={chapter.id} id={`chapter-${chapter.id}`}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">
@@ -2197,6 +2408,112 @@ export default function TeacherCourseDetailPage() {
           </Tabs>
         </SheetContent>
       </Sheet>
+
+      {/* Analytics Sheet */}
+      <Sheet open={analyticsOpen} onOpenChange={setAnalyticsOpen}>
+        <SheetContent side="right" className="w-[600px] sm:w-[700px] sm:max-w-none overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>数据分析</SheetTitle>
+            <SheetDescription>
+              {course.courseTitle} 的任务统计和学生表现
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            <CourseAnalyticsPanel courseId={courseId} />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Announcements Sheet */}
+      <Sheet open={announcementsSheetOpen} onOpenChange={setAnnouncementsSheetOpen}>
+        <SheetContent side="right" className="w-[500px] sm:w-[550px] sm:max-w-none overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>公告管理</SheetTitle>
+            <SheetDescription>
+              {course.courseTitle} 的公告列表
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            <CourseAnnouncementsPanel courseId={courseId} />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Add Class Dialog */}
+      <Dialog open={addClassDialogOpen} onOpenChange={setAddClassDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加班级</DialogTitle>
+            <DialogDescription>
+              选择要关联到此课程的班级
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Select value={addClassId} onValueChange={setAddClassId}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择班级" />
+              </SelectTrigger>
+              <SelectContent>
+                {classesList
+                  .filter((c) => !courseClasses.find((cc) => cc.classId === c.id))
+                  .map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddClassDialogOpen(false)} disabled={addingClass}>
+              取消
+            </Button>
+            <Button onClick={handleAddClass} disabled={addingClass || !addClassId}>
+              {addingClass ? (
+                <><Loader2 className="size-4 mr-2 animate-spin" />添加中...</>
+              ) : (
+                "添加"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Collaborative Teacher Dialog */}
+      <Dialog open={teacherDialogOpen} onOpenChange={setTeacherDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加协作教师</DialogTitle>
+            <DialogDescription>
+              输入教师邮箱，添加为课程协作教师。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="teacherEmail">教师邮箱 *</Label>
+              <Input
+                id="teacherEmail"
+                type="email"
+                placeholder="例如：teacher2@finsim.edu.cn"
+                value={teacherEmail}
+                onChange={(e) => setTeacherEmail(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTeacherDialogOpen(false)} disabled={addingTeacher}>
+              取消
+            </Button>
+            <Button onClick={handleAddTeacher} disabled={addingTeacher}>
+              {addingTeacher ? (
+                <><Loader2 className="size-4 mr-2 animate-spin" />添加中...</>
+              ) : (
+                "添加"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

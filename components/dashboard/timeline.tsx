@@ -17,7 +17,7 @@ interface TimelineItem {
   data: any;
 }
 
-export type TimelineFilter = "all" | "simulation" | "quiz" | "subjective" | "announcement";
+export type TimelineFilter = "all" | "simulation" | "quiz" | "subjective" | "announcement" | "schedule";
 
 interface TimelineProps {
   items: TimelineItem[];
@@ -84,6 +84,7 @@ export function Timeline({ items, role, filter = "all" }: TimelineProps) {
       ? items
       : items.filter((item) => {
           if (filter === "announcement") return item.type === "announcement";
+          if (filter === "schedule") return item.type === "schedule";
           if (item.type !== "task") return false;
           const taskType = item.data?.task?.taskType || item.data?.taskType || "";
           return taskType === filter;

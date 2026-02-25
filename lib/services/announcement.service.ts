@@ -7,10 +7,14 @@ export async function createAnnouncement(data: {
   status?: "published" | "draft";
   createdBy: string;
 }) {
-  // 验证教师拥有该课程
+  // 验证教师拥有该课程（含协作教师）
   const course = await prisma.course.findUnique({ where: { id: data.courseId } });
-  if (!course || course.createdBy !== data.createdBy) {
-    throw new Error("FORBIDDEN");
+  if (!course) throw new Error("FORBIDDEN");
+  if (course.createdBy !== data.createdBy) {
+    const collab = await prisma.courseTeacher.findUnique({
+      where: { courseId_teacherId: { courseId: data.courseId, teacherId: data.createdBy } },
+    });
+    if (!collab) throw new Error("FORBIDDEN");
   }
 
   return prisma.announcement.create({

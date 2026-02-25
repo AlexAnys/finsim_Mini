@@ -121,11 +121,13 @@ export default function TeacherDashboardPage() {
   const timelineItems = useMemo(() => (data ? transformToTimeline(data) : []), [data]);
 
   const filterCounts = useMemo(() => {
-    const counts = { all: 0, simulation: 0, quiz: 0, subjective: 0, announcement: 0 };
+    const counts = { all: 0, simulation: 0, quiz: 0, subjective: 0, announcement: 0, schedule: 0 };
     for (const item of timelineItems) {
       counts.all++;
       if (item.type === "announcement") {
         counts.announcement++;
+      } else if (item.type === "schedule") {
+        counts.schedule++;
       } else if (item.type === "task") {
         const tt = item.data?.task?.taskType || item.data?.taskType || "";
         if (tt === "simulation") counts.simulation++;
@@ -232,6 +234,7 @@ export default function TeacherDashboardPage() {
               { key: "quiz", label: "测验" },
               { key: "subjective", label: "主观题" },
               { key: "announcement", label: "公告" },
+              { key: "schedule", label: "课堂" },
             ] as { key: TimelineFilter; label: string }[]
           ).map(({ key, label }) => {
             const count = filterCounts[key];

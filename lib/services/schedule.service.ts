@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { teacherCourseFilter } from "@/lib/services/course.service";
 
 export async function createScheduleSlot(data: {
   courseId: string;
@@ -23,7 +24,7 @@ export async function getScheduleSlots(filters: {
     where: {
       ...(filters.courseId && { courseId: filters.courseId }),
       ...(filters.classId && { course: { classId: filters.classId } }),
-      ...(filters.teacherId && { course: { createdBy: filters.teacherId } }),
+      ...(filters.teacherId && { course: teacherCourseFilter(filters.teacherId) }),
     },
     include: {
       course: {

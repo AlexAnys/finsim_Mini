@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { teacherCourseFilter } from "@/lib/services/course.service";
 
 // ============================================
 // 教师仪表盘
@@ -7,13 +8,13 @@ export async function getTeacherDashboard(teacherId: string) {
   const [courses, taskInstances, recentSubmissions, announcements, scheduleSlots] = await Promise.all([
     // 课程列表
     prisma.course.findMany({
-      where: { createdBy: teacherId },
+      where: teacherCourseFilter(teacherId),
       include: { class: { select: { id: true, name: true } } },
       orderBy: { createdAt: "desc" },
     }),
     // 任务实例统计
     prisma.taskInstance.findMany({
-      where: { createdBy: teacherId },
+      where: { course: teacherCourseFilter(teacherId) },
       include: {
         task: { select: { id: true, taskName: true, taskType: true } },
         class: { select: { id: true, name: true, _count: { select: { students: true } } } },
@@ -28,7 +29,12 @@ export async function getTeacherDashboard(teacherId: string) {
     }),
     // 最近提交
     prisma.submission.findMany({
-      where: { task: { creatorId: teacherId } },
+      where: {
+        OR: [
+          { task: { creatorId: teacherId } },
+          { taskInstance: { course: teacherCourseFilter(teacherId) } },
+        ],
+      },
       include: {
         student: { select: { id: true, name: true } },
         task: { select: { id: true, taskName: true } },
@@ -38,29 +44,35 @@ export async function getTeacherDashboard(teacherId: string) {
     }),
     // 最近公告
     prisma.announcement.findMany({
-      where: { course: { createdBy: teacherId } },
+      where: { course: teacherCourseFilter(teacherId) },
       include: { course: { select: { courseTitle: true } } },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
     // 课表时段
     prisma.scheduleSlot.findMany({
-      where: { course: { createdBy: teacherId } },
+      where: { course: teacherCourseFilter(teacherId) },
       include: { course: { select: { courseTitle: true, classId: true, semesterStartDate: true } } },
       orderBy: [{ dayOfWeek: "asc" }, { slotIndex: "asc" }],
     }),
   ]);
 
   // 聚合统计（并行执行）
+  const submissionFilter = {
+    OR: [
+      { task: { creatorId: teacherId } },
+      { taskInstance: { course: teacherCourseFilter(teacherId) } },
+    ],
+  };
   const [submittedCount, gradedCount, pendingCount] = await Promise.all([
     prisma.submission.count({
-      where: { task: { creatorId: teacherId }, status: "submitted" },
+      where: { ...submissionFilter, status: "submitted" },
     }),
     prisma.submission.count({
-      where: { task: { creatorId: teacherId }, status: "graded" },
+      where: { ...submissionFilter, status: "graded" },
     }),
     prisma.submission.count({
-      where: { task: { creatorId: teacherId }, status: { in: ["submitted", "grading"] } },
+      where: { ...submissionFilter, status: { in: ["submitted", "grading"] } },
     }),
   ]);
 
@@ -90,17 +102,24 @@ export async function getTeacherDashboard(teacherId: string) {
 // ============================================
 export async function getStudentDashboard(studentId: string, classId: string) {
   const [courses, taskInstances, mySubmissions, announcements, scheduleSlots] = await Promise.all([
-    // 本班课程
+    // 本班课程（包含通过 CourseClass 关联的课程）
     prisma.course.findMany({
-      where: { classId },
-      include: { class: { select: { id: true, name: true } } },
+      where: {
+        OR: [{ classId }, { classes: { some: { classId } } }],
+      },
+      include: {
+        class: { select: { id: true, name: true } },
+        classes: { include: { class: { select: { id: true, name: true } } } },
+      },
       orderBy: { createdAt: "desc" },
     }),
-    // 已发布的任务实例
+    // 已发布的任务实例（包含通过 CourseClass 关联的课程任务）
     prisma.taskInstance.findMany({
       where: {
-        classId,
-        status: "published",
+        OR: [
+          { classId, status: "published" },
+          { course: { classes: { some: { classId } } }, status: "published" },
+        ],
       },
       include: {
         task: { select: { id: true, taskName: true, taskType: true } },
@@ -125,10 +144,12 @@ export async function getStudentDashboard(studentId: string, classId: string) {
       },
       orderBy: { submittedAt: "desc" },
     }),
-    // 公告
+    // 公告（包含通过 CourseClass 关联的课程公告）
     prisma.announcement.findMany({
       where: {
-        course: { classId },
+        course: {
+          OR: [{ classId }, { classes: { some: { classId } } }],
+        },
         status: "published",
       },
       include: {
@@ -138,9 +159,9 @@ export async function getStudentDashboard(studentId: string, classId: string) {
       orderBy: { createdAt: "desc" },
       take: 10,
     }),
-    // 课表
+    // 课表（包含通过 CourseClass 关联的课程课表）
     prisma.scheduleSlot.findMany({
-      where: { course: { classId } },
+      where: { course: { OR: [{ classId }, { classes: { some: { classId } } }] } },
       include: {
         course: { select: { courseTitle: true, classId: true, semesterStartDate: true } },
       },

@@ -38,6 +38,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+interface CourseClassItem {
+  id: string;
+  classId: string;
+  class: { id: string; name: string };
+}
+
 interface Course {
   id: string;
   courseTitle: string;
@@ -48,6 +54,7 @@ interface Course {
     id: string;
     name: string;
   };
+  classes?: CourseClassItem[];
 }
 
 interface ClassItem {
@@ -285,11 +292,20 @@ export default function TeacherCoursesPage() {
                     {course.description}
                   </p>
                 )}
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="flex items-center gap-1">
-                    <Users className="size-3" />
-                    {course.class.name}
-                  </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {course.classes && course.classes.length > 0 ? (
+                    course.classes.map((cc) => (
+                      <Badge key={cc.id} variant="secondary" className="flex items-center gap-1">
+                        <Users className="size-3" />
+                        {cc.class.name}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <Users className="size-3" />
+                      {course.class.name}
+                    </Badge>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     创建于 {new Date(course.createdAt).toLocaleDateString("zh-CN")}
                   </span>

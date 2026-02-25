@@ -13,6 +13,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+interface CourseClassItem {
+  id: string;
+  classId: string;
+  class: { id: string; name: string };
+}
+
 interface Course {
   id: string;
   courseTitle: string;
@@ -23,6 +29,7 @@ interface Course {
     id: string;
     name: string;
   };
+  classes?: CourseClassItem[];
 }
 
 export default function StudentCoursesPage() {
@@ -107,11 +114,20 @@ export default function StudentCoursesPage() {
                     {course.description}
                   </p>
                 )}
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="flex items-center gap-1">
-                    <Users className="size-3" />
-                    {course.class.name}
-                  </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {course.classes && course.classes.length > 0 ? (
+                    course.classes.map((cc) => (
+                      <Badge key={cc.id} variant="secondary" className="flex items-center gap-1">
+                        <Users className="size-3" />
+                        {cc.class.name}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <Users className="size-3" />
+                      {course.class.name}
+                    </Badge>
+                  )}
                 </div>
                 <Button variant="outline" className="w-full" asChild>
                   <Link href={`/courses/${course.id}`}>进入课程</Link>

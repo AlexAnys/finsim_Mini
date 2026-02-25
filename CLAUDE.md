@@ -92,7 +92,7 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 1. Present plan first, don't write code until confirmed
 2. After each feature: run `npx tsc --noEmit` (full type check)
 3. Keep each diff under 150 lines
-4. After editing `schema.prisma`: **must** `npx prisma generate` and restart dev server
+4. After editing `schema.prisma`: **must** `npx prisma migrate dev` + `npx prisma generate` + **kill & restart dev server** + 验证页面正常加载（不能跳过重启！）
 5. Each session ends with: list all modified files
 6. If unsure, switch to Plan Mode: explore + propose plan before editing.
 
@@ -122,7 +122,7 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 
 ### Prisma Gotchas
 
-- After editing `schema.prisma`: **must** `npx prisma generate`, then **restart dev server** — old client is cached in memory
+- **⚠️ CRITICAL — 已多次导致 500 错误**: 编辑 `schema.prisma` 后，必须执行完整三步：`npx prisma migrate dev` → `npx prisma generate` → **杀掉并重启 dev server**。仅 generate 不够，运行中的 dev server 内存里缓存了旧 client，新的 model/relation 会导致运行时 500 错误，而 `tsc --noEmit` 不会报错。**在完成所有代码改动之后、告知用户"完成"之前，必须重启 dev server 并验证页面能正常加载。**
 - Every nested relation referenced in frontend (e.g., `task.analytics`, `task.chapter`) **must** be explicitly included in the Prisma query's `include`
 - `npx tsc --noEmit` passes even when Prisma runtime fields are wrong — always verify queries actually run
 - When adding `include`/`select` fields, verify the field name exists in `schema.prisma`

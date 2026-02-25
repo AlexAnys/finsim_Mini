@@ -138,6 +138,7 @@ model User {
   analysisReports    AnalysisReport[]     @relation("ReportCreator")
   importJobs         ImportJob[]          @relation("ImportTeacher")
   auditLogs          AuditLog[]           @relation("AuditActor")
+  collaboratingCourses CourseTeacher[]    @relation("CourseCollaborator")
 
   @@index([role])
   @@index([classId])
@@ -159,6 +160,7 @@ model Class {
   creator        User           @relation("ClassCreator", fields: [createdBy], references: [id])
   students       User[]
   courses        Course[]
+  courseClasses   CourseClass[] @relation("ClassCourses")
   taskInstances  TaskInstance[]
   studentGroups  StudentGroup[]
 
@@ -188,6 +190,8 @@ model Course {
   taskInstances  TaskInstance[]
   announcements  Announcement[]
   scheduleSlots  ScheduleSlot[]
+  teachers       CourseTeacher[]
+  classes        CourseClass[] @relation("CourseClasses")
 
   @@index([classId])
   @@index([createdBy])
@@ -781,4 +785,36 @@ model AuditLog {
   @@index([actorId])
   @@index([action])
   @@index([createdAt])
+}
+
+// ============================================
+// 表 32: CourseTeacher（课程协作教师）
+// ============================================
+model CourseTeacher {
+  id        String   @id @default(uuid())
+  courseId   String
+  teacherId  String
+  createdAt DateTime @default(now())
+
+  course  Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacher User   @relation("CourseCollaborator", fields: [teacherId], references: [id])
+
+  @@unique([courseId, teacherId])
+  @@index([teacherId])
+}
+
+// ============================================
+// 表 33: CourseClass（课程班级关联）
+// ============================================
+model CourseClass {
+  id        String   @id @default(uuid())
+  courseId   String
+  classId    String
+  createdAt DateTime @default(now())
+
+  course  Course @relation("CourseClasses", fields: [courseId], references: [id], onDelete: Cascade)
+  class   Class  @relation("ClassCourses", fields: [classId], references: [id])
+
+  @@unique([courseId, classId])
+  @@index([classId])
 }

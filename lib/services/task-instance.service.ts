@@ -1,5 +1,15 @@
 import { prisma } from "@/lib/db/prisma";
+import { teacherCourseFilter } from "@/lib/services/course.service";
 import type { CreateTaskInstanceInput, UpdateTaskInstanceInput } from "@/lib/validators/task.schema";
+
+async function isAuthorizedForInstance(instance: { createdBy: string; courseId: string | null }, userId: string): Promise<boolean> {
+  if (instance.createdBy === userId) return true;
+  if (!instance.courseId) return false;
+  const collab = await prisma.courseTeacher.findUnique({
+    where: { courseId_teacherId: { courseId: instance.courseId, teacherId: userId } },
+  });
+  return !!collab;
+}
 
 export async function createTaskInstance(createdBy: string, input: CreateTaskInstanceInput) {
   return prisma.taskInstance.create({
@@ -42,7 +52,7 @@ export async function publishTaskInstance(instanceId: string, createdBy: string)
     },
   });
 
-  if (!instance || instance.createdBy !== createdBy) {
+  if (!instance || !(await isAuthorizedForInstance(instance, createdBy))) {
     throw new Error("FORBIDDEN");
   }
   if (instance.status !== "draft") {
@@ -73,7 +83,12 @@ export async function getTaskInstances(filters: {
       ...(filters.courseId && { courseId: filters.courseId }),
       ...(filters.classId && { classId: filters.classId }),
       ...(filters.status && { status: filters.status as "draft" | "published" | "closed" | "archived" }),
-      ...(filters.createdBy && { createdBy: filters.createdBy }),
+      ...(filters.createdBy && {
+        OR: [
+          { createdBy: filters.createdBy },
+          { course: teacherCourseFilter(filters.createdBy) },
+        ],
+      }),
     },
     include: {
       task: { select: { id: true, taskName: true, taskType: true } },
@@ -113,7 +128,7 @@ export async function updateTaskInstance(
   input: UpdateTaskInstanceInput
 ) {
   const existing = await prisma.taskInstance.findUnique({ where: { id: instanceId } });
-  if (!existing || existing.createdBy !== createdBy) {
+  if (!existing || !(await isAuthorizedForInstance(existing, createdBy))) {
     throw new Error("FORBIDDEN");
   }
 
@@ -133,7 +148,7 @@ export async function updateTaskInstance(
 
 export async function deleteTaskInstance(instanceId: string, createdBy: string) {
   const existing = await prisma.taskInstance.findUnique({ where: { id: instanceId } });
-  if (!existing || existing.createdBy !== createdBy) {
+  if (!existing || !(await isAuthorizedForInstance(existing, createdBy))) {
     throw new Error("FORBIDDEN");
   }
   return prisma.taskInstance.delete({ where: { id: instanceId } });

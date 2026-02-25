@@ -8,8 +8,6 @@ import {
   BookOpen,
   Trophy,
   Bot,
-  BarChart3,
-  Megaphone,
   LogOut,
   Menu,
   GraduationCap,
@@ -47,8 +45,6 @@ const teacherNav: NavItem[] = [
   { label: "课程管理", href: "/teacher/courses", icon: BookOpen },
   { label: "课表管理", href: "/teacher/schedule", icon: CalendarDays },
   { label: "班级管理", href: "/teacher/groups", icon: Users },
-  { label: "数据分析", href: "/teacher/analytics", icon: BarChart3 },
-  { label: "公告管理", href: "/teacher/announcements", icon: Megaphone },
   { label: "AI 助手", href: "/teacher/ai-assistant", icon: Bot },
 ];
 

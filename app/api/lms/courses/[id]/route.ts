@@ -23,6 +23,7 @@ const patchSchema = z.object({
   semesterStartDate: z.string().datetime().optional(),
   courseTitle: z.string().min(1).optional(),
   description: z.string().optional(),
+  classId: z.string().uuid().optional(),
 }).refine(data => Object.keys(data).length > 0, { message: "至少提供一个字段" });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -43,6 +44,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     if (parsed.data.courseTitle) updateData.courseTitle = parsed.data.courseTitle;
     if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
+    if (parsed.data.classId) updateData.classId = parsed.data.classId;
 
     const updated = await prisma.course.update({ where: { id }, data: updateData });
     return success(updated);
