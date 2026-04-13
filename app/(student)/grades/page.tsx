@@ -200,30 +200,42 @@ export default function StudentGradesPage() {
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">总提交数</CardTitle>
-            <FileText className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{submissions.length}</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">总提交数</p>
+                <p className="text-2xl font-bold mt-1">{submissions.length}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText className="h-5 w-5 text-primary" />
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">已批改</CardTitle>
-            <Trophy className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{gradedSubmissions.length}</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">已批改</p>
+                <p className="text-2xl font-bold mt-1">{gradedSubmissions.length}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Trophy className="h-5 w-5 text-primary" />
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">平均分</CardTitle>
-            <Trophy className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{avgScore}%</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">平均分</p>
+                <p className="text-2xl font-bold mt-1">{avgScore}%</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Trophy className="h-5 w-5 text-primary" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

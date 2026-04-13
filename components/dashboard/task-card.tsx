@@ -27,15 +27,15 @@ const taskTypeLabels: Record<string, string> = {
 };
 
 const taskTypeColors: Record<string, string> = {
-  simulation: "bg-purple-50 text-purple-700 border-purple-200",
-  quiz: "bg-blue-50 text-blue-700 border-blue-200",
-  subjective: "bg-teal-50 text-teal-700 border-teal-200",
+  simulation: "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800",
+  quiz: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800",
+  subjective: "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800",
 };
 
 const taskTypeIconColors: Record<string, string> = {
-  simulation: "bg-purple-50 text-purple-600",
-  quiz: "bg-blue-50 text-blue-600",
-  subjective: "bg-teal-50 text-teal-600",
+  simulation: "bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300",
+  quiz: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300",
+  subjective: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300",
 };
 
 const taskTypeIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -101,7 +101,7 @@ export function TaskCard({ task, role }: TaskCardProps) {
       task.latestScore !== undefined;
 
     const isGraded = task.studentStatus === "graded";
-    const cardClass = isGraded ? "py-3 gap-2 bg-green-50 border-green-200" : "py-3 gap-2";
+    const cardClass = isGraded ? "py-3 gap-2 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800" : "py-3 gap-2";
 
     const taskHref = taskType === "simulation" ? `/sim/${task.id}` : `/tasks/${task.id}`;
 
@@ -192,12 +192,12 @@ export function TaskCard({ task, role }: TaskCardProps) {
   const completionRate = studentCount > 0 ? Math.round((submissionCount / studentCount) * 100) : 0;
 
   const completionBarColor =
-    completionRate >= 70
-      ? "bg-green-500"
-      : completionRate >= 30
-        ? "bg-orange-400"
+    completionRate >= 80
+      ? "bg-emerald-500"
+      : completionRate >= 60
+        ? "bg-yellow-500"
         : completionRate > 0
-          ? "bg-red-400"
+          ? "bg-red-500"
           : "bg-muted-foreground/30";
 
   // Build subtitle parts: chapter · section · slot · class
@@ -278,7 +278,7 @@ export function TaskCard({ task, role }: TaskCardProps) {
         {/* Col 4: Progress (fixed width) */}
         {studentCount > 0 ? (
           <div className="shrink-0 w-28 flex items-center gap-2">
-            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${completionBarColor}`}
                 style={{ width: `${Math.max(completionRate, 3)}%` }}

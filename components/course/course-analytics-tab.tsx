@@ -11,7 +11,7 @@ import {
   ChevronDown,
   TrendingDown,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -400,9 +400,12 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
   // --- Empty state ---
   if (instanceStats.length === 0) {
     return (
-      <div className="text-center py-12">
-        <BarChart3 className="size-10 text-muted-foreground mx-auto" />
-        <p className="mt-2 text-sm text-muted-foreground">暂无分析数据</p>
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
+          <BarChart3 className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-medium mb-1">暂无分析数据</h3>
+        <p className="text-sm text-muted-foreground max-w-sm">发布任务并收到学生提交后，这里将显示分析数据</p>
       </div>
     );
   }
@@ -421,39 +424,55 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
       {/* ========== 1. Course-level Summary Cards ========== */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">任务总数</CardTitle>
-            <BarChart3 className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{instanceStats.length}</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">任务总数</p>
+                <p className="text-2xl font-bold mt-1">{instanceStats.length}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <BarChart3 className="h-5 w-5 text-primary" />
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">总提交</CardTitle>
-            <Users className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalSubmissions}</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">总提交</p>
+                <p className="text-2xl font-bold mt-1">{totalSubmissions}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">已批改</CardTitle>
-            <TrendingUp className="size-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{totalGraded}</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">已批改</p>
+                <p className="text-2xl font-bold mt-1">{totalGraded}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">均分</CardTitle>
-            <Award className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{overallAvg}</div>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">均分</p>
+                <p className="text-2xl font-bold mt-1">{overallAvg}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Award className="h-5 w-5 text-primary" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -88,7 +88,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full flex-col">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2.5 px-6">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <GraduationCap className="size-5" />
         </div>
         <span className="text-xl font-bold tracking-tight text-foreground">
@@ -111,14 +111,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-blue-50 text-blue-700"
+                  ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
               )}
             >
               <item.icon
                 className={cn(
                   "size-5 shrink-0",
-                  isActive ? "text-blue-600" : ""
+                  isActive ? "text-primary" : ""
                 )}
               />
               {item.label}
@@ -131,7 +131,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mt-auto border-t p-4">
         <div className="flex items-center gap-3">
           <Avatar size="default">
-            <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-medium">
+            <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
               {getInitials(user?.name)}
             </AvatarFallback>
           </Avatar>
@@ -182,7 +182,7 @@ export function Sidebar() {
           </SheetContent>
         </Sheet>
         <div className="ml-3 flex items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-md bg-blue-600 text-white">
+          <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <GraduationCap className="size-4" />
           </div>
           <span className="text-lg font-bold">FinSim</span>

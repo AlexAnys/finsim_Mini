@@ -113,9 +113,12 @@ export function Timeline({ items, role, filter = "all" }: TimelineProps) {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-        <CalendarDays className="size-12 mb-3 opacity-40" />
-        <p className="text-sm">暂无任务或公告</p>
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
+          <CalendarDays className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-medium mb-1">暂无任务或公告</h3>
+        <p className="text-sm text-muted-foreground max-w-sm">当前没有待办任务或公告信息</p>
       </div>
     );
   }
@@ -142,7 +145,7 @@ export function Timeline({ items, role, filter = "all" }: TimelineProps) {
                 <div
                   className={`shrink-0 w-[90px] text-right text-sm font-medium ${
                     isToday
-                      ? "text-blue-600"
+                      ? "text-primary"
                       : isPast
                         ? "text-muted-foreground"
                         : "text-foreground"
@@ -156,7 +159,7 @@ export function Timeline({ items, role, filter = "all" }: TimelineProps) {
                   <div
                     className={`size-3 rounded-full border-2 ${
                       isToday
-                        ? "border-blue-500 bg-blue-500"
+                        ? "border-primary bg-primary"
                         : isPast
                           ? "border-muted-foreground/40 bg-muted"
                           : "border-border bg-background"
@@ -165,7 +168,7 @@ export function Timeline({ items, role, filter = "all" }: TimelineProps) {
                 </div>
 
                 {isToday && (
-                  <Badge className="bg-blue-500 text-white text-[10px] px-2 py-0">
+                  <Badge className="bg-primary text-primary-foreground text-[10px] px-2 py-0">
                     {formatDateGroup(group.dateStr)}
                   </Badge>
                 )}

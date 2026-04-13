@@ -1186,10 +1186,10 @@ export default function TeacherCourseDetailPage() {
       </div>
 
       {/* Course Header */}
-      <div className="rounded-lg bg-gradient-to-r from-blue-50 to-blue-100/50 p-6 dark:from-blue-950/30 dark:to-blue-900/20">
+      <div className="rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 p-6 dark:from-primary/10 dark:to-primary/5">
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
-          <div className="flex size-12 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300">
+          <div className="flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <BookOpen className="size-6" />
           </div>
           <div>
@@ -1347,10 +1347,12 @@ export default function TeacherCourseDetailPage() {
       {/* Course Matrix */}
       {course.chapters.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <BookOpen className="size-12 text-muted-foreground" />
-            <p className="mt-4 text-muted-foreground">暂无章节</p>
-            <p className="text-sm text-muted-foreground">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
+              <BookOpen className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-medium mb-1">暂无章节</h3>
+            <p className="text-sm text-muted-foreground max-w-sm">
               点击上方按钮添加第一个章节
             </p>
           </CardContent>
