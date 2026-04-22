@@ -1,0 +1,7 @@
+timestamp	unit	round	verdict	cost_usd	description	git_commit
+2026-04-22T02:23:31Z	harness-upgrade	r1	DONE	0.00	C方案(P0+P1+P2)全量升级：permissionMode/gstack融入/SessionStart/Harness表/progress+HANDOFF	-
+2026-04-22T04:00:18Z	ultrareview-scan	r1	DONE	0.00	8 findings 分级：3 P0 / 3 P1 / 2 P2；已写 spec.md 分 3 PR 修	-
+2026-04-22T04:20:00Z	pr-fix-1	r1	PASS	0.00	B1 assertCourseAccess+classId 删;B2 student dashboard taskInstance 去 OR;B3 removeCourseClass guard+UI;9/9 tests 绿;tsc 0 errs	-
+2026-04-22T04:40:00Z	pr-fix-2	r1	PASS	0.00	B4 teacher dashboard OR;B5 schedule+announcement courseClassFilter helper;B6 backfill migration+UI fallback;15/15 tests;tsc 0;live 401+200 probes clean	-
+2026-04-22T05:00:00Z	pr-fix-3	r1	PASS	0.00	B7 Promise.all 并行/api/submissions;B8 buildStudentRanking 过滤 gradedCount=0+新增已批改列;20/20 tests;tsc 0;纯前端无 DB/auth 改动	-
+2026-04-22T07:04:53Z	live-browser-qa	r1	PASS	0.00	5/5 场景浏览器实测 PASS: B4 测验4/B5 API JSON 确认/B6 fallback+多班 badge/B7 7 req ~200ms 并行/B8 已批改列+过滤	-

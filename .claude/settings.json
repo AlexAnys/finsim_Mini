@@ -1,0 +1,27 @@
+{
+  "agent": "coordinator",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "You are a QA gate for finsim. Check git diff for uncommitted changes. Verify: (1) No obvious bugs or broken imports (2) If Prisma schema changed, confirm migrate+generate were run and flag that dev server needs restart (3) If service interfaces changed, check that all callers were updated (4) UI text is Simplified Chinese, not English (5) Route handlers have no business logic (6) Changes match the plan in .harness/spec.md if it exists (7) If UI/routing/CSS changed, flag that qa agent should run /qa-only browser verification. Respond {\"ok\": true} or {\"ok\": false, \"reason\": \"specifics\"}. $ARGUMENTS",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '## Finsim Harness Active\\n'; printf 'Roles: coordinator(plan) -> builder(impl) -> qa(verify, uses /qa-only for UI)\\n'; printf 'Auto-QA: Stop hook runs independent gate on every response\\n'; printf -- '---\\n'; printf 'Recent commits:\\n'; git -C \"$CLAUDE_PROJECT_DIR\" log --oneline -5 2>/dev/null || true; printf -- '---\\n'; if [ -f \"$CLAUDE_PROJECT_DIR/.harness/progress.tsv\" ]; then printf 'Last QA rounds (progress.tsv tail):\\n'; tail -5 \"$CLAUDE_PROJECT_DIR/.harness/progress.tsv\" 2>/dev/null; printf -- '---\\n'; fi; printf 'Current spec (.harness/spec.md tail):\\n'; tail -20 \"$CLAUDE_PROJECT_DIR/.harness/spec.md\" 2>/dev/null || printf '(no spec)\\n'; if [ -f \"$CLAUDE_PROJECT_DIR/.harness/HANDOFF.md\" ]; then printf -- '---\\n'; printf 'HANDOFF note:\\n'; cat \"$CLAUDE_PROJECT_DIR/.harness/HANDOFF.md\" 2>/dev/null; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

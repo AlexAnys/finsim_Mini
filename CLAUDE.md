@@ -6,6 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 FinSim is a financial education platform for Chinese university courses. Core loop: teacher creates tasks → students complete them → AI grades → analytics flow back to teacher. All UI text is in Simplified Chinese.
 
+## Harness
+
+本项目使用 coordinator / builder / qa 三角色 Agent Team（定义在 `.claude/agents/`）：
+
+| 角色 | 产出 | 读什么 | 工具范围 |
+|---|---|---|---|
+| coordinator | `.harness/spec.md`（计划 + acceptance criteria） | 用户意图、CLAUDE.md、`.harness/` 全部 | Agent/TeamCreate/SendMessage/Task*/Read/Write/Bash |
+| builder | `.harness/reports/build_{unit}_r{N}.md` | spec.md、现有代码、gstack `/investigate`（debug 用） | Read/Write/Edit/Bash + SendMessage |
+| qa | `.harness/reports/qa_{unit}_r{N}.md` | spec.md、build 报告、**gstack `/qa-only` 真浏览器**、`/cso`（安全类改动） | Read/Write/Bash + SendMessage（**无 Edit**）|
+
+**自动 QA**：`.claude/settings.json` 的 Stop hook 在每次 Claude 回复结束时触发独立 QA gate，检查 git diff 是否符合 spec + finsim 规则（Prisma 三步、Service interface 全同步、中文 UI、Route Handler 无业务逻辑）。
+
+**Dynamic exit**：两次连续 PASS 即收工；同一 FAIL 三连即回 spec 重规划，不硬磨。
+
+**Progress tracking**：`.harness/progress.tsv` 每轮 QA 追加一行；跨会话续工用 `.harness/HANDOFF.md`（由 coordinator 在会话结束前更新，SessionStart hook 自动在新会话显示）。
+
 ## Commands
 
 ```bash
@@ -93,8 +109,9 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 2. After each feature: run `npx tsc --noEmit` (full type check)
 3. Keep each diff under 150 lines
 4. After editing `schema.prisma`: **must** `npx prisma migrate dev` + `npx prisma generate` + **kill & restart dev server** + 验证页面正常加载（不能跳过重启！）
-5. Each session ends with: list all modified files
+5. Each session ends with: list all modified files + update `.harness/HANDOFF.md` if work spans sessions
 6. If unsure, switch to Plan Mode: explore + propose plan before editing.
+7. **Model upgrade review** — 每次 Claude 模型升级后，回看 `.claude/agents/` 定义 + Stop/SessionStart hooks + `.harness/` 结构，删掉不再增值的脚手架，追加一行到 `.harness/progress.tsv`（unit=harness-upgrade，记录删/留决策）。这是防止 harness 随模型进化持续膨胀的唯一机制。
 
 ### Anti-Regression Rules
 
@@ -107,6 +124,7 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 ### Bug Fix Rule
 
 - **Fix root causes, never bypass**: trace the failing code path, repair it, verify the original path works. Workarounds (e.g. replacing `router.push` with `window.location.href`) are not fixes.
+- 若走不通，builder 调用 gstack `/investigate` 做结构化根因追查，不用 workaround。
 
 ### Code Standards
 
@@ -124,7 +142,7 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 
 - **⚠️ CRITICAL — 已多次导致 500 错误**: 编辑 `schema.prisma` 后，必须执行完整三步：`npx prisma migrate dev` → `npx prisma generate` → **杀掉并重启 dev server**。仅 generate 不够，运行中的 dev server 内存里缓存了旧 client，新的 model/relation 会导致运行时 500 错误，而 `tsc --noEmit` 不会报错。**在完成所有代码改动之后、告知用户"完成"之前，必须重启 dev server 并验证页面能正常加载。**
 - Every nested relation referenced in frontend (e.g., `task.analytics`, `task.chapter`) **must** be explicitly included in the Prisma query's `include`
-- `npx tsc --noEmit` passes even when Prisma runtime fields are wrong — always verify queries actually run
+- `npx tsc --noEmit` passes even when Prisma runtime fields are wrong — always verify queries actually run（qa 用 `/qa-only` 真加载页面验证）
 - When adding `include`/`select` fields, verify the field name exists in `schema.prisma`
 
 ### Testing Strategy
