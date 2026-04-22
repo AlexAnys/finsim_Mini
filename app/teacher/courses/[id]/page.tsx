@@ -1203,19 +1203,30 @@ export default function TeacherCourseDetailPage() {
               </p>
             )}
             <div className="mt-2 flex items-center gap-2 flex-wrap">
-              {/* Multi-class badges */}
-              {courseClasses.map((cc) => (
-                <Badge key={cc.id} variant="secondary" className="flex items-center gap-1">
+              {/* Multi-class badges — 若 CourseClass 为空（历史课未回填），退化显示主班 */}
+              {courseClasses.length === 0 && course.class && (
+                <Badge variant="secondary" className="flex items-center gap-1">
                   <Users className="size-3" />
-                  {cc.class.name}
-                  <button
-                    onClick={() => handleRemoveClass(cc.classId)}
-                    className="ml-0.5 hover:text-destructive"
-                  >
-                    <X className="size-2.5" />
-                  </button>
+                  {course.class.name}
                 </Badge>
-              ))}
+              )}
+              {courseClasses.map((cc) => {
+                const isPrimary = cc.classId === course.class.id;
+                return (
+                  <Badge key={cc.id} variant="secondary" className="flex items-center gap-1">
+                    <Users className="size-3" />
+                    {cc.class.name}
+                    {!isPrimary && (
+                      <button
+                        onClick={() => handleRemoveClass(cc.classId)}
+                        className="ml-0.5 hover:text-destructive"
+                      >
+                        <X className="size-2.5" />
+                      </button>
+                    )}
+                  </Badge>
+                );
+              })}
               <Badge
                 variant="outline"
                 className="cursor-pointer hover:bg-muted text-muted-foreground"

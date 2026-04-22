@@ -5,6 +5,17 @@ import { success, notFound, validationError, handleServiceError } from "@/lib/ap
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 
+async function assertCourseAccess(courseId: string, userId: string, userRole: string) {
+  if (userRole === "admin") return;
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course) throw new Error("COURSE_NOT_FOUND");
+  if (course.createdBy === userId) return;
+  const ct = await prisma.courseTeacher.findUnique({
+    where: { courseId_teacherId: { courseId, teacherId: userId } },
+  });
+  if (!ct) throw new Error("FORBIDDEN");
+}
+
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const result = await requireAuth();
   if (result.error) return result.error;
@@ -23,7 +34,6 @@ const patchSchema = z.object({
   semesterStartDate: z.string().datetime().optional(),
   courseTitle: z.string().min(1).optional(),
   description: z.string().optional(),
-  classId: z.string().uuid().optional(),
 }).refine(data => Object.keys(data).length > 0, { message: "至少提供一个字段" });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -32,6 +42,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   try {
     const { id } = await params;
+    await assertCourseAccess(id, result.session.user.id, result.session.user.role);
+
     const body = await request.json();
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
@@ -44,7 +56,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     if (parsed.data.courseTitle) updateData.courseTitle = parsed.data.courseTitle;
     if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
-    if (parsed.data.classId) updateData.classId = parsed.data.classId;
 
     const updated = await prisma.course.update({ where: { id }, data: updateData });
     return success(updated);

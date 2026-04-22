@@ -40,6 +40,18 @@ export function handleServiceError(err: unknown) {
     switch (err.message) {
       case "FORBIDDEN":
         return forbidden();
+      case "COURSE_NOT_FOUND":
+        return notFound("课程不存在");
+      case "CLASS_NOT_FOUND":
+        return notFound("班级不存在");
+      case "USER_NOT_FOUND":
+        return notFound("用户不存在");
+      case "NOT_A_TEACHER":
+        return error("NOT_A_TEACHER", "该用户不是教师", 400);
+      case "ALREADY_OWNER":
+        return error("ALREADY_OWNER", "该用户已是课程创建者", 400);
+      case "CANNOT_REMOVE_PRIMARY_CLASS":
+        return error("CANNOT_REMOVE_PRIMARY_CLASS", "不能移除课程的主班级", 400);
       case "TASK_INSTANCE_NOT_FOUND":
         return notFound("任务实例不存在");
       case "TASK_NOT_PUBLISHED":

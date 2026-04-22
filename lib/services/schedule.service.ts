@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { teacherCourseFilter } from "@/lib/services/course.service";
+import { teacherCourseFilter, courseClassFilter } from "@/lib/services/course.service";
 
 export async function createScheduleSlot(data: {
   courseId: string;
@@ -23,7 +23,7 @@ export async function getScheduleSlots(filters: {
   return prisma.scheduleSlot.findMany({
     where: {
       ...(filters.courseId && { courseId: filters.courseId }),
-      ...(filters.classId && { course: { classId: filters.classId } }),
+      ...(filters.classId && { course: courseClassFilter(filters.classId) }),
       ...(filters.teacherId && { course: teacherCourseFilter(filters.teacherId) }),
     },
     include: {

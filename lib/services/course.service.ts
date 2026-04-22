@@ -9,6 +9,11 @@ export function teacherCourseFilter(teacherId: string): Prisma.CourseWhereInput 
   return { OR: [{ createdBy: teacherId }, { teachers: { some: { teacherId } } }] };
 }
 
+// 班级课程过滤器：命中主班（Course.classId）或通过 CourseClass 关联的次班
+export function courseClassFilter(classId: string): Prisma.CourseWhereInput {
+  return { OR: [{ classId }, { classes: { some: { classId } } }] };
+}
+
 // ============================================
 // 课程 CRUD
 // ============================================
@@ -94,6 +99,10 @@ export async function addCourseClass(courseId: string, classId: string) {
 }
 
 export async function removeCourseClass(courseId: string, classId: string) {
+  const course = await prisma.course.findUnique({ where: { id: courseId } });
+  if (!course) throw new Error("COURSE_NOT_FOUND");
+  if (course.classId === classId) throw new Error("CANNOT_REMOVE_PRIMARY_CLASS");
+
   return prisma.courseClass.delete({
     where: { courseId_classId: { courseId, classId } },
   });

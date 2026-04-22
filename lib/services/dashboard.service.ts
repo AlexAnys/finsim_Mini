@@ -12,9 +12,14 @@ export async function getTeacherDashboard(teacherId: string) {
       include: { class: { select: { id: true, name: true } } },
       orderBy: { createdAt: "desc" },
     }),
-    // 任务实例统计
+    // 任务实例统计（含 standalone 实例，即 courseId=null 的实例）
     prisma.taskInstance.findMany({
-      where: { course: teacherCourseFilter(teacherId) },
+      where: {
+        OR: [
+          { createdBy: teacherId },
+          { course: teacherCourseFilter(teacherId) },
+        ],
+      },
       include: {
         task: { select: { id: true, taskName: true, taskType: true } },
         class: { select: { id: true, name: true, _count: { select: { students: true } } } },
@@ -113,14 +118,9 @@ export async function getStudentDashboard(studentId: string, classId: string) {
       },
       orderBy: { createdAt: "desc" },
     }),
-    // 已发布的任务实例（包含通过 CourseClass 关联的课程任务）
+    // 已发布的任务实例（按 TaskInstance.classId 精确匹配本班，避免跨班泄露）
     prisma.taskInstance.findMany({
-      where: {
-        OR: [
-          { classId, status: "published" },
-          { course: { classes: { some: { classId } } }, status: "published" },
-        ],
-      },
+      where: { classId, status: "published" },
       include: {
         task: { select: { id: true, taskName: true, taskType: true } },
         course: { select: { id: true, courseTitle: true } },

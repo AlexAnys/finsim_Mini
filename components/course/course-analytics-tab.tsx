@@ -148,6 +148,41 @@ interface EvidenceData {
   feedback: string;
 }
 
+// Exported for testing: build the ranking list from raw submission data.
+// B8 fix: students with gradedCount === 0 are excluded so unrated students don't tie with real zeros.
+export function buildStudentRanking(
+  submissionsByInstance: Array<{ subs: Array<{ student?: { id: string; name?: string }; status: string; score?: number | null }> }>
+): StudentPerformance[] {
+  const studentMap = new Map<string, StudentPerformance>();
+  for (const { subs } of submissionsByInstance) {
+    for (const sub of subs) {
+      const student = sub.student;
+      if (!student) continue;
+      const existing = studentMap.get(student.id);
+      if (existing) {
+        existing.submissionCount++;
+        if (sub.status === "graded") {
+          existing.gradedCount++;
+          existing.avgScore =
+            (existing.avgScore * (existing.gradedCount - 1) + (sub.score || 0)) /
+            existing.gradedCount;
+        }
+      } else {
+        studentMap.set(student.id, {
+          studentId: student.id,
+          studentName: student.name || "未知",
+          submissionCount: 1,
+          avgScore: sub.score || 0,
+          gradedCount: sub.status === "graded" ? 1 : 0,
+        });
+      }
+    }
+  }
+  return Array.from(studentMap.values())
+    .filter((sp) => sp.gradedCount > 0)
+    .sort((a, b) => b.avgScore - a.avgScore);
+}
+
 const taskTypeLabels: Record<string, string> = {
   simulation: "模拟对话",
   quiz: "测验",
@@ -187,24 +222,27 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
       }
 
       const instances: InstanceItem[] = json.data || [];
-      const stats: InstanceStats[] = [];
-      const studentMap = new Map<string, StudentPerformance>();
 
-      for (const inst of instances) {
-        const subsRes = await fetch(
-          `/api/submissions?taskInstanceId=${inst.id}&pageSize=200`
-        );
-        const subsJson = await subsRes.json();
-        const subs = subsJson.data?.items || subsJson.data || [];
+      // 并行拉取每个 instance 的提交列表（B7 修复：原 for-await 串行 N+1）
+      const subsResults = await Promise.all(
+        instances.map(async (inst) => {
+          const subsRes = await fetch(
+            `/api/submissions?taskInstanceId=${inst.id}&pageSize=200`
+          );
+          const subsJson = await subsRes.json();
+          const subs = subsJson.data?.items || subsJson.data || [];
+          return { inst, subs };
+        })
+      );
 
+      const stats: InstanceStats[] = subsResults.map(({ inst, subs }) => {
         const graded = subs.filter(
           (s: { status: string }) => s.status === "graded"
         );
         const scores = graded
           .filter((s: { score: number | null }) => s.score !== null)
           .map((s: { score: number }) => s.score);
-
-        stats.push({
+        return {
           instanceId: inst.id,
           title: inst.title,
           taskType: inst.task?.taskType || inst.taskType || "",
@@ -218,36 +256,12 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
               : 0,
           maxScore: graded.length > 0 ? graded[0].maxScore || 100 : 100,
           totalStudents: subs.length,
-        });
-
-        for (const sub of subs) {
-          const student = sub.student;
-          if (!student) continue;
-          const existing = studentMap.get(student.id);
-          if (existing) {
-            existing.submissionCount++;
-            if (sub.status === "graded") {
-              existing.gradedCount++;
-              existing.avgScore =
-                (existing.avgScore * (existing.gradedCount - 1) + (sub.score || 0)) /
-                existing.gradedCount;
-            }
-          } else {
-            studentMap.set(student.id, {
-              studentId: student.id,
-              studentName: student.name || "未知",
-              submissionCount: 1,
-              avgScore: sub.score || 0,
-              gradedCount: sub.status === "graded" ? 1 : 0,
-            });
-          }
-        }
-      }
+        };
+      });
 
       setInstanceStats(stats);
-      setStudentPerformance(
-        Array.from(studentMap.values()).sort((a, b) => b.avgScore - a.avgScore)
-      );
+      // B8 修复：ranking 过滤掉 gradedCount === 0 的学生（见 buildStudentRanking 定义）
+      setStudentPerformance(buildStudentRanking(subsResults));
     } catch {
       toast.error("网络错误，请稍后重试");
     } finally {
@@ -690,6 +704,7 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
                     <TableHead className="w-16">排名</TableHead>
                     <TableHead>学生</TableHead>
                     <TableHead>提交次数</TableHead>
+                    <TableHead>已批改</TableHead>
                     <TableHead>平均分</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -710,6 +725,9 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
                         {student.studentName}
                       </TableCell>
                       <TableCell>{student.submissionCount}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {student.gradedCount}
+                      </TableCell>
                       <TableCell>
                         <span className="font-mono font-medium">
                           {Math.round(student.avgScore)}

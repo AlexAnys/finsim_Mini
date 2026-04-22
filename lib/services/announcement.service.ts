@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { courseClassFilter } from "@/lib/services/course.service";
 
 export async function createAnnouncement(data: {
   courseId: string;
@@ -36,7 +37,7 @@ export async function getAnnouncements(filters: {
   return prisma.announcement.findMany({
     where: {
       ...(filters.courseId && { courseId: filters.courseId }),
-      ...(filters.classId && { course: { classId: filters.classId } }),
+      ...(filters.classId && { course: courseClassFilter(filters.classId) }),
       ...(filters.status && { status: filters.status as "published" | "draft" | "archived" }),
     },
     include: {
