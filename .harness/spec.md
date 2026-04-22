@@ -1,100 +1,78 @@
-# Spec — Ultrareview Findings (2026-04-22)
+# Spec — 课表管理日历化改进（方案 C，2026-04-23）
 
-## Background
+## What the user asked for
 
-`/ultrareview` 扫描 main 分支，26 files changed 范围内返回 **8 个 findings**，集中在 2 个最近 PR 的回归面：
-- `bcda6c8 feat: 课程多班级支持 + 协作教师按钮优化 + CourseTeacher/CourseClass 模型`
-- `23435b9 refactor: 课程详情页 Tabs 工作台 + 实例页精简 + 注册 404 修复`
+> 课表问题：
+> 1. 老师/管理员可以设置每学期起始日（让系统知道第一周是哪周，这样单双周对应的具体日期正确）
+> 2. 是否增加日历部分，显示当前周数 + 本周课程安排
+> 不确定怎么整合呈现比较好
 
-这些 bug 已在 main（即生产路径），不是 PR-gate，但多数影响真实用户数据。
+## 决议方案：C — Tab 整合，Schema 零改
 
-## Findings 分级
+### 现状（已有基础）
+- `Course.semesterStartDate` 字段已在 schema
+- `ScheduleSlot` 有 startWeek/endWeek + weekType(all/odd/even)
+- `getCurrentWeekNumber()` + `isSlotActiveForWeek()` 算法已在老师/学生 dashboard 使用
+- 老师在"课程详情页"已可设学期开始日期
 
-### 🔴 P0 — 安全 / 数据一致性 blocker（必修，单独 PR）
+### 新做
+`/teacher/schedule` 和 `/schedule`（学生）顶部加 3 Tab：
 
-**B1. PATCH `/api/lms/courses/[id]` 缺 ownership check + `classId` drift**（merged_bug_001）
-- 文件：`app/api/lms/courses/[id]/route.ts:44-50`
-- 问题 1（IDOR）：`requireRole(["teacher","admin"])` 后直接 `prisma.course.update`，无 `assertCourseAccess`——**任何老师可改任何课的 title/classId**。同 PR 的兄弟路由 `classes/route.ts`、`teachers/route.ts` 已正确防护，就是这个路由漏了。
-- 问题 2：`patchSchema` 新加的 `classId` 字段改 `Course.classId` 但不同步 `CourseClass` 表 → 两边永久 drift。
-- 修：调 `assertCourseAccess` + 从 schema 删 `classId`（改主班走 CourseClass API）。
+| Tab | 内容 | 痛点 |
+|---|---|---|
+| 本周 | 今日/本周课程卡片（课表项按 weekType + 当前周过滤）+ 本周任务截止 + 本周公告时间线 | #2 |
+| 周课表 | 保留现有 7×N 网格 | — |
+| 日历 | 月视图；每日格子标记课（色块 by 课名）/任务截止（图标）/公告（点）；点日期弹窗看详情 | #2 |
 
-**B2. 学生 dashboard 跨班数据泄露**（bug_022）
-- 文件：`lib/services/dashboard.service.ts:110-122`
-- 问题：`OR: [{ classId }, { course: { classes: { some: { classId } } }, status: 'published' }]` 第二分支**没约束 `TaskInstance.classId`**。课 X 挂了班 A 和 B，给 A 发的 task 会被 B 的学生看到 + 可提交 + 污染 analytics。
-- 修：回到 `where: { classId, status: 'published' }`，去掉第二 OR（`TaskInstance.classId` 本身已是 required，不需要课级扩展）。
+顶部固定条：`第 X 周 · 学期从 yyyy-mm-dd 开始 [编辑]`
+- "编辑"打开 dialog，批量设置（勾选多课 → 一键同步 semesterStartDate）
+- 不新建 Semester 表（沿用 Course.semesterStartDate，零迁移）
 
-**B3. `removeCourseClass` 允许删主 class 导致 dangling**（bug_005）
-- 文件：`lib/services/course.service.ts:96-100`
-- 问题：无 guard，老师在 UI 可一键删除 `Course.classId` 指向的那条 `CourseClass` → `Course.classId` 悬空。结果：原班学生仍通过 `Course.classId` 老分支看到课程，老师侧看不到徽章 → 两边永久不一致。
-- 修：事务内 reject `classId === course.classId`（UI 同步隐藏该徽章的 × 按钮），或删的同时把 `course.classId` 切到另一条。
+## Scope (拆 2 PR)
 
-### 🟡 P1 — 功能回归（应修，合成 1 PR）
+### PR-calendar-1 (P0 — 核心，~350 行)
+- **后端**：
+  - `lib/services/course.service.ts` 加 `batchUpdateSemesterStart(courseIds, startDate, userId, role)` — 每个 course 走 assertCourseAccess（非 admin 必须是 creator 或 CourseTeacher）
+  - `app/api/lms/courses/batch-semester/route.ts` 新端点，PATCH 批量
+- **前端组件**：
+  - `components/schedule/semester-header.tsx` — 顶部固定条 + 编辑 dialog（多选课程 + DatePicker）
+  - `components/schedule/this-week-tab.tsx` — 本周 Tab 内容（今日 + 本周课 + 任务 + 公告聚合）
+  - `components/schedule/schedule-grid-tab.tsx` — 抽现有周课表网格为组件
+- **页面改造**：
+  - `app/teacher/schedule/page.tsx` 改为 3 Tab shell（保留老师新增/删除 slot 功能放在"周课表" Tab 内）
+  - `app/(student)/schedule/page.tsx` 改为 3 Tab shell（学生无管理权限，只看）
+- **测试**：
+  - `tests/batch-semester.service.test.ts` — 批量更新权限检查
+  - `tests/this-week-tab.test.tsx` — 本周 Tab 过滤逻辑
 
-**B4. 老师 dashboard 丢 standalone task instances**（bug_027）
-- 文件：`lib/services/dashboard.service.ts:8-20`
-- 问题：`where: { course: teacherCourseFilter(teacherId) }` 对 `courseId=null` 的 standalone instance 一律筛掉（Prisma relation filter + null FK = 不匹配）。Draft/published count 少算，列表漏显。
-- 修：`OR: [{ createdBy: teacherId }, { course: teacherCourseFilter(teacherId) }]`（与同文件 recentSubmissions 和 `task-instance.service.ts:86-91` 一致）。
+### PR-calendar-2 (P1 — 日历视图，~200 行)
+- `components/schedule/course-calendar-tab.tsx` — 月视图（shadcn Calendar 或自画 7×6 网格）
+  - 每日格子：课程色块（by 课程唯一色）、任务 due 图标（AlertCircle）、公告小点
+  - 点日期打开 Popover/Dialog，显示当日详情
+  - 月份切换 prev/next
+- 路由不变（新 Tab 内嵌）
 
-**B5. schedule + announcement service 半迁移**（merged_bug_004）
-- 文件：`lib/services/schedule.service.ts:24-30`、`lib/services/announcement.service.ts:~39`
-- 问题：只看 `course.classId`，忽略新的 `CourseClass` 关联 → 次班学生在 dashboard 看到但在 `/schedule` / `/announcements` 页面看不到。
-- 修：复制 dashboard 里的 OR pattern，建议提取 helper `courseClassFilter(classId)` 放在 `course.service.ts` 边上，和 `teacherCourseFilter` 成对。
+## Acceptance criteria
 
-**B6. 旧课程 `CourseClass` 未 backfill + 详情页无 UI fallback**（merged_bug_003）
-- 文件：`prisma/migrations/20260225034532_add_course_class/migration.sql` + `app/teacher/courses/[id]/page.tsx:1206-1218`
-- 问题：迁移只 DDL 不 backfill；老师详情页只从 `courseClasses` 渲染徽章，`course.class.name` fallback 缺失（兄弟页面都有 fallback，就它漏了）。**后果**：每一门历史课打开后只看到"添加班级"占位，老师会以为班级数据丢了。
-- 修：两个一起做——(a) 在 migration 末尾追加 `INSERT INTO "CourseClass" SELECT ... FROM "Course" WHERE classId IS NOT NULL ON CONFLICT DO NOTHING`；(b) UI 加 `courseClasses.length === 0 && course.class` 的 fallback 分支。
-
-### 🟢 P2 — UX / 性能优化（延后，可合 1 PR）
-
-**B7. `CourseAnalyticsTab` 串行 N+1 fetch**（bug_009）
-- 文件：`components/course/course-analytics-tab.tsx:193-220`
-- 问题：`for...of await` 串行 N 个 `/api/submissions` → 20 个 task 在 150ms/req 下 ~3s 加载。Tab 已是主入口（sidebar 的"数据分析"被移除），每次打开都付全价。
-- 修：`Promise.all` 并行；更彻底的方案是加 `/api/lms/courses/:id/analytics-summary` 单端点。
-
-**B8. ranking 把未批改和 0 分混淆**（bug_020）
-- 文件：`components/course/course-analytics-tab.tsx:235-250` + 渲染表
-- 问题：学生首条 submission 未批改时 seed `{avgScore:0, gradedCount:0}`；若该生全程未批改，会以 `avgScore=0` 和真 0 分学生并列底部，且表不显 `gradedCount` 无从分辨。
-- 修：过滤 `gradedCount === 0` 出 ranking；或加"待批改"列/徽章。
-
-## Scope (按 PR 拆分)
-
-### PR-fix-1 (P0, ~5 files)
-- `app/api/lms/courses/[id]/route.ts` — 加 `assertCourseAccess` + 删 `classId` 字段
-- `lib/services/course.service.ts` — `removeCourseClass` 加 guard
-- `lib/services/dashboard.service.ts` — student dashboard 去掉第二 OR 分支
-- tests：新增 (a) 非 owner teacher PATCH 应 403；(b) 跨班 taskInstance 不出现在对方 dashboard；(c) 删主 class 应 reject
-- 验证：`tsc --noEmit` + `vitest run` + 用 `/qa-only` 手跑三个场景
-
-### PR-fix-2 (P1, ~4 files + 1 migration)
-- `lib/services/schedule.service.ts` — OR pattern
-- `lib/services/announcement.service.ts` — OR pattern
-- `lib/services/course.service.ts` — 新增 `courseClassFilter(classId)` helper
-- `lib/services/dashboard.service.ts` — teacher dashboard `getTeacherDashboard` 改 OR
-- `app/teacher/courses/[id]/page.tsx` — UI fallback
-- **新 migration** `prisma/migrations/<ts>_backfill_course_class/migration.sql`（不动旧迁移文件）backfill 历史课程
-- 验证：tsc + vitest + qa-only 验证次班学生看到 schedule/announcements、老师 dashboard 含 standalone instance、历史课详情页显示徽章
-
-### PR-fix-3 (P2, 1 file)
-- `components/course/course-analytics-tab.tsx` — Promise.all + ranking 过滤 gradedCount===0
-- 验证：qa-only 手跑 > 10 个 instance 的课，测加载时间从 ~3s 降到 < 500ms
-
-## Acceptance criteria (全 3 PR 完成后)
-
-- [ ] 非 owner teacher 调 PATCH `/api/lms/courses/[id]` 返回 403
-- [ ] 跨班学生查 `/dashboard` 不见对方班 task；查 `/tasks/{id}` 返回 403
-- [ ] 删 `Course.classId` 对应的 `CourseClass` 行返回 400（或事务切主班）
-- [ ] 老师 dashboard 的 draftCount/publishedCount 含 `courseId=null` 的 instance
-- [ ] 次班学生 `/schedule` 和 `/announcements` 返回含父课数据
-- [ ] 历史课程（PR merge 前创建）的详情页显示 ≥1 个班级徽章
-- [ ] `CourseAnalyticsTab` 打开后主要数据 < 500ms 到位（真浏览器 network 面板）
-- [ ] ranking 表不把未批改学生误排到低位
+- [ ] `/teacher/schedule` 和 `/schedule` 页顶部显示 `第 X 周 · 学期从 yyyy-mm-dd 开始`（若从未设过学期日 → 显示"请先设置学期开始日期 [设置]"按钮）
+- [ ] 点"编辑"打开批量设置 dialog，多选课程 + 选日期 + 保存，所有选中课的 `semesterStartDate` 同步到该日期
+- [ ] 非 owner/非 CourseTeacher 的老师试图批量改他人课 → 403
+- [ ] "本周" Tab 按 getCurrentWeekNumber + weekType + startWeek/endWeek 正确过滤，本周无课时显示空状态
+- [ ] "周课表" Tab 功能等价于旧 `/teacher/schedule` 和 `/schedule`，老师侧保留新增/删除 slot
+- [ ] "日历" Tab 月视图显示课/任务/公告；点日期能看详情
+- [ ] 切换月份时日历重新渲染，课程色块稳定（同课同色）
 - [ ] `tsc --noEmit` + `vitest run` 全过
+- [ ] 移动端（375×812）3 Tab 可用（响应式）
 
 ## Risks
 
-- **B1 修 classId 字段**：若前端有地方在 PATCH 里带 classId（概率低），会改受影响路径——先 grep `fetch.*courses.*PATCH` 和 `body.*classId`
-- **B2 修跨班泄露**：需确认**确实不存在**课级广播的业务场景（一个课的 task 给所有挂的班）——对照最近产品讨论，若确实支持，改为在 TaskInstance 创建时生成 N 条 per-class 实例而不是开放 filter
-- **B3 reject 主 class 删除**：UI 需隐藏该徽章的 × 按钮，否则用户体验成"点了没反应"
-- **B6 backfill migration**：生产数据量下 `INSERT ... SELECT` 对 `Course` 全表扫；预估行数 < 1k 可直接跑；> 10k 需 chunk
-- **所有 service 改**：CLAUDE.md anti-regression #8 — grep 所有 caller，确认签名/返回值不变；本次全是 where 子句内变化，不触及 service 对外接口
+- **周数计算边界**：跨年度学期（如秋季学期从 9 月到次年 1 月）时 `getCurrentWeekNumber` 需要 robust；builder 需检查现有算法
+- **课程色块冲突**：教师可能有 10+ 课，色盘需 ≥ 10 色 distinct，建议 hash(courseId) → HSL 色相均分
+- **批量更新 API**：部分失败时的返回语义（全成功 / 部分成功 / 全失败），推荐 all-or-nothing 事务
+- **性能**：月视图需查当月所有 slots + 任务 + 公告；走一个 aggregation endpoint 比 3 个 endpoint 好；若现有 endpoint 够用先拼装客户端，超 500ms 再上专用端点
+- **老师 schedule 保留增删**：不要把老师侧 slot CRUD 挪位置或简化；用户没要求改这部分
+- **Anti-regression**：`ScheduleSlot` 和 `Course.semesterStartDate` 的所有 caller 不被破坏（dashboard 依赖）
+
+## 关联历史
+- 本 session 早期刚完成 ultrareview 8 findings 修复（commit 6c35629 + f101c17）
+- 本次是 feature work，不改 ultrareview 修过的文件的核心逻辑
