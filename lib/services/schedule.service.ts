@@ -31,6 +31,7 @@ export async function getScheduleSlots(filters: {
         select: {
           courseTitle: true,
           classId: true,
+          semesterStartDate: true,
           class: { select: { name: true } },
         },
       },

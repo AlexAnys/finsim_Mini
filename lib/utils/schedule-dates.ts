@@ -2,8 +2,7 @@
  * Get the current teaching week number based on semester start date.
  * Returns 0 if semester hasn't started yet.
  */
-export function getCurrentWeekNumber(semesterStart: Date): number {
-  const now = new Date();
+export function getCurrentWeekNumber(semesterStart: Date, now: Date = new Date()): number {
   const diffMs = now.getTime() - semesterStart.getTime();
   if (diffMs < 0) return 0;
   return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;

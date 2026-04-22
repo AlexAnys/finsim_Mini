@@ -52,6 +52,8 @@ export function handleServiceError(err: unknown) {
         return error("ALREADY_OWNER", "该用户已是课程创建者", 400);
       case "CANNOT_REMOVE_PRIMARY_CLASS":
         return error("CANNOT_REMOVE_PRIMARY_CLASS", "不能移除课程的主班级", 400);
+      case "EMPTY_COURSE_LIST":
+        return error("EMPTY_COURSE_LIST", "请至少选择一门课程", 400);
       case "TASK_INSTANCE_NOT_FOUND":
         return notFound("任务实例不存在");
       case "TASK_NOT_PUBLISHED":

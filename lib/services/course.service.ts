@@ -15,6 +15,41 @@ export function courseClassFilter(classId: string): Prisma.CourseWhereInput {
 }
 
 // ============================================
+// 批量访问检查
+// ============================================
+
+/**
+ * 校验用户可访问所有给定课程。admin 直通，其他必须是 creator 或 CourseTeacher。
+ * 任一课程不可访问即抛 FORBIDDEN；课程不存在抛 COURSE_NOT_FOUND。
+ */
+export async function assertCourseAccessBulk(
+  courseIds: string[],
+  userId: string,
+  userRole: string
+) {
+  if (userRole === "admin") return;
+  if (courseIds.length === 0) return;
+
+  const courses = await prisma.course.findMany({
+    where: { id: { in: courseIds } },
+    select: { id: true, createdBy: true },
+  });
+  if (courses.length !== courseIds.length) throw new Error("COURSE_NOT_FOUND");
+
+  const nonOwned = courses.filter((c) => c.createdBy !== userId).map((c) => c.id);
+  if (nonOwned.length === 0) return;
+
+  const teacherRows = await prisma.courseTeacher.findMany({
+    where: { courseId: { in: nonOwned }, teacherId: userId },
+    select: { courseId: true },
+  });
+  const collaboratingIds = new Set(teacherRows.map((r) => r.courseId));
+  for (const cid of nonOwned) {
+    if (!collaboratingIds.has(cid)) throw new Error("FORBIDDEN");
+  }
+}
+
+// ============================================
 // 课程 CRUD
 // ============================================
 
@@ -47,6 +82,28 @@ export async function getCoursesByTeacher(teacherId: string) {
     include: { class: true, classes: { include: { class: true } } },
     orderBy: { createdAt: "desc" },
   });
+}
+
+/**
+ * 批量更新课程的学期开始日期。全成功或全失败（事务）。
+ * 任一课程无权限或不存在 → 抛错，不做任何修改。
+ */
+export async function batchUpdateSemesterStart(
+  courseIds: string[],
+  startDate: Date,
+  userId: string,
+  userRole: string
+) {
+  if (courseIds.length === 0) throw new Error("EMPTY_COURSE_LIST");
+  await assertCourseAccessBulk(courseIds, userId, userRole);
+  return prisma.$transaction(
+    courseIds.map((id) =>
+      prisma.course.update({
+        where: { id },
+        data: { semesterStartDate: startDate },
+      })
+    )
+  );
 }
 
 // ============================================
