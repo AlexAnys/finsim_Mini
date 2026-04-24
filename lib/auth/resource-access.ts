@@ -233,3 +233,62 @@ export async function assertImportJobReadable(
   if (!job) throw new Error("JOB_NOT_FOUND");
   if (job.teacherId !== user.id) throw new Error("FORBIDDEN");
 }
+
+// ============================================
+// Chapter / Section / ContentBlock (write-side guards for PR-4D1)
+// ============================================
+
+/**
+ * Assert teacher/admin can mutate a Chapter.
+ * Resolves via chapter.courseId + assertCourseAccess (owner or collab).
+ * Students are rejected outright.
+ */
+export async function assertChapterWritable(
+  chapterId: string,
+  user: UserLike,
+): Promise<void> {
+  if (user.role === "admin") return;
+  if (user.role === "student") throw new Error("FORBIDDEN");
+  const ch = await prisma.chapter.findUnique({
+    where: { id: chapterId },
+    select: { id: true, courseId: true },
+  });
+  if (!ch) throw new Error("CHAPTER_NOT_FOUND");
+  await assertCourseAccess(ch.courseId, user.id, user.role);
+}
+
+/**
+ * Assert teacher/admin can mutate a Section.
+ * Resolves via section.courseId + assertCourseAccess.
+ */
+export async function assertSectionWritable(
+  sectionId: string,
+  user: UserLike,
+): Promise<void> {
+  if (user.role === "admin") return;
+  if (user.role === "student") throw new Error("FORBIDDEN");
+  const sec = await prisma.section.findUnique({
+    where: { id: sectionId },
+    select: { id: true, courseId: true },
+  });
+  if (!sec) throw new Error("SECTION_NOT_FOUND");
+  await assertCourseAccess(sec.courseId, user.id, user.role);
+}
+
+/**
+ * Assert teacher/admin can mutate a ContentBlock.
+ * Resolves via block.courseId + assertCourseAccess.
+ */
+export async function assertContentBlockWritable(
+  blockId: string,
+  user: UserLike,
+): Promise<void> {
+  if (user.role === "admin") return;
+  if (user.role === "student") throw new Error("FORBIDDEN");
+  const block = await prisma.contentBlock.findUnique({
+    where: { id: blockId },
+    select: { id: true, courseId: true },
+  });
+  if (!block) throw new Error("BLOCK_NOT_FOUND");
+  await assertCourseAccess(block.courseId, user.id, user.role);
+}

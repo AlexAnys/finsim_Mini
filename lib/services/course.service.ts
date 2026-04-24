@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
-import type { SlotType, ContentBlockType, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { SlotType, ContentBlockType } from "@prisma/client";
 
 // ============================================
 // 协作教师过滤器
@@ -239,6 +240,21 @@ export async function getChaptersByCourse(courseId: string) {
   });
 }
 
+export async function updateChapter(
+  id: string,
+  patch: { title?: string; order?: number }
+) {
+  const data: { title?: string; order?: number } = {};
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.order !== undefined) data.order = patch.order;
+  if (Object.keys(data).length === 0) throw new Error("EMPTY_PATCH");
+  return prisma.chapter.update({ where: { id }, data });
+}
+
+export async function deleteChapter(id: string) {
+  return prisma.chapter.delete({ where: { id } });
+}
+
 // ============================================
 // 小节 CRUD
 // ============================================
@@ -251,6 +267,21 @@ export async function createSection(data: {
   createdBy: string;
 }) {
   return prisma.section.create({ data });
+}
+
+export async function updateSection(
+  id: string,
+  patch: { title?: string; order?: number }
+) {
+  const data: { title?: string; order?: number } = {};
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.order !== undefined) data.order = patch.order;
+  if (Object.keys(data).length === 0) throw new Error("EMPTY_PATCH");
+  return prisma.section.update({ where: { id }, data });
+}
+
+export async function deleteSection(id: string) {
+  return prisma.section.delete({ where: { id } });
 }
 
 // ============================================
@@ -296,4 +327,74 @@ export async function upsertMarkdownBlock(data: {
       data: { content: data.content },
     },
   });
+}
+
+export async function createContentBlock(data: {
+  courseId: string;
+  chapterId: string;
+  sectionId: string;
+  slot: SlotType;
+  blockType: ContentBlockType;
+  payload?: Prisma.InputJsonValue;
+}) {
+  // Validate that section actually belongs to the given chapter+course (prevents cross-course tampering)
+  const section = await prisma.section.findUnique({
+    where: { id: data.sectionId },
+    select: { courseId: true, chapterId: true },
+  });
+  if (!section) throw new Error("SECTION_NOT_FOUND");
+  if (section.courseId !== data.courseId || section.chapterId !== data.chapterId) {
+    throw new Error("SECTION_PARENT_MISMATCH");
+  }
+
+  const maxOrder = await prisma.contentBlock.aggregate({
+    where: { sectionId: data.sectionId, slot: data.slot },
+    _max: { order: true },
+  });
+
+  return prisma.contentBlock.create({
+    data: {
+      courseId: data.courseId,
+      chapterId: data.chapterId,
+      sectionId: data.sectionId,
+      slot: data.slot,
+      blockType: data.blockType,
+      order: (maxOrder._max.order ?? -1) + 1,
+      data: data.payload ?? Prisma.JsonNull,
+    },
+  });
+}
+
+export async function updateContentBlock(
+  id: string,
+  patch: { payload?: Prisma.InputJsonValue; order?: number }
+) {
+  const data: Prisma.ContentBlockUpdateInput = {};
+  if (patch.payload !== undefined) data.data = patch.payload;
+  if (patch.order !== undefined) data.order = patch.order;
+  if (Object.keys(data).length === 0) throw new Error("EMPTY_PATCH");
+  return prisma.contentBlock.update({ where: { id }, data });
+}
+
+export async function deleteContentBlock(id: string) {
+  return prisma.contentBlock.delete({ where: { id } });
+}
+
+/**
+ * 批量调序：输入 [{id, order}]，在一个事务里更新所有 block 的 order。
+ * 调用方需先 assert 每个 block 的 writable（endpoint 做）。
+ * 若 id 集合跨多个 section，调序仍各自独立（schema 上 ContentBlock 无 @@unique 约束，允许）。
+ */
+export async function reorderContentBlocks(
+  items: Array<{ id: string; order: number }>
+) {
+  if (items.length === 0) return [];
+  return prisma.$transaction(
+    items.map((it) =>
+      prisma.contentBlock.update({
+        where: { id: it.id },
+        data: { order: it.order },
+      })
+    )
+  );
 }

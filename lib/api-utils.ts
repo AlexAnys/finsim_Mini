@@ -46,6 +46,16 @@ export function handleServiceError(err: unknown) {
         return notFound("班级不存在");
       case "USER_NOT_FOUND":
         return notFound("用户不存在");
+      case "CHAPTER_NOT_FOUND":
+        return notFound("章节不存在");
+      case "SECTION_NOT_FOUND":
+        return notFound("小节不存在");
+      case "BLOCK_NOT_FOUND":
+        return notFound("内容块不存在");
+      case "SECTION_PARENT_MISMATCH":
+        return error("SECTION_PARENT_MISMATCH", "小节与章节/课程关系不匹配", 400);
+      case "EMPTY_PATCH":
+        return error("EMPTY_PATCH", "请至少提供一个可更新字段", 400);
       case "NOT_A_TEACHER":
         return error("NOT_A_TEACHER", "该用户不是教师", 400);
       case "ALREADY_OWNER":
