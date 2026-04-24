@@ -3,8 +3,11 @@ import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import type { NextAuthConfig } from "next-auth";
+import { resolveAuthSecret } from "./secret";
 
 const authConfig: NextAuthConfig = {
+  // next-auth v5 读 AUTH_SECRET；保留 v4 的 NEXTAUTH_SECRET 作为 fallback 以兼容老部署。
+  secret: resolveAuthSecret(),
   providers: [
     Credentials({
       name: "credentials",
