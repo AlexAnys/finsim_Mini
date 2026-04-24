@@ -1,132 +1,134 @@
-# Spec — Phase 2 · 学生端全体重做（Round 2 起，2026-04-24）
+# Spec — Phase 3 · 教师端全体重做（2026-04-24）
 
 ## 背景
 
-Phase 0（Round 1 基座）+ Phase 1（技术债清理）已全部 commit 落地（7 commit，30+ 文件）。进入视觉重构主战场。
+Phase 0/1/2 全部 commit 落地（main HEAD=424cb4a，12 个 commit）。学生端全部重设计完成，设计系统 tokens / TopBar / Sidebar / 4 学生页面全部对齐设计稿。
 
-Phase 2 目标：学生端 5 个页面按设计稿落地，建立 TopBar 共享 shell。参考设计源：
-- `.harness/mockups/design/student-dashboard.jsx`
-- `.harness/mockups/design/student-courses.jsx`
-- `.harness/mockups/design/course-detail.jsx`
-- `.harness/mockups/design/student-grades.jsx`
-- `.harness/mockups/design/student-buddy.jsx`
-- `.harness/mockups/design/student-schedule.jsx`
+Phase 3 进入教师端 — 这是用户亲口说最想看的模块（teacher-dashboard 结构优于原来）。参考设计源：
+- `.harness/mockups/design/teacher-dashboard.jsx`
+- （`/teacher/courses` 和 `/teacher/courses/[id]` 设计师未出稿，按学生端 courses 的风格推导）
 
-设计稿浏览器访问：`http://localhost:8765/FinSim%20%E8%AE%BE%E8%AE%A1%E6%8F%90%E6%A1%88.html`
+## Phase 3 路线（3 PR 串行，单 team）
 
-## Round 2 拆分（4 PR 串行）
+### PR-3A · `/teacher/dashboard` 重设计（~500-600 行）
 
-本会话目标：完成 PR-2A + PR-2B（可能 PR-2C）。PR-2D 跨会话续做。
+**目标**：按 `teacher-dashboard.jsx` 完整结构落地，这是 Phase 3 核心 PR。
 
-### PR-2A · TopBar 共享 shell（~250 行）
+**结构**（从上到下，对齐设计稿）：
+1. **Header** — "教学工作台" + 日期/教学周 + 一句话摘要（"今日 3 节课 · 待批 12 份 · 本周新发布 5 项任务"）+ 右侧 2 action（"AI 生成任务" 次要 + "新建任务" 主要）
+2. **5 KPI strip**（按业务优先级排，待批改排第一而非最后）：
+   - 在教班级 / 本周提交(+delta) / 待批改(warn 橙色) / 班级均分(+trend) / 薄弱概念(降级为"待分析实例")
+3. **左栏**（主区，flex 1）：
+   - **需要你关注**（4 项，Badge count）— AI 整理后的工作清单
+     - 最紧急第一项用琥珀左边框强调（"AI 已批改 32 份 · 待你复核"）
+     - 其他普通任务行：类型 icon + 标题 + 班级 + 截止 + 完成率进度条 + "查看"按钮
+   - **班级表现** + "本周/本月/学期" tab
+     - 左半：平均分大号数字 + trend + 按班级 4 条水平进度条
+     - 右半：SVG 折线图（8 周趋势）+ 柱状图（提交量叠加）
+   - **学生薄弱概念**（降级为 "待分析实例 top 3"）
+     - 每行：红色左条 + 概念名 / 课程 / 错答人数 + 错误率 % + "查看洞察"按钮
+4. **右栏 340px**：
+   - **今日课表** — 今日课程 3 行（时间 + 课名 + 班级/教室 + "进行中"徽标）
+   - **动态** — 最近活动 4 条（学生 X 完成了 Y，得 Z 分 / 学生 W 提交了...）
+   - **AI 助手本周建议** — 深色 ink-2 bg 卡（不是深靛渐变，区别于学生 buddy）+ 暖赭 sparkles + 降级为"查看洞察"入口
 
-**目标**：建立顶部栏组件，挂到两个 layout（学生 + 教师），之后所有页面共享。
+**数据降级**（schema 零改，延续 Phase 2 策略）：
 
-**改动**：
-- 新建 `components/layout/topbar.tsx`：
-  - 左侧面包屑（`学生 / 仪表盘` 格式，从 pathname 派生）
-  - 右侧三个动作：通知 icon（placeholder）、"AI 助手" 按钮（subtle variant + sparkles icon，点击先 no-op 占位）、用户头像菜单（现有的登出逻辑复用）
-  - 高 56px，底边 `1px border-fs-line`，bg `var(--fs-bg)`
-- `app/(student)/layout.tsx` + `app/teacher/layout.tsx`：把 main 外包一层 flex-col，顶部挂 `<Topbar />`
-
-**不做**：
-- `⌘K` 搜索/cmd palette（Round 7 统一）
-- 通知实际功能（只 icon 占位 + 未读数徽标假设数据）
-- "AI 助手" 打开 sheet（Round 5 任务向导时再做）
-
-**Acceptance**：
-- 学生 + 教师任一页面打开，顶部栏 56px 高，包含面包屑/通知/AI 助手/用户头像
-- 面包屑根据当前路由动态变化
-- 登出按钮仍能走 `signOut()`
-- tsc + vitest + build 全过
-- 移动端（375px）顶部栏不破坏（可能需要隐藏面包屑只留右侧三按钮）
-
-### PR-2B · 学生 `/dashboard` 重设计（~500 行）
-
-**目标**：按 `student-dashboard.jsx` 完整结构重做。
-
-**结构**（从上到下）：
-1. **问候 Hero** — "下午好，{name}" + 今日日期/教学周/本周状态一句话（如 "你今天有 2 节课、3 项待办"）+ 右侧两个 action（"我的课表" 次要 + "继续学习" 主要）
-2. **4 KPI 卡** — 本周待办 / 连续完成 / 平均得分 / 掌握度（每卡：label + 大号数字 fs-num + 小 sub + icon badge）
-3. **左栏**：
-   - 今日课程（卡片内嵌时间条 + 地点/老师 + "进行中" 徽标）
-   - 优先待办（第一项用琥珀左边框强调 "今晚截止"，其他普通列表）
-   - 最近成绩（表格式：类型 chip / 标题 / 日期 / 进度条 + 分数）
-4. **右栏 320px**：
-   - 我的课程列表（封面色块 + 名 + 进度条）
-   - 公告（未读红点 + 标题 + 课程 tag + 时间）
-   - AI 学习伙伴深色卡（深靛渐变 bg + 暖赭 sparkles + 推荐文案 + "开始复习" 按钮）
-
-**数据源映射（硬约束：不改 schema / 不加字段）**：
-
-| 设计稿字段 | 后端现状 | 本 PR 落地策略 |
+| 设计稿字段 | 后端现状 | 本 PR 策略 |
 |---|---|---|
-| name (问候) | `session.user.name` | ✓ |
-| 今日日期 + 教学周 | `semesterStartDate` + 当前日期计算 | ✓（复用 `getCurrentWeekNumber`） |
-| 本周待办数 | `dashboard/summary` 有 tasks 数组 → 按 status 过滤 | ✓ |
-| 连续完成天数 streak | ❌ 无字段 | **降级**：隐藏或显示"本周完成 X 项" |
-| 平均得分 | 从 submissions 聚合 | ✓ |
-| 掌握度 % | ❌ 无 | **降级**：隐藏，或用"已完成课时/总课时"比例顶替 |
-| 今日课程 | scheduleSlots + 当前日过滤 | ✓ |
-| 优先待办 | tasks 数组按 dueAt 排序 | ✓ |
-| 最近成绩 | submissions 最近 3 条 | ✓ |
-| 课程列表 + 进度 | courses + 章节完成数 | 章节进度无字段 → **降级**：只显示课名 + 任务完成率 |
-| 公告未读状态 | ❌ 无 "已读" 字段 | **降级**：最近 3 天内的标红点 |
-| AI 学习伙伴推荐 | ❌ 无主动推荐 | **降级**：卡片改为 "最近对话 / 立即提问" 入口，跳 `/study-buddy`（设计师 C1 已决策） |
+| 今日/待批/均分/提交/班级 5 KPI | dashboard.service 有 stats | ✓ 直接 |
+| "薄弱概念 top 3" | ❌ 无跨 instance 聚合 | **降级**：改为"待分析实例 top 3"（有 AnalysisReport 的 instance 按未看过或过期排序）— 设计师 C2 决策 |
+| 需要你关注清单 | 现有 taskInstances 足够 | ✓ |
+| 8 周班级表现趋势 | submissions 按周聚合（客户端算） | ✓ 前端聚合 |
+| 动态 feed | submissions + 状态变更时间戳 | ✓ 前端聚合最近 10 条 |
+| AI 本周建议 | ❌ 无主动建议数据 | **降级**：改为"查看洞察"入口跳 `/teacher/analytics`，按钮文案 "打开 AI 助手"（跳 `/teacher/ai-assistant`）|
+| 多教师 / 多班级 | CourseTeacher / CourseClass 已支持 | ✓ |
 
 **改动**：
-- `app/(student)/dashboard/page.tsx` 全量重写 JSX 结构（保留所有现有数据 fetch hooks / 状态 — 只换 view）
-- 可能新建几个小组件：`components/dashboard/greeting-hero.tsx` / `kpi-stat-card.tsx` / `today-classes.tsx` / `priority-tasks.tsx` / `recent-grades.tsx` / `course-progress-sidebar.tsx` / `ai-buddy-callout.tsx`
-- 保留/复用 Round 1 改过的 `task-card.tsx` / `announcement-card.tsx` / `timeline.tsx`（如设计稿允许） — 如果设计稿要求完全不同的样式，则旧卡片在新 dashboard 里不再使用，但组件本身保留给其他页面用
+- `app/teacher/dashboard/page.tsx` 全量重写 JSX
+- 可能新建 `components/teacher-dashboard/{greeting-header,kpi-strip,attention-list,performance-chart,weak-instances,today-schedule,activity-feed,ai-suggest-callout}.tsx`
+- 可能复用 Phase 2 建立的 `greeting-hero.tsx`（如果结构匹配）或建 teacher 版本
 
 **不做**：
-- 不改 `/api/lms/dashboard/summary` 的任何字段
-- 不加 streak / mastery / recommendation 后端字段（留给 Round 2+ 决策）
-- 不动权限/auth
+- 不改 `dashboard.service.ts` / `/api/lms/dashboard/summary` 任何字段
+- 不加 AI 建议主动推荐的后端数据源
+- 不改权限/auth
+- 不动学生端 dashboard（PR-2B 已稳定）
 
 **Acceptance**：
-- `/dashboard` 真登录 student1 打开，视觉对齐设计稿（问候 / 4 KPI / 三列 / 深色 AI 卡）
-- 降级字段以 gracefull fallback 呈现（不是空白、不是报错）
-- 移动端（375px）布局合理（可能单栏堆叠）
-- tsc + vitest + build 全过
-- 无 hard-coded Tailwind 色（所有色走 tokens）
+- 真登录 teacher1 / teacher2 打开 `/teacher/dashboard`，视觉对齐设计稿
+- 5 KPI 显示真实数据（待批/均分/班级等）
+- 8 周趋势图用真 submissions 数据聚合
+- "薄弱概念"降级成"待分析实例 top 3"，点"查看洞察"跳 `/teacher/instances/{id}/insights`
+- 多教师 / 多班级场景正确（teacher2 只看自己课，与 Phase 1 PR-1B 缩紧行为一致）
+- 375px 移动端合理堆叠
+- tsc + vitest + build 过
+- 无硬编码 Tailwind 色
 
-### PR-2C · 学生 `/courses` 列表（~400 行）
+### PR-3B · `/teacher/courses` 列表（~350 行）
 
-按 `student-courses.jsx`。本会话若时间够则做，否则 HANDOFF 续下次。
+**目标**：教师课程管理列表，参照学生 courses 的 2 列 CourseCard 风格但加教师工具（新建/编辑/发布状态）。
 
-**结构**：顶部 summary strip（4 指标） + 2 列 CourseCard 网格 · 每卡：courseCode 徽章 + 班级 + 课名 + description + 教师头像堆叠 + 进度行 + 下次课 + mini stats + "进入" 按钮。
+**结构**：
+- Header 本学期 + "新建课程" 主按钮
+- Summary strip（4 指标：总课程 / 学生总数 / 本周活跃任务 / 待批改）
+- 2 列 TeacherCourseCard 网格
+  - 顶 3px 色条
+  - courseCode + 多教师头像堆叠（主讲/协讲）+ 多班级徽标
+  - 课名 + description
+  - 状态 badge（草稿/已发布/已归档）
+  - 进度（学期周数 + 完成章节）
+  - mini stats（任务 / 学生 / 均分）
+  - 操作：编辑 / 发布 / 复制
 
-**数据降级**：`stats.avgScore` 可从 submissions 算；`nextLesson` 从 scheduleSlots 派生；`chapters/completedChapters` 如无字段 → 只显示"任务完成率"。
+**数据**：
+- courses list from `/api/lms/courses`（现有）
+- 教师 / 班级多对多关系已支持
+- 状态字段 `Course.status`（如果 schema 已有 — builder 确认）
 
-### PR-2D · 学生 `/courses/[id]` 详情（~550 行）
+**Acceptance**：
+- teacher1 看到自己创建 + CourseTeacher 参与的课
+- 多教师 / 多班级视觉正确
+- 状态徽章正确
+- tsc+vitest+build 过
 
-按 `course-detail.jsx`。本会话极大概率做不完，HANDOFF 续。
+### PR-3C · `/teacher/courses/[id]` 课程编辑器（~600 行，体量最大）
 
-**结构**：深色 Hero（进度+课程信息+tab 条） + 左栏章节导航（已完成/当前/未开始三态） + 主栏 5.x 小节（课前/课中/课后三态时间线） + 右栏（教师卡 + 本章掌握度 + AI 建议）。
+**目标**：课程详情/编辑页 — 章节/小节/内容块 CRUD，Notion 式文档编辑器。
 
-**ContentBlockType 6 种对应**（`lecture / simulation / quiz / subjective / resource / link`）都要有对应视觉占位（设计师 Review §D）。
+**结构**：
+- 深色 Hero（同学生端风格但加"编辑"入口）
+- 三列：220px 左目录（章节/小节树）+ 主内容流（section + blocks 编辑）+ 280px 右块属性面板
+- Block 编辑：6 ContentBlockType 每个有自己的编辑面板
+- 任务嵌入/脱嵌
+- 拖拽排序（现有有的话保留）
+
+**Builder 执行授权**：
+- 如果读完现有 page 发现 scope > 800 行，可主动拆成 PR-3C1（骨架）+ PR-3C2（block 编辑细节）
+- 如遇需要改 API（违反硬约束）SendMessage 给 team-lead
 
 ## Risks
 
-- **TopBar 与 layout 的 hydration**：Phase 1 已把 layout 升 RSC，TopBar 作为 RSC 孩子可以直接用 `getSession()`，但面包屑需要 `usePathname` 这是 client hook — 所以 TopBar 整体是 client component。auth 不走 TopBar 内部，由 layout server 端传 initial。
-- **设计稿尺寸 vs 真实屏幕**：设计稿是 `1400×980`，真实浏览器经常 `1280×800` 或更小。主栏/侧栏宽度需要响应式降级（`lg:grid-cols-[1fr_320px]` → `grid-cols-1`）。
-- **降级字段视觉**：KPI "连续完成/掌握度" 如果隐藏，会剩 2 KPI 卡 — 视觉会空。建议把他们改成有数据的指标（如 "本周已完成 X / Y 任务" / "已批改 X 份"）避免视觉塌陷。
-- **task-card.tsx 复用性**：Round 1 改的 task-card 当前在 Timeline 里用，dashboard 重设计后可能有更紧凑的需求 — 允许 builder 在必要时加 `variant` prop（如 `"compact" | "hero"`）而不是 fork 新组件。
+- **AI 建议降级**：设计稿里的"AI 本周建议深色卡"是设计师视觉重点，降级成"入口占位"会削弱设计张力。方案选择权留 builder：
+  - A（推荐）：深色卡仍在，文案改为 "打开 AI 助手查看本周建议" + sparkles icon，点击跳 `/teacher/ai-assistant`
+  - B：隐藏整卡
+- **8 周趋势聚合**：如果 `/api/lms/dashboard/summary` 没返回足够 submissions 数据做 8 周聚合，可能需要额外 fetch 一次 `submissions?pageSize=100&last=60days`。这是前端 fetch，不改 API。
+- **薄弱概念→待分析实例**：按钮文案从"生成讲解"改为"查看洞察"，更诚实且点击有实际行为。
+- **多教师 / 多班级显示**：UI 预留位置已经在 Phase 1 backfill 过，Phase 1 PR-1B 的 `assertCourseAccess` 缩紧保证老师只看自己课。
 - **Prisma 三步**：本 Phase 不改 schema，不涉及。
-- **不改 API**：所有改动在 page 和 component 层，`/api/lms/*` 零改动。
 
 ## 执行策略
 
-- 单 team（继续 `finsim-redesign-r1`，new agents `builder-p2` + `qa-p2`）
-- Tasks：PR-2A → PR-2B（blockedBy 链）→ PR-2C（如时间） → PR-2D
-- 每 PR PASS 后 coordinator 自动 commit 独立 commit
-- Phase 2 结束或本 session 能做到的 PR 边界处 coordinator 更新 HANDOFF
-- 按用户指示 "迭代到最后" — 本 session 不停，直到 agent 报完成或 coordinator 判断该收尾
+- 单 team（`finsim-redesign-r1` 沿用，new agents `builder-p3` + `qa-p3`）
+- Task 链：#13 PR-3A → #14 PR-3B → #15 PR-3C
+- 每 PR PASS 后 coordinator auto-commit
+- 本 session 目标：至少完成 PR-3A（教师 dashboard）— 用户亲口最想看的
+- 如 context / time 允许：PR-3B / PR-3C 继续
+- 任何 Phase 3 的 PR 边界都更新 HANDOFF 让下次 session 续得上
 
-## Phase 3-5 路线（下次 session 续）
+## Phase 4-7 路线（下次 session 续）
 
-- Phase 2 剩余 PR（如有）+ Round 3 学生 `/grades` + `/study-buddy` + `/schedule`
-- Phase 3 · 教师端 dashboard + courses + courses/[id] + 任务向导 + instances
-- Phase 4 · Runner 外壳 + 登录 + 空错态
-- Phase 5 · Simulation 对话气泡专题
+- Phase 4 任务向导 `/teacher/tasks/new` 重做（1500 行巨型向导，可能拆 2 PR）
+- Phase 5 `/teacher/instances/[id]` + insights + analytics
+- Phase 6 Runner 外壳 + 登录 + 空错态
+- Phase 7 Simulation 对话气泡专题
