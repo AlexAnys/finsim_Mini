@@ -2,114 +2,103 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
-## Last completed — 本 session 是 FinSim v2 最高产 session（2026-04-24，19 commits）
+## Last completed — Phase 4 · 任务向导 + 课程编辑器完整版（2026-04-24）
 
-### Phase 0 · Round 1 基座（4 commit）
-- `35d18f0` feat(design): FinSim v2 tokens（深靛/象牙/暖赭 + dark）
-- `ebc25d2` refactor(dashboard): 核心卡去硬编码色
-- `ab397be` feat(ui): 新 Wordmark + 侧边栏重构
-- `86e639f` chore: Round 1 证据链
+本 session 是 FinSim v2 最大 session：**跨 Phase 0/1/2/3/4 五个 Phase + 3 个 SEC 安全 PR + 1 个 AUTH fix + 1 个课表日历化**。
 
-### Phase 1 · 技术债清理（3 commit · 双 PR r1 PASS）
-- `d313416` fix(ssr): 教师登录侧边栏闪烁（layout RSC + getSession + initialRole）
-- `41decaa` fix: 4 项 latent bug（guards 提公共 + schedule where + 老师公告缩紧 + allSettled）
-- `e810045` chore: Phase 1 证据链（+13 tests）
+### Phase 4 · 6 连 PASS（5 主 PR + 1 fix + env hygiene，2026-04-24）
 
-### Phase 2 · 学生端全体（5 commit · 四 PR r1 PASS）
-- `19f8758` feat(layout): TopBar 共享 shell（面包屑 + AI 按钮 + 用户菜单）
-- `47f445d` feat(student-dashboard): 问候 Hero + 4 KPI + 三列 + AI 渐变卡
-- `59f06e1` feat(student-courses): summary strip + 2 列 CourseCard
-- `f964094` feat(course-detail): 深色 Hero + 三列 + 三态时间线 + 6 ContentBlockType
-- `424cb4a` chore: Phase 2 证据链（+32 tests）
+- `53a141e` feat(task-wizard): 骨架 + Step 0/1（PR-4A）
+- `e44c8e9` feat(task-wizard): Step 2 三类 config + AI 出题（PR-4B）
+- `b1f730c` chore: .env.example 入仓 + AI 模型分层模板
+- `66f490e` feat(task-wizard): Step 3 Review 组件（PR-4C）
+- `1ad3837` fix(auth): NextAuth v5 secret 兼容（PR-AUTH-fix）
+- `bcbbe4d` feat(content-blocks): 8 新端点课程编辑器后端（PR-4D1）
+- `901f17f` feat(course-editor): 前端 block editor 完整版 6 种 blockType（PR-4D2）
 
-### Phase 3 · 教师端全体（4 commit · 三 PR r1 PASS）
-- `8a37422` feat(teacher-dashboard): 5 KPI + 需要关注 + 班级表现 + AI 卡
-- `55ea8c1` feat(teacher-courses): 多教师头像堆叠 + 多班级徽标
-- `fa750a3` feat(course-editor): UI 重皮（深色 Hero + 三列 + TOC + 只读属性面板，path A）
-- `31b0921` chore: Phase 3 证据链（+17+15+14 tests = 162 累计）
+### 本 session 总 commit 累计（26 个）
 
-### Phase SEC · 3 个 pre-existing 漏洞闭环（3 commit · 三 PR r1 PASS）
-- `d74231c` fix(security): /api/lms/courses/[id] GET 权限守护（P1，PR-3C QA 独立发现）
-- `ef0880c` fix(security): 系统扫描 by-id GET 补守护 8 端点（173→208 tests）
-- `be09270` fix(security): write 端 owner 守护（DELETE submission / grade / content-block PUT，P1 数据破坏级，208→219 tests）
+从早到晚：35d18f0 → 86e639f (Phase 0/R1 基座) → d313416 → e810045 (Phase 1) → 19f8758 → 424cb4a (Phase 2) → 8a37422 → 31b0921 (Phase 3) → d74231c → be09270 (SEC1/2/3) → 94ca2c1 (HANDOFF) → Phase 4 上述 7 个
 
-## 本 session 统计
+**测试增长**：61 → **288**（+227 新测试，+372%）
 
-| 指标 | 数值 |
-|---|---|
-| Commit 数 | 19（12 feat/refactor + 3 security fix + 4 harness chore） |
-| PR 连续 PASS | **12 个 PR 全部 r1 PASS，0 FAIL，0 迭代** |
-| Tests 增长 | 61 → **219**（+158） |
-| 新建组件文件 | 35+ |
-| 新建 util + guard 文件 | 12 |
-| 新建测试文件 | 12 |
-| Scope 重写页面 | 学生 4 页 + 教师 3 页 + TopBar + Sidebar + Wordmark |
-| Schema 改动 | 0 |
-| API 改动 | 0 新增 · 11 个 handler 加 guard · service 层零改 |
-| P1 安全漏洞闭环 | 3 个 pre-existing |
+**0 schema 改动**：Phase 1-3 打好的字段弹性 + Phase 4 评估确认（Chapter/Section/ContentBlock 已有 order）
 
-## Next step — Phase 4 · 任务向导（下次 session 开始）
+**累计 PR**：**18 PR 全 r1 PASS / 0 FAIL / 0 迭代**（12 Phase 0-3 + 5 Phase 4 + 1 AUTH fix）
 
-### 关键已知：`/teacher/tasks/new` 巨型向导
+## Next step — Phase 5 · 实例详情 4 tabs（下 session 主战场）
 
-现有 ~1500 行向导（3 类任务 × 各自 config × AI 生成题目 × AI 生成主观题 × ScoringCriterion × AllocationSection/Item × QuizQuestion 4 种）
+### Phase 5 目标
 
-**Phase 4 预估拆分**（builder 读完源码后自行调整）：
-- PR-4A · 向导壳 + Type/Basic 两步（~400 行）
-- PR-4B · Config 步 simulation + quiz + subjective 三分支（~500 行）
-- PR-4C · Review 步 + AI 生成题目 / 主观题接入（~400 行）
-- 预计 2-3 会话做完
+`/teacher/instances/[id]` 页面重做，4 tabs：
+- overview（交付漏斗 + 关键动作）
+- submissions（提交列表 + 批改入口 + 虚拟化）
+- insights（AI 洞察 · 共性问题聚合）
+- analytics（数据分析 · 分布/散点/热图）
 
-**数据降级（schema 零改，延续策略）**：
-- AllocationItem 无 `defaultValue` 字段 → 前端默认 0
-- AI 生成后的 QuizQuestion preview 若字段缺 → 占位显示
-- 其他数据应该都齐全（向导是写侧，schema 健全）
+### 启动前用户需决策
 
-### Phase 4 关联 — 合并做 block 深度编辑
+在 `.harness/decisions-pending.md` 里：
+- **C1 · 薄弱概念聚合路径** — 推荐路径 2（AnalysisReport 加 `conceptTags` 字段）
+- **C3 · Insights AI 聚合时机** — 推荐教师手动触发
+- **C4 · Analytics tab 可视化** — 已选前端 SVG 自画（Phase 3 延续）
+- **A6 · AI Insights 模型** — 推荐 qwen-max + longer context
+- **B6 · Subjective 批改** — 推荐 AI 建议默认显示，老师可关
+- **H3 · API 解锁请求** — 新增 `/api/lms/task-instances/[id]/insights/aggregate` + AnalysisReport.conceptTags/commonIssues 字段
 
-PR-3C 走的 A 方案（UI 重皮，块深度编辑推迟）。Phase 4 任务向导很可能新增 `/api/lms/task-drafts` 或类似端点，到时**可一并做**：
-- 6 ContentBlockType 完整 CRUD API（resource / simulation_config / quiz / subjective / custom）
-- section/chapter PATCH/DELETE
-- block reorder 持久化
+### Phase 5 PR 预估
 
-这会让 PR-3C 右面板从"只读属性 + 占位"升级为"可交互 block editor"。但要确认用户愿意**解锁"不改 API"硬约束**（当前 Phase 3 已默认不解锁）。
+- PR-5A · Shell + Overview tab（~400 行）
+- PR-5B · Submissions tab + 虚拟化 + 批改 drawer（~400 行）
+- PR-5C · Insights tab + 新 aggregate API（~300 行 · 依赖 H3 approve）
+- PR-5D · Analytics tab · SVG 自画（~300 行）
 
-## Phase 5-7 路线（再下次）
+预计 2 会话完成 Phase 5。
 
-- Phase 5 · `/teacher/instances/[id]` + insights + analytics ~2 会话
-- Phase 6 · Runner 外壳（Simulation/Quiz/Subjective runner 的 chrome）+ 登录页 + 空错态 ~1 会话
-- Phase 7 · Simulation 对话气泡专题（产品差异化核心，设计师 Q4 留的）~1 会话
+## Phase 6-7 路线（再下 session）
 
-## Open decisions
+- Phase 6 · Runner 外壳（3 类共享 topbar）+ 登录 + 8 种空错态 · ~1-2 会话
+- Phase 7 · Simulation 对话气泡专题 · mood + 学习伙伴 hint + 资产配置滑杆 · ~1-2 会话
 
-1. **Phase 4 起点是否允许解锁"不改 API"硬约束** — 用户上次选 A 默认保守；任务向导本身很可能**必须**新端点（AI 生成题目的 draft 接口），触发时 Phase 4 builder 需 SendMessage 停下来问
-2. **block 深度编辑** 何时合并做（Phase 4 同步做 / Phase 5 专门做 / 延后）
+## Phase 4 发现的 Phase 5+ 工作（非阻塞）
 
-## Open observations（非阻塞，后续 Phase 酌情清理）
-
-- `app/(student)/courses/[id]/page.tsx` L283 `const className` 名称冲突（Phase 2 QA 观察）
-- `isBehind && totalTasks > 0` 边缘 case —— 0 任务课程显示"进度落后"徽章（Phase 2 QA 观察）
-- `app/(auth)/login/page.tsx` 仍用 `from-blue-50 to-slate-100` 渐变硬编码（Round 7 登录页打磨 scope）
-- `scheduleSlots.course` API 只返 `{courseTitle, classId, semesterStartDate}` 不含 `classes[]`，今日课表 className 显 null fallback 不 crash（Phase 3 QA 观察）
-- `/teacher/announcements` 老师侧已缩紧（PR-1B），与设计师 Review 里提的 "announcements 缺 teacherId 分支" 问题已闭环
+1. **P2** Chapter/Section 无 `updatedAt` 字段（ContentBlock 有）— 下个小 PR 顺手补
+2. AI Dialog `courseName: taskName` prompt 语义错位（PR-4B 遗留）— 下个 PR 顺便修
+3. 学生端 ContentBlock render 防御式 check（payload 是 JsonValue，绕前端可能存非 object）
+4. `prisma/seed.ts` 补 CourseTeacher collab 关系让 E2E collab 路径能真测
+5. PR-4D2 Builder 延后的 5 项（chapter UI / 创建 autoSelect / 拖拽 / 虚拟化 / 旧 block-property-panel 清理）
+6. block-edit-panel dispatcher 有 `link` case 但 schema 无 `link` enum（dead branch + 注释 "未来扩展"）
+7. SSR 角色闪烁（Phase 1 已修，但某些页面仍零星闪烁）— 下次 QA 真登录时留意
 
 ## Open task（独立工作线）
 
-- 上海教师 AI 案例申报（`.harness/shanghai-ai-case-2026.md`）— 规划已锁定，11 单元 4 周时间线。默认 UI 重构完成后做
+- 上海教师 AI 案例申报（`.harness/shanghai-ai-case-2026.md`）— 规划已锁定。本 session 末端用户未提及，默认放后。
 
-## Mockup server
+## 运维状态
 
-Python HTTP server 仍在 `localhost:8765`（PID 59984）供 QA 对比设计稿用。**本 session 结束时保留** — 下次 session Phase 4 仍需对比设计稿；如果用户关机自然就结束。不需要强制 kill。
+- Postgres `finsim-postgres-1` healthy on 5432（Docker）
+- Dev server：本 session 重启 2 次，最新在 PID 59187 port 3000
+- 下次 session 启动前可能需要用户确认 Docker 还活着、dev server 是否要 restart
+- AUTH_SECRET / NEXTAUTH_SECRET 都能用（PR-AUTH-fix 保证兼容）
 
-## Session 收尾笔记
+## 用户决策记录
 
-**本 session 成功关键**：
-- coordinator 写 spec 时明确了数据降级策略表，让 builder 不用反复问
-- builder-p3 在 PR-3C 主动识别 spec 低估，请求决策（不硬做）
-- QA 真登录 + API 数据核算 + 编译产物 grep + /cso 审计 4 层验证法，让 3 个 pre-existing P1 都被 regression sweep 捕获
-- Dynamic exit 规则保证一轮 PASS 直接 ship，不做"第二轮保险起见"的 churn
+本 session 用户给过的关键决策：
+- 设计方向 approve（深靛/象牙/暖赭）
+- Dark mode 保留（方案 A）
+- Phase 3 教师课程编辑器 Path A 保守 → 后来 G2 同意升级 Path 完整版（Phase 4 PR-4D1/D2 落地）
+- H1 API 解锁同意（Phase 4 新增 8 端点落地）
+- AI 模型：qwen-max（高价值场景：Sim/TaskDraft/Insights）+ qwen3.5-plus（高频场景：Evaluation/StudyBuddy）+ 低置信度复合校验（用户说的"3.6 plus"实为 3.5 plus，最强型号是 qwen-max 或 qwen3-max）
+- B4 批改输出 confidence 0-1
+- 其他全走 coordinator 推荐
+- "对效果影响大且最终需求不确定"的 builder 主动问
 
-**给下次 session coordinator 的建议**：
-- Phase 4 第一件事：builder 先**评估**任务向导 scope，再决定拆法
-- 如果发现必须改 API，立刻 SendMessage 停下来问用户是否解锁硬约束
-- 不要 blindly spec "按设计稿做"——先看现状 + spec 数据降级
+## Session 收尾
+
+**本 session 超高产**：26 commit · 18 PR 全一次过 PASS · 0 FAIL · 0 回滚 · 227 新测试 · 0 schema 改动 · 3 个 pre-existing P1 安全漏洞闭环 · OWASP+STRIDE 全通过
+
+**给下 session coordinator 的建议**：
+1. 开工前检查 DB + dev server 状态（`docker ps` + `lsof :3000`）
+2. 读完 `decisions-pending.md` 并让用户回 Phase 5 那批决策（C1/C3/H3/A6/B6）
+3. 读 Phase 5 的 spec section（`teacher-instance-detail.jsx` + `teacher-instance-detail-tabs.jsx` 1109 行）
+4. Phase 5 PR-5C 若 user approve H3，会新增 `conceptTags`/`commonIssues` 字段到 AnalysisReport — Prisma 三步必跑
