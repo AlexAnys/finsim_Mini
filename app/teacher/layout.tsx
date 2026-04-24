@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/sidebar";
+import { Topbar } from "@/components/layout/topbar";
 import { getSession } from "@/lib/auth/guards";
 import type { UserRole } from "@/lib/types";
 
@@ -9,15 +10,14 @@ export default async function TeacherLayout({
 }) {
   const session = await getSession();
   const initialRole = session?.user?.role as UserRole | undefined;
+  const initialName = session?.user?.name ?? null;
 
   return (
     <div className="min-h-screen">
-      <Sidebar
-        initialRole={initialRole}
-        initialName={session?.user?.name ?? null}
-      />
-      <main className="lg:pl-[232px]">
-        <div className="p-6 pt-20 lg:pt-6">{children}</div>
+      <Sidebar initialRole={initialRole} initialName={initialName} />
+      <main className="flex min-h-screen flex-col lg:pl-[232px]">
+        <Topbar initialRole={initialRole} initialName={initialName} />
+        <div className="flex-1 p-6 pt-20 lg:pt-6">{children}</div>
       </main>
     </div>
   );
