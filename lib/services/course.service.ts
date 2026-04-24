@@ -79,7 +79,16 @@ export async function createCourse(data: {
 export async function getCoursesByTeacher(teacherId: string) {
   return prisma.course.findMany({
     where: teacherCourseFilter(teacherId),
-    include: { class: true, classes: { include: { class: true } } },
+    include: {
+      class: true,
+      classes: { include: { class: true } },
+      creator: { select: { id: true, name: true, email: true } },
+      teachers: {
+        include: {
+          teacher: { select: { id: true, name: true, email: true } },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
