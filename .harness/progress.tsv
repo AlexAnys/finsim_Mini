@@ -9,3 +9,6 @@ timestamp	unit	round	verdict	cost_usd	description	git_commit
 2026-04-22T16:55:00Z	pr-calendar-1	r2	PASS	0.00	schedule.service include 补 semesterStartDate;文案"请先设置"统一;42 tests(+1 回归守护);真浏览器 teacher 4 slots/student 2 slots 可见;403 仍 OK	-
 2026-04-22T17:00:00Z	pr-calendar-2	r1	PASS	0.00	日历 Tab 月视图;7×6 grid+色稳定+Popover 详情+prev/next/今天;61 tests(+19:4 colors+15 calendar);desktop grid/mobile list 响应式;无 regression	-
 2026-04-23T00:00:00Z	shanghai-ai-case-plan	r1	DONE	0.00	申报规划锁定(创AI·智能信息系统);11 units(合规4+创新2+开源/文档4+交付1);里程碑 M1-M7;时间线 4 周	-
+2026-04-23T17:30:00Z	pr-0	r1	PASS	0.00	tokens 落地;@theme inline 映射齐全;61/61 tests;tsc+build 过;served CSS 6 色全命中;.dark 块完整适配	-
+2026-04-23T17:42:00Z	pr-1	r1	PASS	0.00	4 文件去硬编码;grep 0 匹配;tsc+build+61/61 tests;服务 CSS 全量 emit (sim/quiz/subj/success/warn/danger/ochre/tag-a~f/fs-num);3 type 数据覆盖	-
+2026-04-23T17:52:00Z	pr-2	r1	PASS	0.00	Wordmark 新建;sidebar 重写(232px+bg-paper-alt+brand-soft激活+3px条+⌘K占位+Avatar深靛);layout pl-[232px];auth逻辑零改;7 路由全 200;SSR 闪烁属 pre-existing 非阻塞	-

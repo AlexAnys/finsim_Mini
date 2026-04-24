@@ -2,104 +2,137 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
-## Last completed
+## Last completed — Round 1 · 设计系统基座三 PR（2026-04-23）
 
-- **Ultrareview 8/8 findings 全修（2026-04-22）** — 3 轮 PR（P0/P1/P2），20/20 tests，tsc 0 errors
-- **Harness infra 升级（2026-04-22）** — coordinator/builder/qa 三角色 + Stop hook 自动 QA + progress.tsv + HANDOFF（本文件）
-- **2026 上海教师 AI 案例申报规划锁定（2026-04-23）** — 创 AI · 智能信息系统方向确定；详见 `.harness/shanghai-ai-case-2026.md`
+用户拿到 claude.ai/design 的高保真重设计稿（深靛 #1E2A5E / 米象牙 #F7F4EC / 暖赭 #C48A3C），批准直接落地。设计源复制到 `.harness/mockups/`。
 
-## Next step
+Round 1 三 PR 全部**一轮过 PASS**（无迭代 / 无 FAIL），dynamic exit 生效：
 
-**队列（按时间顺序）**：
+| PR | 文件 | 净增 | 报告 |
+|---|---|---|---|
+| PR-0 · Design Tokens 落地 | `app/globals.css` + `lib/design/tokens.ts`（新） | ~200 | `reports/build_pr-0_r1.md` + `qa_pr-0_r1.md` |
+| PR-1 · 三（+1）张核心卡去硬编码 | `components/dashboard/{task-card,announcement-card,timeline,schedule-card}.tsx` | ~90 | `reports/build_pr-1_r1.md` + `qa_pr-1_r1.md` |
+| PR-2 · AppShell + Sidebar + Wordmark | `components/sidebar.tsx` 重写 · `components/ui/wordmark.tsx`（新）· 两个 layout 宽度 | ~150 | `reports/build_pr-2_r1.md` + `qa_pr-2_r1.md` |
 
-1. **Ultrareview 3 PR 收尾**（等用户本地操作）
-   - `git commit` 按 PR-fix-1 / PR-fix-2 / PR-fix-3 拆 3 commit（详细命令见下方"Ultrareview 收尾待办"段）
-   - 应用 backfill migration：`docker compose up postgres -d && npx prisma migrate dev`
-   - 浏览器手测 5 场景（次班 schedule/announcement / teacher dashboard standalone / 历史课徽章 / analytics 并行加载 / ranking 过滤）
-   - Push + 开 PR → merge to main
+**关键技术决策**（Round 2+ 参考）：
+- Tailwind 4 `@theme inline` 写法，所有 FS token 在 globals.css 一处定义
+- shadcn `--primary` / `--accent` / `--sidebar-*` 全映射到 `--fs-*`，现有组件自动获新色
+- Dark mode 基于深靛 lift：primary `#7B8CD9`、bg 深中性、accent `#D9A257`
+- 课程色用 `courseColorForId(id)` hash 稳定分配 6 色（`lib/design/tokens.ts`）
+- QA 验证法升级：除 tsc/vitest/build，还 grep `.next/static/chunks/*.js` 编译产物 + 真登录 API 取 task type 分布确认三色路径
 
-2. **当下的功能优化**（待用户澄清是什么范围）
-   - 本会话用户明确需要"先就一些 finished 的功能做优化"；具体是 Ultrareview `Future tasks` 里的 5 项观察、还是其他新需求，**下一轮对话澄清后再写 spec.md**
+## Next step — 用户侧收官（2 步）
 
-3. **案例申报改造**（5 月启动，详见规划文件）
-   - 时间线见 `.harness/shanghai-ai-case-2026.md` §4
-   - 11 个 unit（合规 4 + 创新 2 + 开源/文档 4 + 最终交付 1）
-   - 里程碑 M2–M7
+### 1. Commit 策略（推荐 3 commit + 1 chore）
 
-## Open decisions（等用户确认）
+当前 git status：10 modified + 3 untracked（`wordmark.tsx` / `lib/design/` / `.harness/{reports,mockups}`）
 
-- **当下优化的具体 scope**：是清理 Ultrareview 收尾留下的 Future tasks（assertCourseAccess 抽提 / schedule latent bug / announcements teacherId / CourseAnalyticsTab allSettled / aggregation 端点），还是新的优化需求？
-- **开源仓策略**：`AlexAnys/finsim_Mini` 直接转 public，还是新建镜像仓 `finsim-edu`？(unit-07 前置)
-- **创新点范围确认**：AI 量规（unit-05 必做）+ 学业诊断（unit-06 选做） 或 全做？
-
-## Ultrareview 收尾待办（保留自上轮）
-
-**1. Commit 拆分** — 当前 branch 上已修代码，按 3 PR 拆 commit：
-
+**先把 mockups 设计源排除出仓**（57KB 离线设计文件不该进 main）：
 ```bash
-git checkout -b fix/ultrareview-findings
-
-# Commit 1 — P0 (B1/B2/B3)
-git add app/api/lms/courses/\[id\]/route.ts \
-        lib/services/course.service.ts \
-        lib/api-utils.ts \
-        tests/course.service.test.ts \
-        tests/courses-patch.api.test.ts \
-        tests/dashboard.service.test.ts \
-        vitest.config.ts
-git add -p lib/services/dashboard.service.ts   # 只选 student 段
-git add -p app/teacher/courses/\[id\]/page.tsx # 只选 × button 隐藏段
-git commit -m "fix: 修复课程 PATCH 权限越权、跨班 task 泄露、删主 class dangling (B1/B2/B3)"
-
-# Commit 2 — P1 (B4/B5/B6)
-git add -p lib/services/dashboard.service.ts   # teacher OR 段
-git add lib/services/schedule.service.ts \
-        lib/services/announcement.service.ts \
-        prisma/migrations/20260422041600_backfill_course_class/ \
-        tests/course-filter.test.ts \
-        tests/schedule-announcement.service.test.ts \
-        tests/teacher-dashboard.test.ts
-git add -p lib/services/course.service.ts      # courseClassFilter helper
-git add -p app/teacher/courses/\[id\]/page.tsx # UI fallback 段
-git commit -m "fix: 修复老师 dashboard 丢 standalone 实例、schedule/announcement 半迁移、CourseClass backfill (B4/B5/B6)"
-
-# Commit 3 — P2 (B7/B8)
-git add components/course/course-analytics-tab.tsx tests/student-ranking.test.ts
-git commit -m "perf: 并行化 CourseAnalyticsTab 请求 + 修正 ranking 未批改识别 (B7/B8)"
-
-# Commit 4 — harness infra
-git add CLAUDE.md .claude/ .harness/
-git commit -m "chore: 升级 harness infra + 2026 上海教师 AI 案例申报规划"
+echo ".harness/mockups/" >> .gitignore
 ```
 
-**2. Migration 应用 + 验证**
 ```bash
-docker compose up postgres -d
-npx prisma migrate dev   # 应用 20260422041600_backfill_course_class
-psql $DATABASE_URL -c 'SELECT COUNT(*) FROM "CourseClass"'
-psql $DATABASE_URL -c 'SELECT COUNT(*) FROM "Course" WHERE "classId" IS NOT NULL'
-# 前者 ≥ 后者
+# Commit 1 · PR-0 Tokens
+git add app/globals.css lib/design/tokens.ts .gitignore
+git commit -m "$(cat <<'EOF'
+feat(design): 落地 FinSim v2 设计 tokens（深靛/象牙/暖赭 + dark 适配）
+
+- app/globals.css: 替换 shadcn 默认蓝紫为 FinSim canonical tokens
+  · 浅色：primary #1E2A5E / bg #F7F4EC / accent #C48A3C
+  · 深色：primary lift #7B8CD9 / bg #0F1118 / accent #D9A257
+  · 新增 --fs-* 语义 token：sim/quiz/subj/tag-a~f/success/warn/danger/info
+  · Tailwind 4 @theme inline 映射齐全，.fs-num utility (tabular-nums)
+- lib/design/tokens.ts: JS 镜像 + courseColorForId(id) hash helper
+
+QA: 61/61 tests, tsc+build 过, served CSS 6 色全命中
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+
+# Commit 2 · PR-1 核心卡去硬编码
+git add components/dashboard/task-card.tsx \
+        components/dashboard/announcement-card.tsx \
+        components/dashboard/timeline.tsx \
+        components/dashboard/schedule-card.tsx
+git commit -m "$(cat <<'EOF'
+refactor(dashboard): 核心卡去硬编码色，统一走 design tokens
+
+- task-card: bg-violet/blue/teal → bg-sim/quiz/subj-soft；状态色独立走 success/warn/danger
+- announcement-card: bg-amber → bg-ochre-soft（公告=强调，用暖赭 accent）
+- timeline: 8 色硬编码 palette → 6 色 tag + courseColorForId hash 稳定分配
+- schedule-card: bg-green → bg-info-soft（避让新 subj 绿）
+
+grep 0 匹配 bg-(violet|emerald|blue-|rose|amber-|cyan|indigo|purple|pink|orange-|teal|green-|yellow-) in components/dashboard/
+QA: 61/61 tests, 真登录 student1+teacher1, API 返 4quiz+4sim+2subj 三色路径全覆盖
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+
+# Commit 3 · PR-2 AppShell + Wordmark
+git add components/sidebar.tsx \
+        components/ui/wordmark.tsx \
+        'app/(student)/layout.tsx' \
+        app/teacher/layout.tsx
+git commit -m "$(cat <<'EOF'
+feat(ui): 新 Wordmark + 侧边栏视觉重构（232px + 象牙 + 深靛激活条）
+
+- components/ui/wordmark.tsx: 手绘 SVG 上升折线 + 暖赭端点 + Fin/Sim 文字
+- sidebar.tsx: 232px 宽 / bg-paper-alt / 激活态 bg-brand-soft + 左侧 3px 深靛条 /
+  顶部搜索占位 + ⌘K badge / uppercase section label / 底部实心深靛 Avatar /
+  所有品牌 logo GraduationCap → Wordmark（保留 task-card & simulation-runner
+  里的 semantic/role icon 用途）
+- 两 layout pl-60 → pl-[232px]
+
+auth/session/routing/nav items 零改动；QA 7 路由 200；移动端 Sheet 宽度同步
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+
+# Commit 4 · harness 证据链
+git add .harness/spec.md .harness/progress.tsv .harness/reports/ .harness/HANDOFF.md
+git commit -m "chore: 归档 Round 1 设计系统重构证据链（spec + 6 reports + progress 3 行）"
 ```
 
-**3. 浏览器 5 场景手测**
-- A. 次班学生 `/schedule` + `/announcements` → 看到父课数据
-- B. 老师 dashboard → 含 `courseId=null` standalone instance
-- C. 历史课 `/teacher/courses/[id]` → 显示 ≥1 个班级徽章
-- D. analytics tab 开 >10 instance 课 → DevTools 看并行 fetch，<500ms
-- E. ranking 表无"gradedCount=0 avgScore=0"底部行
+### 2. 浏览器验收
 
-## Future tasks（Ultrareview 观察到但非本次 scope）
+dev server 若开着，`Cmd+Shift+R` 硬刷后打开：
+- `/dashboard`（学生）→ 背景米象牙、TaskCard 类型色 sim 紫/quiz 蓝/subj 绿（不是 violet/blue/teal）
+- `/teacher/dashboard` → 侧边栏激活项深靛 soft + 左侧 3px 实心深靛条 / 顶部 Wordmark（不是 GraduationCap）
+- 系统切换深色模式 → 仍可读，primary `#7B8CD9` 亮化深靛
 
-1. **assertCourseAccess 抽到 `lib/auth/guards.ts`** — 当前 `courses/[id]/route.ts` 和 `classes/route.ts` 重复两份
-2. **schedule.service latent bug** — `classId` / `teacherId` 分支各自 spread 同名 `course` key，互斥不触发但风险存在
-3. **announcements 缺 teacherId 分支** — 老师 `/announcements` 会看到全系统公告
-4. **CourseAnalyticsTab 错误隔离** — `Promise.all` 改 `Promise.allSettled`
-5. **CourseAnalyticsTab 服务端 aggregation** — 若真浏览器 perf 不够，加 `/api/lms/courses/:id/analytics-summary`
+Mockup 对比服务器后台在 `localhost:8765`（Python PID 59984）。完全收工时 `kill 59984`。
 
-这些是"当下优化"候选的一部分，等用户确认纳入还是另起新需求。
+## Round 1 发现的 Round 2+ 工作（QA 记录，非阻塞）
 
-## Notes
+1. **SSR 角色闪烁**（pre-existing，非 PR-2 引入）：教师首次 SSR 显示学生 nav，hydration 后 swap。修方案：`(student)/layout.tsx` + `teacher/layout.tsx` 升 RSC + `getServerSession()` 把 role 作为 initial prop 传 Sidebar。~200 行一 PR。
+2. **page 级 `bg-primary/10` 残留**：`/grades`（3 处）、`/study-buddy`、`/register` 等 — 合并到对应专题 PR 清理。
+3. **顶部栏 shell 未加**：spec 用 "若存在顶部栏" 软条件，layout 实际没有 topbar。Round 2 开学生 dashboard 时可一并开 topbar PR（面包屑 + AI 助手按钮 + 通知）。
+4. **其他保留 `GraduationCap` 的位置**：`task-card.tsx:255`（教师 hover menu 成绩 icon，semantic）、`simulation-runner.tsx:475`（角色头像，contextual）— 这两个不是品牌 logo，保留合理。
 
-- **Ultrareview 配额剩 2/3**；下次 push 前可再跑一次兜底
-- **案例 6/1 截止**；5 月改造窗口仅 4 周可执行
-- 所有大改动前 review `.harness/shanghai-ai-case-2026.md` 保持方向不漂
+## Round 2+ 路线图（8 Round 总计 13 会话，待用户确认顺序）
+
+| Round | 内容 | 预计会话 |
+|---|---|---|
+| Round 2 | 学生 `/dashboard` + `/courses` + `/courses/[id]` + topbar shell | 2 |
+| Round 3 | 学生 `/grades` + `/study-buddy` + `/schedule` | 2 |
+| Round 4 | 教师 `/teacher/dashboard` + `/teacher/courses` + `/teacher/courses/[id]` | 3 |
+| Round 5 | 任务向导 `/teacher/tasks/new`（1500 行巨型向导） | 2 |
+| Round 6 | `/teacher/instances/[id]` + insights + analytics | 2 |
+| Round 7 | Runner 外壳 + 登录 + 空错态全局打磨 | 1 |
+| Round 8 | Simulation 对话气泡单独重做 | 1 |
+
+## Open decisions
+
+- 是否本会话继续 Round 2？（工程量约 2 会话，可留下次 —— Round 1 已是一个完整阶段）
+- Round 2 开头是否先做 SSR 闪烁修复作为 "Round 2 PR-0"？（QA 发现，独立 PR ~200 行，解决 role hydration 问题后 topbar + dashboard 布局更稳）
+
+## Summary
+
+- **Round 1 一次过 PASS 3 连发**，harness 三角色协同顺畅
+- Auto-QA Stop hook 和显式 QA 两层验证未出现互斥
+- Build+QA 约 4 分钟/PR 的节奏在 opus 下很稳
+- 遗留的 Ultrareview 收尾和上海教师 AI 案例规划仍在 queue（详见 git log & `.harness/shanghai-ai-case-2026.md`）
