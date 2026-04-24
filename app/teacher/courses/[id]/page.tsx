@@ -66,7 +66,11 @@ import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
 import { EditorHero } from "@/components/teacher-course-edit/editor-hero";
 import { TocSidebar } from "@/components/teacher-course-edit/toc-sidebar";
-import { BlockPropertyPanel } from "@/components/teacher-course-edit/block-property-panel";
+import {
+  BlockEditPanel,
+  type EditableSectionContext,
+} from "@/components/teacher-course-edit/block-edit-panel";
+import { computeReorderSwap } from "@/lib/utils/block-reorder";
 import {
   buildTocTree,
   buildCourseCounts,
@@ -90,6 +94,7 @@ interface ContentBlock {
   blockType: string;
   slot: string;
   order: number;
+  data: Record<string, unknown> | null;
 }
 
 interface Section {
@@ -284,6 +289,7 @@ export default function TeacherCourseDetailPage() {
   // Chapter collapse state
   const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(new Set());
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
 
   // Edit course dialog state
   const [editCourseDialogOpen, setEditCourseDialogOpen] = useState(false);
@@ -1215,12 +1221,15 @@ export default function TeacherCourseDetailPage() {
     [course],
   );
 
-  const selectedSectionContext = useMemo(() => {
+  const editableSectionContext: EditableSectionContext | null = useMemo(() => {
     if (!course || !activeSectionId) return null;
     for (const ch of course.chapters) {
       const section = ch.sections.find((s) => s.id === activeSectionId);
       if (!section) continue;
       return {
+        courseId: course.id,
+        chapterId: ch.id,
+        sectionId: section.id,
         chapterTitle: ch.title,
         chapterOrder: ch.order,
         sectionTitle: section.title,
@@ -1230,19 +1239,160 @@ export default function TeacherCourseDetailPage() {
           blockType: b.blockType,
           slot: b.slot,
           order: b.order,
-        })),
-        tasks: section.taskInstances.map((t) => ({
-          id: t.id,
-          title: t.title,
-          taskType: t.taskType,
-          slot: t.slot,
-          status: t.status,
-          createdAt: t.createdAt,
+          data: b.data ?? null,
         })),
       };
     }
     return null;
   }, [course, activeSectionId]);
+
+  // Block editor handlers — all call PR-4D1 endpoints + refresh via fetchCourse().
+  const handleCreateBlock = useCallback(
+    async (slot: "pre" | "in" | "post", blockType: string) => {
+      if (!editableSectionContext) return;
+      try {
+        const res = await fetch("/api/lms/content-blocks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            courseId: editableSectionContext.courseId,
+            chapterId: editableSectionContext.chapterId,
+            sectionId: editableSectionContext.sectionId,
+            slot,
+            blockType,
+          }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "创建失败");
+          return;
+        }
+        toast.success("已创建内容块");
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [editableSectionContext, fetchCourse],
+  );
+
+  const handleUpdateBlock = useCallback(
+    async (blockId: string, payload: Record<string, unknown>) => {
+      try {
+        const res = await fetch(`/api/lms/content-blocks/${blockId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ payload }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "保存失败");
+          return;
+        }
+        toast.success("已保存");
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [fetchCourse],
+  );
+
+  const handleDeleteBlock = useCallback(
+    async (blockId: string) => {
+      try {
+        const res = await fetch(`/api/lms/content-blocks/${blockId}`, {
+          method: "DELETE",
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "删除失败");
+          return;
+        }
+        toast.success("已删除");
+        if (selectedBlockId === blockId) setSelectedBlockId(null);
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [fetchCourse, selectedBlockId],
+  );
+
+  const handleReorderBlock = useCallback(
+    async (blockId: string, direction: "up" | "down") => {
+      if (!editableSectionContext) return;
+      const swap = computeReorderSwap(
+        editableSectionContext.blocks,
+        blockId,
+        direction
+      );
+      if (!swap) return;
+      try {
+        const res = await fetch("/api/lms/content-blocks/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: swap }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "调序失败");
+          return;
+        }
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [editableSectionContext, fetchCourse],
+  );
+
+  const handleRenameSection = useCallback(
+    async (newTitle: string) => {
+      if (!editableSectionContext) return;
+      try {
+        const res = await fetch(
+          `/api/lms/sections/${editableSectionContext.sectionId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: newTitle }),
+          },
+        );
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "重命名失败");
+          return;
+        }
+        toast.success("已重命名");
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [editableSectionContext, fetchCourse],
+  );
+
+  const handleDeleteSection = useCallback(async () => {
+    if (!editableSectionContext) return;
+    try {
+      const res = await fetch(
+        `/api/lms/sections/${editableSectionContext.sectionId}`,
+        { method: "DELETE" },
+      );
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("已删除小节");
+      setActiveSectionId(null);
+      setSelectedBlockId(null);
+      await fetchCourse();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    }
+  }, [editableSectionContext, fetchCourse]);
 
   // ---------- Loading / Error states ----------
 
@@ -1548,7 +1698,17 @@ export default function TeacherCourseDetailPage() {
       </Tabs>
         </div>
 
-        <BlockPropertyPanel selected={selectedSectionContext} />
+        <BlockEditPanel
+          section={editableSectionContext}
+          selectedBlockId={selectedBlockId}
+          onSelectBlock={setSelectedBlockId}
+          onCreateBlock={handleCreateBlock}
+          onUpdateBlock={handleUpdateBlock}
+          onDeleteBlock={handleDeleteBlock}
+          onReorderBlock={handleReorderBlock}
+          onRenameSection={handleRenameSection}
+          onDeleteSection={handleDeleteSection}
+        />
       </div>
 
       {/* Create Chapter Dialog */}
