@@ -26,16 +26,16 @@ const taskTypeLabels: Record<string, string> = {
   subjective: "主观题",
 };
 
-const taskTypeColors: Record<string, string> = {
-  simulation: "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800",
-  quiz: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800",
-  subjective: "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800",
+const taskTypeBadgeClass: Record<string, string> = {
+  simulation: "bg-sim-soft text-sim border-sim/20",
+  quiz: "bg-quiz-soft text-quiz border-quiz/20",
+  subjective: "bg-subj-soft text-subj border-subj/20",
 };
 
-const taskTypeIconColors: Record<string, string> = {
-  simulation: "bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300",
-  quiz: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300",
-  subjective: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300",
+const taskTypeIconClass: Record<string, string> = {
+  simulation: "bg-sim-soft text-sim",
+  quiz: "bg-quiz-soft text-quiz",
+  subjective: "bg-subj-soft text-subj",
 };
 
 const taskTypeIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -72,10 +72,12 @@ interface TaskCardProps {
 export function TaskCard({ task, role }: TaskCardProps) {
   const taskType = task.task?.taskType || task.taskType || "";
   const taskName = task.title || task.task?.taskName || "";
-  const typeBadgeClass = taskTypeColors[taskType] || "bg-gray-50 text-gray-700 border-gray-200";
+  const typeBadgeClass =
+    taskTypeBadgeClass[taskType] || "bg-muted text-muted-foreground border-border";
   const typeLabel = taskTypeLabels[taskType] || taskType;
   const IconComp = taskTypeIconMap[taskType] || FileText;
-  const iconColorClass = taskTypeIconColors[taskType] || "bg-blue-50 text-blue-600";
+  const iconColorClass =
+    taskTypeIconClass[taskType] || "bg-muted text-muted-foreground";
 
   const dueDate = task.dueAt
     ? new Date(task.dueAt).toLocaleDateString("zh-CN", {
@@ -101,7 +103,9 @@ export function TaskCard({ task, role }: TaskCardProps) {
       task.latestScore !== undefined;
 
     const isGraded = task.studentStatus === "graded";
-    const cardClass = isGraded ? "py-3 gap-2 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800" : "py-3 gap-2";
+    const cardClass = isGraded
+      ? "py-3 gap-2 bg-success-soft border-success/20"
+      : "py-3 gap-2";
 
     const taskHref = taskType === "simulation" ? `/sim/${task.id}` : `/tasks/${task.id}`;
 
@@ -116,7 +120,7 @@ export function TaskCard({ task, role }: TaskCardProps) {
       }
       if (status === "graded") {
         return (
-          <Button size="xs" asChild className="bg-green-600 text-white hover:bg-green-700">
+          <Button size="xs" asChild>
             <Link href={taskHref}>查看结果</Link>
           </Button>
         );
@@ -161,7 +165,7 @@ export function TaskCard({ task, role }: TaskCardProps) {
                     {statusCfg.label}
                   </Badge>
                   {showScore && (
-                    <span className="text-xs font-semibold text-blue-600">
+                    <span className="fs-num text-xs font-semibold text-info">
                       {task.latestScore}/{task.latestMaxScore}
                     </span>
                   )}
@@ -193,11 +197,11 @@ export function TaskCard({ task, role }: TaskCardProps) {
 
   const completionBarColor =
     completionRate >= 80
-      ? "bg-emerald-500"
+      ? "bg-success"
       : completionRate >= 60
-        ? "bg-yellow-500"
+        ? "bg-warn"
         : completionRate > 0
-          ? "bg-red-500"
+          ? "bg-danger"
           : "bg-muted-foreground/30";
 
   // Build subtitle parts: chapter · section · slot · class
@@ -284,7 +288,7 @@ export function TaskCard({ task, role }: TaskCardProps) {
                 style={{ width: `${Math.max(completionRate, 3)}%` }}
               />
             </div>
-            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+            <span className="fs-num text-xs text-muted-foreground whitespace-nowrap">
               {completionRate}%
             </span>
           </div>
@@ -297,20 +301,20 @@ export function TaskCard({ task, role }: TaskCardProps) {
           {dueDate && (
             <p className={`text-xs whitespace-nowrap ${
               isPastDue
-                ? "text-red-500 font-medium"
+                ? "text-danger font-medium"
                 : daysRemaining !== null && daysRemaining <= 3
-                  ? "text-orange-500"
+                  ? "text-warn"
                   : "text-muted-foreground"
             }`}>
               {isPastDue ? "已截止" : "截止"} {dueDate}
             </p>
           )}
           {avgScore !== null && gradedCount > 0 ? (
-            <p className="text-xs font-semibold text-blue-600">
+            <p className="fs-num text-xs font-semibold text-info">
               均分 {Math.round(avgScore)}/{maxScore}
             </p>
           ) : studentCount > 0 ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="fs-num text-xs text-muted-foreground">
               {submissionCount}/{studentCount} 已提交
             </p>
           ) : null}

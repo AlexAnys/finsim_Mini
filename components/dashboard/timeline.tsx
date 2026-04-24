@@ -6,6 +6,7 @@ import { TaskCard } from "@/components/dashboard/task-card";
 import { AnnouncementCard } from "@/components/dashboard/announcement-card";
 import { ScheduleCard } from "@/components/dashboard/schedule-card";
 import { CalendarDays } from "lucide-react";
+import { courseColorForId } from "@/lib/design/tokens";
 
 interface TimelineItem {
   id: string;
@@ -25,17 +26,15 @@ interface TimelineProps {
   filter?: TimelineFilter;
 }
 
-// Consistent color palette for courses
-const COURSE_COLORS = [
-  { bg: "bg-blue-100", text: "text-blue-700", border: "border-blue-200" },
-  { bg: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-200" },
-  { bg: "bg-violet-100", text: "text-violet-700", border: "border-violet-200" },
-  { bg: "bg-orange-100", text: "text-orange-700", border: "border-orange-200" },
-  { bg: "bg-rose-100", text: "text-rose-700", border: "border-rose-200" },
-  { bg: "bg-cyan-100", text: "text-cyan-700", border: "border-cyan-200" },
-  { bg: "bg-amber-100", text: "text-amber-700", border: "border-amber-200" },
-  { bg: "bg-indigo-100", text: "text-indigo-700", border: "border-indigo-200" },
-];
+// 6-color desaturated course tag palette — see lib/design/tokens.ts
+const TAG_CLASS_MAP: Record<string, { bg: string; text: string; border: string }> = {
+  tagA: { bg: "bg-tag-a", text: "text-tag-a-fg", border: "border-tag-a-fg/20" },
+  tagB: { bg: "bg-tag-b", text: "text-tag-b-fg", border: "border-tag-b-fg/20" },
+  tagC: { bg: "bg-tag-c", text: "text-tag-c-fg", border: "border-tag-c-fg/20" },
+  tagD: { bg: "bg-tag-d", text: "text-tag-d-fg", border: "border-tag-d-fg/20" },
+  tagE: { bg: "bg-tag-e", text: "text-tag-e-fg", border: "border-tag-e-fg/20" },
+  tagF: { bg: "bg-tag-f", text: "text-tag-f-fg", border: "border-tag-f-fg/20" },
+};
 
 const DAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -68,13 +67,17 @@ function getDateStatus(dateKey: string): DateStatus {
 export function Timeline({ items, role, filter = "all" }: TimelineProps) {
   const todayRef = useRef<HTMLDivElement>(null);
 
-  // Build course color map
+  // Build course color map — stable hash on courseId, fallback to name
   const courseColorMap = useMemo(() => {
-    const map = new Map<string, (typeof COURSE_COLORS)[number]>();
-    const uniqueCourses = [...new Set(items.map((i) => i.courseName).filter(Boolean))];
-    uniqueCourses.forEach((name, idx) => {
-      map.set(name, COURSE_COLORS[idx % COURSE_COLORS.length]);
-    });
+    const map = new Map<string, (typeof TAG_CLASS_MAP)[string]>();
+    const seen = new Map<string, string>();
+    for (const item of items) {
+      if (!item.courseName || seen.has(item.courseName)) continue;
+      seen.set(item.courseName, item.courseId || item.courseName);
+    }
+    for (const [name, id] of seen) {
+      map.set(name, TAG_CLASS_MAP[courseColorForId(id)]);
+    }
     return map;
   }, [items]);
 

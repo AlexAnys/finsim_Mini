@@ -20,7 +20,7 @@ export function AnnouncementCard({ announcement, role }: AnnouncementCardProps) 
   return (
     <Card className="py-3 gap-2">
       <CardContent className="flex items-start gap-3">
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600">
+        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-ochre-soft text-ochre">
           <Megaphone className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1">

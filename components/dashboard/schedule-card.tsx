@@ -17,7 +17,7 @@ export function ScheduleCard({ slot }: ScheduleCardProps) {
   return (
     <Card className="py-2 gap-1">
       <CardContent className="flex items-center gap-3">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-green-50 text-green-600">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-info-soft text-info">
           <CalendarDays className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1">
