@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertSubmissionReadable } from "@/lib/auth/resource-access";
 import { updateSubmissionGrade } from "@/lib/services/submission.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -16,6 +17,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    const { user } = result.session;
+    await assertSubmissionReadable(id, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
+
     const body = await request.json();
     const parsed = manualGradeSchema.safeParse(body);
     if (!parsed.success) {

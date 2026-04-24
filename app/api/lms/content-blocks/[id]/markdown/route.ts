@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertCourseAccess } from "@/lib/auth/course-access";
 import { upsertMarkdownBlock } from "@/lib/services/course.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -22,6 +23,9 @@ export async function PUT(request: NextRequest) {
     if (!parsed.success) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
+
+    const { user } = result.session;
+    await assertCourseAccess(parsed.data.courseId, user.id, user.role);
 
     const block = await upsertMarkdownBlock(parsed.data);
     return success(block);

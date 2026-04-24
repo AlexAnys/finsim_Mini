@@ -30,6 +30,12 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
 
   try {
     const { id } = await params;
+    const { user } = result.session;
+    await assertSubmissionReadable(id, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
     await deleteSubmission(id);
     return success({ deleted: true });
   } catch (err) {
