@@ -75,13 +75,24 @@ function getInitials(name: string | undefined | null): string {
   return name.charAt(0).toUpperCase();
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+interface SidebarContentProps {
+  onNavigate?: () => void;
+  initialRole?: UserRole;
+  initialName?: string | null;
+}
+
+function SidebarContent({
+  onNavigate,
+  initialRole,
+  initialName,
+}: SidebarContentProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const user = session?.user as
     | { name?: string; role?: UserRole; email?: string }
     | undefined;
-  const role = user?.role as UserRole | undefined;
+  const role = (user?.role as UserRole | undefined) ?? initialRole;
+  const displayName = user?.name ?? initialName ?? undefined;
   const navItems = getNavItems(role);
 
   const handleSignOut = () => {
@@ -149,12 +160,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="flex items-center gap-2.5 px-1 py-1">
           <Avatar size="default" className="size-8">
             <AvatarFallback className="bg-brand text-[13px] font-semibold text-brand-fg">
-              {getInitials(user?.name)}
+              {getInitials(displayName)}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12.5px] font-semibold text-ink-2">
-              {user?.name || "用户"}
+              {displayName || "用户"}
             </p>
             <p className="truncate text-[11px] text-ink-4">
               {getRoleLabel(role)}
@@ -175,14 +186,19 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  initialRole?: UserRole;
+  initialName?: string | null;
+}
+
+export function Sidebar({ initialRole, initialName }: SidebarProps = {}) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-[232px] lg:flex-col border-r border-line">
-        <SidebarContent />
+        <SidebarContent initialRole={initialRole} initialName={initialName} />
       </aside>
 
       {/* Mobile trigger */}
@@ -199,7 +215,11 @@ export function Sidebar() {
             showCloseButton={false}
           >
             <SheetTitle className="sr-only">导航菜单</SheetTitle>
-            <SidebarContent onNavigate={() => setOpen(false)} />
+            <SidebarContent
+              onNavigate={() => setOpen(false)}
+              initialRole={initialRole}
+              initialName={initialName}
+            />
           </SheetContent>
         </Sheet>
         <div className="ml-3">
