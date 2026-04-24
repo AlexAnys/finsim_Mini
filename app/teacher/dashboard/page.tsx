@@ -1,35 +1,30 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { Loader2, AlertCircle, CalendarDays, Clock } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Timeline, type TimelineFilter } from "@/components/dashboard/timeline";
-import { getCurrentWeekNumber, isSlotActiveForWeek } from "@/lib/utils/schedule-dates";
-
-interface TimelineItem {
-  id: string;
-  type: "task" | "announcement" | "schedule";
-  date: string;
-  courseName: string;
-  courseId?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: Record<string, any>;
-}
-
-interface ScheduleSlotItem {
-  id: string;
-  courseId: string;
-  dayOfWeek: number;
-  slotIndex: number;
-  startWeek: number;
-  endWeek: number;
-  timeLabel: string;
-  classroom: string | null;
-  weekType: string;
-  course: { courseTitle: string; semesterStartDate: string | null; classes?: Array<{ name: string }> };
-}
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, AlertCircle } from "lucide-react";
+import { TeacherGreetingHeader } from "@/components/teacher-dashboard/greeting-header";
+import { KpiStrip } from "@/components/teacher-dashboard/kpi-strip";
+import { AttentionList } from "@/components/teacher-dashboard/attention-list";
+import { PerformanceChart } from "@/components/teacher-dashboard/performance-chart";
+import { WeakInstances } from "@/components/teacher-dashboard/weak-instances";
+import { TodaySchedule } from "@/components/teacher-dashboard/today-schedule";
+import { ActivityFeed } from "@/components/teacher-dashboard/activity-feed";
+import { AiSuggestCallout } from "@/components/teacher-dashboard/ai-suggest-callout";
+import {
+  buildActivityFeed,
+  buildAttentionItems,
+  buildClassPerformance,
+  buildDateLine,
+  buildKpiSummary,
+  buildTodaySchedule,
+  buildWeakInstances,
+  buildWeeklyTrend,
+  startOfWeek,
+} from "@/lib/utils/teacher-dashboard-transforms";
+import {
+  getCurrentWeekNumber,
+  isSlotActiveForWeek,
+} from "@/lib/utils/schedule-dates";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface DashboardData {
@@ -37,7 +32,7 @@ interface DashboardData {
   taskInstances: Array<Record<string, any>>;
   recentSubmissions: Array<Record<string, any>>;
   announcements: Array<Record<string, any>>;
-  scheduleSlots: ScheduleSlotItem[];
+  scheduleSlots: Array<Record<string, any>>;
   stats: {
     submittedCount: number;
     gradedCount: number;
@@ -48,227 +43,200 @@ interface DashboardData {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-function transformToTimeline(data: DashboardData): TimelineItem[] {
-  const items: TimelineItem[] = [];
+const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-  // Transform task instances
-  for (const ti of data.taskInstances) {
-    items.push({
-      id: ti.id,
-      type: "task",
-      date: ti.dueAt || ti.createdAt,
-      courseName: ti.course?.courseTitle || "",
-      courseId: ti.course?.id,
-      data: ti,
-    });
+function currentWeekLabel(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  scheduleSlots: Array<Record<string, any>>,
+  now: Date = new Date(),
+): string | null {
+  let earliest: Date | null = null;
+  for (const s of scheduleSlots) {
+    const raw = s.course?.semesterStartDate;
+    if (!raw) continue;
+    const d = new Date(raw);
+    if (!earliest || d < earliest) earliest = d;
   }
-
-  // Transform announcements
-  for (const ann of data.announcements) {
-    items.push({
-      id: ann.id,
-      type: "announcement",
-      date: ann.createdAt,
-      courseName: ann.course?.courseTitle || "",
-      data: ann,
-    });
-  }
-
-  // Transform today's schedule slots
-  const now = new Date();
-  const jsDay = now.getDay();
-  const todayDayOfWeek = jsDay === 0 ? 7 : jsDay;
-
-  for (const slot of data.scheduleSlots || []) {
-    if (slot.dayOfWeek !== todayDayOfWeek) continue;
-
-    const semesterStart = slot.course?.semesterStartDate
-      ? new Date(slot.course.semesterStartDate)
-      : null;
-    const weekNumber = semesterStart ? getCurrentWeekNumber(semesterStart) : 0;
-    const weekType = (slot.weekType || "all") as "all" | "odd" | "even";
-
-    if (weekNumber > 0 && !isSlotActiveForWeek(weekNumber, slot.startWeek, slot.endWeek, weekType)) {
-      continue;
-    }
-
-    items.push({
-      id: `schedule-${slot.id}`,
-      type: "schedule",
-      date: now.toISOString(),
-      courseName: slot.course?.courseTitle || "",
-      data: {
-        id: slot.id,
-        courseName: slot.course?.courseTitle || "",
-        timeLabel: slot.timeLabel,
-        classroom: slot.classroom,
-        weekNumber: weekNumber || 1,
-        weekType,
-      },
-    });
-  }
-
-  return items;
+  if (!earliest) return null;
+  const week = getCurrentWeekNumber(earliest, now);
+  if (week <= 0) return null;
+  return `第 ${week} 教学周`;
 }
 
 export default function TeacherDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<TimelineFilter>("all");
-
-  // All hooks must be called before any early returns
-  const timelineItems = useMemo(() => (data ? transformToTimeline(data) : []), [data]);
-
-  const filterCounts = useMemo(() => {
-    const counts = { all: 0, simulation: 0, quiz: 0, subjective: 0, announcement: 0, schedule: 0 };
-    for (const item of timelineItems) {
-      counts.all++;
-      if (item.type === "announcement") {
-        counts.announcement++;
-      } else if (item.type === "schedule") {
-        counts.schedule++;
-      } else if (item.type === "task") {
-        const tt = item.data?.task?.taskType || item.data?.taskType || "";
-        if (tt === "simulation") counts.simulation++;
-        else if (tt === "quiz") counts.quiz++;
-        else if (tt === "subjective") counts.subjective++;
-      }
-    }
-    return counts;
-  }, [timelineItems]);
 
   useEffect(() => {
+    let aborted = false;
     async function fetchDashboard() {
       try {
         const res = await fetch("/api/lms/dashboard/summary");
         const json = await res.json();
+        if (aborted) return;
         if (!json.success) {
           setError(json.error?.message || "加载失败");
           return;
         }
         setData(json.data);
       } catch {
-        setError("网络错误，请稍后重试");
+        if (!aborted) setError("网络错误，请稍后重试");
       } finally {
-        setLoading(false);
+        if (!aborted) setLoading(false);
       }
     }
     fetchDashboard();
+    return () => {
+      aborted = true;
+    };
   }, []);
+
+  const kpi = useMemo(() => {
+    if (!data)
+      return {
+        classCount: 0,
+        studentCount: 0,
+        submittedThisWeek: 0,
+        submittedDelta: null as number | null,
+        completionRate: null as number | null,
+        pendingCount: 0,
+        pendingHint: null as string | null,
+        avgScore: null as number | null,
+        avgScoreDelta: null as number | null,
+        weakInstanceCount: 0,
+      };
+    const summary = buildKpiSummary({
+      courses: data.courses,
+      taskInstances: data.taskInstances,
+      recentSubmissions: data.recentSubmissions,
+      statsPendingCount: data.stats.pendingCount,
+    });
+    return {
+      ...summary,
+      submittedDelta: null,
+      pendingHint:
+        summary.pendingCount > 0 ? "前往任务列表批改" : null,
+    };
+  }, [data]);
+
+  const attentionItems = useMemo(
+    () => (data ? buildAttentionItems(data.taskInstances) : []),
+    [data],
+  );
+
+  const weakInstances = useMemo(
+    () => (data ? buildWeakInstances(data.taskInstances, 3) : []),
+    [data],
+  );
+
+  const classPerf = useMemo(
+    () => (data ? buildClassPerformance(data.taskInstances) : []),
+    [data],
+  );
+
+  const weeklyTrend = useMemo(
+    () => (data ? buildWeeklyTrend(data.recentSubmissions) : []),
+    [data],
+  );
+
+  const todaySlots = useMemo(() => {
+    if (!data) return [];
+    return buildTodaySchedule(data.scheduleSlots, (slot) => {
+      const semesterStart = slot.course?.semesterStartDate
+        ? new Date(slot.course.semesterStartDate)
+        : null;
+      const weekNumber = semesterStart
+        ? getCurrentWeekNumber(semesterStart)
+        : 0;
+      const weekType = (slot.weekType || "all") as "all" | "odd" | "even";
+      if (weekNumber <= 0) return true;
+      return isSlotActiveForWeek(
+        weekNumber,
+        Number(slot.startWeek ?? 1),
+        Number(slot.endWeek ?? 20),
+        weekType,
+      );
+    });
+  }, [data]);
+
+  const activityItems = useMemo(
+    () => (data ? buildActivityFeed(data.recentSubmissions, 4) : []),
+    [data],
+  );
+
+  const publishedThisWeek = useMemo(() => {
+    if (!data) return 0;
+    const weekStartMs = startOfWeek(new Date()).getTime();
+    return data.taskInstances.filter((ti) => {
+      if (ti.status !== "published") return false;
+      const ts = ti.publishedAt
+        ? new Date(ti.publishedAt).getTime()
+        : ti.createdAt
+          ? new Date(ti.createdAt).getTime()
+          : 0;
+      return ts >= weekStartMs;
+    }).length;
+  }, [data]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-        <span className="ml-2 text-muted-foreground">加载中...</span>
+        <Loader2 className="size-6 animate-spin text-ink-5" />
+        <span className="ml-2 text-sm text-ink-4">加载中...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-2">
-        <AlertCircle className="size-8 text-destructive" />
-        <p className="text-destructive">{error}</p>
+      <div className="flex flex-col items-center justify-center gap-2 py-20">
+        <AlertCircle className="size-8 text-danger" />
+        <p className="text-sm text-danger">{error}</p>
       </div>
     );
   }
 
   if (!data) return null;
 
-  // Get today's day of week (1=Monday ... 7=Sunday)
   const now = new Date();
   const jsDay = now.getDay();
-  const todayDayOfWeek = jsDay === 0 ? 7 : jsDay;
-  const dayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
-  const todaySlots = (data.scheduleSlots || [])
-    .filter((s) => s.dayOfWeek === todayDayOfWeek)
-    .sort((a, b) => a.slotIndex - b.slotIndex);
+  const todayIdx = jsDay === 0 ? 6 : jsDay - 1;
+  const todayLabel = WEEKDAY_LABELS[todayIdx];
+  const weekLabel = currentWeekLabel(data.scheduleSlots, now);
+  const dateLine = weekLabel
+    ? `${buildDateLine(now)} · ${weekLabel}`
+    : buildDateLine(now);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">仪表盘</h1>
+    <div className="mx-auto max-w-[1320px] space-y-6">
+      <TeacherGreetingHeader
+        dateLine={dateLine}
+        todayClassCount={todaySlots.length}
+        pendingGradeCount={kpi.pendingCount}
+        publishedThisWeek={publishedThisWeek}
+      />
 
-      {/* Today's classes - compact one-line format */}
-      <Card>
-        <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-            <CalendarDays className="size-4" />
-            今日课程（{dayLabels[todayDayOfWeek - 1]}）
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-4 pb-3 pt-0">
-          {todaySlots.length > 0 ? (
-            <div className="space-y-1">
-              {todaySlots.map((slot) => (
-                <div
-                  key={slot.id}
-                  className="flex items-center gap-2 text-sm py-1"
-                >
-                  <Clock className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="truncate">
-                    {slot.course.courseTitle}
-                    <span className="text-muted-foreground">
-                      {" · "}{slot.timeLabel}
-                      {slot.classroom && <>{" · "}{slot.classroom}</>}
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground py-1">今日无课程</p>
-          )}
-        </CardContent>
-      </Card>
+      <KpiStrip data={kpi} />
 
-      {/* Sticky filter tabs */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b -mx-1 px-1">
-        <div className="flex items-center gap-1 pb-2 pt-2 overflow-x-auto">
-          {(
-            [
-              { key: "all", label: "全部" },
-              { key: "simulation", label: "模拟对话" },
-              { key: "quiz", label: "测验" },
-              { key: "subjective", label: "主观题" },
-              { key: "announcement", label: "公告" },
-              { key: "schedule", label: "课堂" },
-            ] as { key: TimelineFilter; label: string }[]
-          ).map(({ key, label }) => {
-            const count = filterCounts[key];
-            const isActive = filter === key;
-            return (
-              <Button
-                key={key}
-                variant="ghost"
-                size="sm"
-                onClick={() => setFilter(key)}
-                className={`h-8 px-3 text-sm gap-1.5 ${
-                  isActive
-                    ? "bg-muted font-medium"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {label}
-                {count > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className={`text-[10px] px-1.5 py-0 min-w-[18px] justify-center ${
-                      isActive ? "" : "opacity-60"
-                    }`}
-                  >
-                    {count}
-                  </Badge>
-                )}
-              </Button>
-            );
-          })}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <AttentionList items={attentionItems} />
+          <PerformanceChart
+            overallAvg={kpi.avgScore}
+            overallDelta={kpi.avgScoreDelta}
+            classes={classPerf}
+            weeklyTrend={weeklyTrend}
+          />
+          <WeakInstances items={weakInstances} />
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <TodaySchedule slots={todaySlots} dayLabel={todayLabel} />
+          <ActivityFeed items={activityItems} />
+          <AiSuggestCallout />
         </div>
       </div>
-
-      <Timeline items={timelineItems} role="teacher" filter={filter} />
     </div>
   );
 }
