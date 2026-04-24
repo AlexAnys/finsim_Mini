@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 interface WizardCardProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   extra?: ReactNode;
   children: ReactNode;
 }

@@ -4,33 +4,27 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
-  Plus,
-  Trash2,
   ChevronLeft,
   ChevronRight,
   Check,
-  Sparkles,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { mergeGeneratedQuestions } from "@/lib/utils/quiz-merge";
 import { WizardStepper } from "@/components/task-wizard/wizard-stepper";
 import { WizardStepType } from "@/components/task-wizard/wizard-step-type";
 import { WizardStepBasic } from "@/components/task-wizard/wizard-step-basic";
+import { WizardStepSim } from "@/components/task-wizard/wizard-step-sim";
+import { WizardStepQuiz } from "@/components/task-wizard/wizard-step-quiz";
+import { WizardStepSubjective } from "@/components/task-wizard/wizard-step-subjective";
+import {
+  AIQuizDialog,
+  type GeneratedQuestion,
+} from "@/components/task-wizard/ai-quiz-dialog";
 import {
   TASK_TYPE_META,
   WIZARD_STEPS,
@@ -172,6 +166,7 @@ export default function CreateTaskPage() {
   const [form, setForm] = useState<FormData>(initialFormData);
   const [submitting, setSubmitting] = useState(false);
   const [aiGenerating, setAIGenerating] = useState(false);
+  const [aiDialogOpen, setAIDialogOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // ---------- Helpers ----------
@@ -325,50 +320,12 @@ export default function CreateTaskPage() {
     updateForm("questions", next);
   }
 
-  // ---------- AI Generation ----------
+  // ---------- AI Dialog handlers ----------
 
-  async function handleAIGenerateQuiz() {
-    if (!form.taskName.trim()) {
-      toast.error("请先输入任务名称");
-      return;
-    }
-    setAIGenerating(true);
-    try {
-      const res = await fetch("/api/ai/task-draft/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseName: form.taskName,
-          chapterName: form.description || form.taskName,
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "AI 出题失败");
-        return;
-      }
-      const generated = json.data.questions;
-      const mapped = generated.map((q: Record<string, unknown>) => ({
-        type: q.type as QuizQuestionType,
-        stem: q.prompt as string,
-        options: (q.options as QuizOption[]) || [
-          { id: "A", text: "" },
-          { id: "B", text: "" },
-          { id: "C", text: "" },
-          { id: "D", text: "" },
-        ],
-        correctOptionIds: (q.correctOptionIds as string[]) || [],
-        correctAnswer: (q.correctAnswer as string) || "",
-        points: (q.points as number) || 1,
-        explanation: (q.explanation as string) || "",
-      }));
-      updateForm("questions", mapped);
-      toast.success(`AI 已生成 ${mapped.length} 道题目`);
-    } catch {
-      toast.error("AI 出题失败，请重试");
-    } finally {
-      setAIGenerating(false);
-    }
+  function handleAIQuizAccept(generated: GeneratedQuestion[]) {
+    const next = mergeGeneratedQuestions(form.questions, generated);
+    updateForm("questions", next);
+    toast.success(`已加入 ${generated.length} 道题目`);
   }
 
   async function handleAIGenerateSubjective() {
@@ -414,7 +371,6 @@ export default function CreateTaskPage() {
   // ---------- Validation ----------
 
   function validateStep0(): boolean {
-    // Step 0 is type selection — always has a default, so always valid
     return true;
   }
 
@@ -454,7 +410,6 @@ export default function CreateTaskPage() {
       };
 
       if (form.taskType === "simulation") {
-        // Build systemPrompt from the 3 prompt sections
         const promptParts = [
           form.simPersona.trim() ? `【核心人设】\n${form.simPersona.trim()}` : "",
           form.simDialogueStyle.trim() ? `【对话风格】\n${form.simDialogueStyle.trim()}` : "",
@@ -646,673 +601,83 @@ export default function CreateTaskPage() {
             />
           )}
 
-          {/* Step 2 · Config（PR-4A 保留内联 JSX，PR-4B 拆组件） */}
           {step === 2 && form.taskType === "simulation" && (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>模拟对话配置</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="scenario">角色扮演场景 *</Label>
-                    <Textarea
-                      id="scenario"
-                      placeholder="描述 AI 扮演的角色和对话场景..."
-                      value={form.scenario}
-                      onChange={(e) => updateForm("scenario", e.target.value)}
-                      rows={4}
-                    />
-                    {errors.scenario && (
-                      <p className="text-sm text-destructive">{errors.scenario}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="openingLine">AI 开场白 *</Label>
-                    <Input
-                      id="openingLine"
-                      placeholder="AI 角色说的第一句话"
-                      value={form.openingLine}
-                      onChange={(e) => updateForm("openingLine", e.target.value)}
-                    />
-                    {errors.openingLine && (
-                      <p className="text-sm text-destructive">{errors.openingLine}</p>
-                    )}
-                  </div>
-
-                  <Separator />
-                  <p className="text-sm text-muted-foreground">
-                    以下提示词控制 AI 客户的行为方式，已预填默认值，可根据需要自定义。
-                  </p>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="simPersona">核心人设</Label>
-                    <Textarea
-                      id="simPersona"
-                      placeholder="描述 AI 客户的性格、背景和态度..."
-                      value={form.simPersona}
-                      onChange={(e) => updateForm("simPersona", e.target.value)}
-                      rows={4}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="simDialogueStyle">对话风格</Label>
-                    <Textarea
-                      id="simDialogueStyle"
-                      placeholder="描述 AI 客户的说话方式和回复规则..."
-                      value={form.simDialogueStyle}
-                      onChange={(e) => updateForm("simDialogueStyle", e.target.value)}
-                      rows={4}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="simConstraints">禁止行为</Label>
-                    <Textarea
-                      id="simConstraints"
-                      placeholder="列出 AI 客户不应做的事情..."
-                      value={form.simConstraints}
-                      onChange={(e) => updateForm("simConstraints", e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>对话要求</CardTitle>
-                    <Button variant="outline" size="sm" onClick={addRequirement}>
-                      <Plus className="size-3 mr-1" />
-                      添加要求
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {form.requirements.map((req, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground w-6">{i + 1}.</span>
-                      <Input
-                        placeholder="例如：需要了解客户的风险偏好"
-                        value={req}
-                        onChange={(e) => setRequirement(i, e.target.value)}
-                      />
-                      {form.requirements.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeRequirement(i)}
-                          className="shrink-0 text-destructive"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>评分标准</CardTitle>
-                    <Button variant="outline" size="sm" onClick={addCriterion}>
-                      <Plus className="size-3 mr-1" />
-                      添加标准
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {form.scoringCriteria.map((c, i) => (
-                    <div key={i} className="rounded-lg border p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">标准 {i + 1}</span>
-                        {form.scoringCriteria.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeCriterion(i)}
-                            className="size-7 text-destructive"
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        )}
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <Label className="text-xs">名称</Label>
-                          <Input
-                            placeholder="例如：需求分析"
-                            value={c.name}
-                            onChange={(e) => setCriterion(i, "name", e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">最高分</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={c.maxPoints}
-                            onChange={(e) =>
-                              setCriterion(i, "maxPoints", parseInt(e.target.value) || 1)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-xs">描述</Label>
-                        <Textarea
-                          placeholder="该评分标准的详细说明..."
-                          value={c.description}
-                          onChange={(e) => setCriterion(i, "description", e.target.value)}
-                          rows={2}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>资产配置</CardTitle>
-                    <Button variant="outline" size="sm" onClick={addAllocationSection}>
-                      <Plus className="size-3 mr-1" />
-                      添加分区
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {form.allocationSections.map((section, si) => (
-                    <div key={si} className="rounded-lg border p-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">分区 {si + 1}</span>
-                        {form.allocationSections.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeAllocationSection(si)}
-                            className="size-7 text-destructive"
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        )}
-                      </div>
-                      <div>
-                        <Label className="text-xs">分区名称</Label>
-                        <Input
-                          placeholder="例如：股票"
-                          value={section.label}
-                          onChange={(e) => setAllocationSectionLabel(si, e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-xs">配置项</Label>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => addAllocationItem(si)}
-                            className="h-6 text-xs"
-                          >
-                            <Plus className="size-3 mr-1" />
-                            添加项
-                          </Button>
-                        </div>
-                        {section.items.map((item, ii) => (
-                          <div key={ii} className="flex items-center gap-2">
-                            <Input
-                              placeholder="名称"
-                              value={item.label}
-                              onChange={(e) =>
-                                setAllocationItem(si, ii, "label", e.target.value)
-                              }
-                              className="flex-1"
-                            />
-                            <Input
-                              type="number"
-                              placeholder="默认值"
-                              value={item.defaultValue}
-                              onChange={(e) =>
-                                setAllocationItem(
-                                  si,
-                                  ii,
-                                  "defaultValue",
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              className="w-24"
-                            />
-                            {section.items.length > 1 && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeAllocationItem(si, ii)}
-                                className="size-7 shrink-0 text-destructive"
-                              >
-                                <Trash2 className="size-3" />
-                              </Button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
+            <WizardStepSim
+              scenario={form.scenario}
+              openingLine={form.openingLine}
+              requirements={form.requirements}
+              scoringCriteria={form.scoringCriteria}
+              allocationSections={form.allocationSections}
+              simPersona={form.simPersona}
+              simDialogueStyle={form.simDialogueStyle}
+              simConstraints={form.simConstraints}
+              totalPoints={form.totalPoints}
+              errors={errors}
+              onScenario={(v) => updateForm("scenario", v)}
+              onOpeningLine={(v) => updateForm("openingLine", v)}
+              onRequirementAdd={addRequirement}
+              onRequirementRemove={removeRequirement}
+              onRequirementChange={setRequirement}
+              onCriterionAdd={addCriterion}
+              onCriterionRemove={removeCriterion}
+              onCriterionChange={setCriterion}
+              onAllocSectionAdd={addAllocationSection}
+              onAllocSectionRemove={removeAllocationSection}
+              onAllocSectionLabel={setAllocationSectionLabel}
+              onAllocItemAdd={addAllocationItem}
+              onAllocItemRemove={removeAllocationItem}
+              onAllocItemChange={setAllocationItem}
+              onSimPersona={(v) => updateForm("simPersona", v)}
+              onSimDialogueStyle={(v) => updateForm("simDialogueStyle", v)}
+              onSimConstraints={(v) => updateForm("simConstraints", v)}
+            />
           )}
 
           {step === 2 && form.taskType === "quiz" && (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>测验配置</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>时间限制（分钟）</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        placeholder="不限时请留空"
-                        value={form.timeLimitMinutes}
-                        onChange={(e) => updateForm("timeLimitMinutes", e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>测验模式</Label>
-                      <Select
-                        value={form.quizMode}
-                        onValueChange={(v) => updateForm("quizMode", v as "fixed" | "adaptive")}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="fixed">固定题目</SelectItem>
-                          <SelectItem value="adaptive">自适应</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="showResult"
-                        checked={form.showResult}
-                        onCheckedChange={(v) => updateForm("showResult", !!v)}
-                      />
-                      <Label htmlFor="showResult" className="cursor-pointer">
-                        显示正确答案
-                      </Label>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>题目列表</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleAIGenerateQuiz}
-                        disabled={aiGenerating}
-                      >
-                        {aiGenerating ? (
-                          <Loader2 className="size-3 mr-1 animate-spin" />
-                        ) : (
-                          <Sparkles className="size-3 mr-1" />
-                        )}
-                        AI 出题
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={addQuestion}>
-                        <Plus className="size-3 mr-1" />
-                        添加题目
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {errors.questions && (
-                    <p className="text-sm text-destructive">{errors.questions}</p>
-                  )}
-                  {form.questions.map((q, qi) => (
-                    <div key={qi} className="rounded-lg border p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">
-                          第 {qi + 1} 题
-                        </span>
-                        {form.questions.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeQuestion(qi)}
-                            className="size-7 text-destructive"
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">题目类型</Label>
-                          <Select
-                            value={q.type}
-                            onValueChange={(v) =>
-                              setQuestion(qi, "type", v as QuizQuestionType)
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="single_choice">单选题</SelectItem>
-                              <SelectItem value="multiple_choice">多选题</SelectItem>
-                              <SelectItem value="true_false">判断题</SelectItem>
-                              <SelectItem value="short_answer">简答题</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">分值</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={3}
-                            value={q.points}
-                            onChange={(e) =>
-                              setQuestion(qi, "points", parseInt(e.target.value) || 1)
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs">题干 *</Label>
-                        <Textarea
-                          placeholder="请输入题目内容..."
-                          value={q.stem}
-                          onChange={(e) => setQuestion(qi, "stem", e.target.value)}
-                          rows={2}
-                        />
-                        {errors[`q_${qi}_stem`] && (
-                          <p className="text-sm text-destructive">
-                            {errors[`q_${qi}_stem`]}
-                          </p>
-                        )}
-                      </div>
-
-                      {(q.type === "single_choice" ||
-                        q.type === "multiple_choice" ||
-                        q.type === "true_false") && (
-                        <div className="space-y-2">
-                          <Label className="text-xs">选项</Label>
-                          {(q.type === "true_false"
-                            ? [
-                                { id: "A", text: "正确" },
-                                { id: "B", text: "错误" },
-                              ]
-                            : q.options
-                          ).map((opt, oi) => (
-                            <div key={oi} className="flex items-center gap-2">
-                              <Badge variant="outline" className="w-7 justify-center shrink-0">
-                                {opt.id}
-                              </Badge>
-                              {q.type === "true_false" ? (
-                                <span className="text-sm">{opt.text}</span>
-                              ) : (
-                                <Input
-                                  placeholder={`选项 ${opt.id}`}
-                                  value={opt.text}
-                                  onChange={(e) =>
-                                    setQuestionOption(qi, oi, e.target.value)
-                                  }
-                                />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {q.type === "short_answer" ? (
-                        <div className="space-y-1">
-                          <Label className="text-xs">参考答案</Label>
-                          <Input
-                            placeholder="参考答案..."
-                            value={q.correctAnswer}
-                            onChange={(e) =>
-                              setQuestion(qi, "correctAnswer", e.target.value)
-                            }
-                          />
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <Label className="text-xs">正确答案</Label>
-                          <Select
-                            value={q.correctOptionIds[0] || ""}
-                            onValueChange={(v) =>
-                              setQuestion(qi, "correctOptionIds", [v])
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="选择正确答案" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(q.type === "true_false"
-                                ? [{ id: "A" }, { id: "B" }]
-                                : q.options
-                              ).map((opt) => (
-                                <SelectItem key={opt.id} value={opt.id}>
-                                  {opt.id}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      <div className="space-y-1">
-                        <Label className="text-xs">解析</Label>
-                        <Textarea
-                          placeholder="题目解析（选填）..."
-                          value={q.explanation}
-                          onChange={(e) =>
-                            setQuestion(qi, "explanation", e.target.value)
-                          }
-                          rows={2}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
+            <WizardStepQuiz
+              timeLimitMinutes={form.timeLimitMinutes}
+              quizMode={form.quizMode}
+              shuffleQuestions={form.shuffleQuestions}
+              showResult={form.showResult}
+              questions={form.questions}
+              errors={errors}
+              onTimeLimit={(v) => updateForm("timeLimitMinutes", v)}
+              onQuizMode={(v) => updateForm("quizMode", v)}
+              onShuffle={(v) => updateForm("shuffleQuestions", v)}
+              onShowResult={(v) => updateForm("showResult", v)}
+              onQuestionAdd={addQuestion}
+              onQuestionRemove={removeQuestion}
+              onQuestionChange={setQuestion}
+              onQuestionOption={setQuestionOption}
+              onOpenAIDialog={() => setAIDialogOpen(true)}
+            />
           )}
 
           {step === 2 && form.taskType === "subjective" && (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>主观题配置</CardTitle>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAIGenerateSubjective}
-                      disabled={aiGenerating}
-                    >
-                      {aiGenerating ? (
-                        <Loader2 className="size-3 mr-1 animate-spin" />
-                      ) : (
-                        <Sparkles className="size-3 mr-1" />
-                      )}
-                      AI 出题
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="prompt">题目提示 *</Label>
-                    <Textarea
-                      id="prompt"
-                      placeholder="请详细描述学生需要回答的问题..."
-                      value={form.prompt}
-                      onChange={(e) => updateForm("prompt", e.target.value)}
-                      rows={4}
-                    />
-                    {errors.prompt && (
-                      <p className="text-sm text-destructive">{errors.prompt}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>字数限制</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="不限制请留空"
-                      value={form.wordLimit}
-                      onChange={(e) => updateForm("wordLimit", e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="allowAttachment"
-                        checked={form.allowAttachment}
-                        onCheckedChange={(v) => updateForm("allowAttachment", !!v)}
-                      />
-                      <Label htmlFor="allowAttachment" className="cursor-pointer">
-                        允许上传附件
-                      </Label>
-                    </div>
-                    {form.allowAttachment && (
-                      <div className="space-y-2 pl-6">
-                        <Label>最大附件数</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={form.maxAttachments}
-                          onChange={(e) =>
-                            updateForm("maxAttachments", e.target.value)
-                          }
-                          className="w-32"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>作答要求</CardTitle>
-                    <Button variant="outline" size="sm" onClick={addRequirement}>
-                      <Plus className="size-3 mr-1" />
-                      添加要求
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {form.requirements.map((req, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground w-6">{i + 1}.</span>
-                      <Input
-                        placeholder="例如：需要引用至少两个经济学理论"
-                        value={req}
-                        onChange={(e) => setRequirement(i, e.target.value)}
-                      />
-                      {form.requirements.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeRequirement(i)}
-                          className="shrink-0 text-destructive"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>评分标准</CardTitle>
-                    <Button variant="outline" size="sm" onClick={addCriterion}>
-                      <Plus className="size-3 mr-1" />
-                      添加标准
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {form.scoringCriteria.map((c, i) => (
-                    <div key={i} className="rounded-lg border p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">标准 {i + 1}</span>
-                        {form.scoringCriteria.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeCriterion(i)}
-                            className="size-7 text-destructive"
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        )}
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <Label className="text-xs">名称</Label>
-                          <Input
-                            placeholder="例如：论述逻辑"
-                            value={c.name}
-                            onChange={(e) => setCriterion(i, "name", e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">最高分</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={c.maxPoints}
-                            onChange={(e) =>
-                              setCriterion(i, "maxPoints", parseInt(e.target.value) || 1)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-xs">描述</Label>
-                        <Textarea
-                          placeholder="该评分标准的详细说明..."
-                          value={c.description}
-                          onChange={(e) => setCriterion(i, "description", e.target.value)}
-                          rows={2}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
+            <WizardStepSubjective
+              prompt={form.prompt}
+              wordLimit={form.wordLimit}
+              allowAttachment={form.allowAttachment}
+              maxAttachments={form.maxAttachments}
+              requirements={form.requirements}
+              scoringCriteria={form.scoringCriteria}
+              aiGenerating={aiGenerating}
+              errors={errors}
+              onPrompt={(v) => updateForm("prompt", v)}
+              onWordLimit={(v) => updateForm("wordLimit", v)}
+              onAllowAttachment={(v) => updateForm("allowAttachment", v)}
+              onMaxAttachments={(v) => updateForm("maxAttachments", v)}
+              onRequirementAdd={addRequirement}
+              onRequirementRemove={removeRequirement}
+              onRequirementChange={setRequirement}
+              onCriterionAdd={addCriterion}
+              onCriterionRemove={removeCriterion}
+              onCriterionChange={setCriterion}
+              onAIGenerate={handleAIGenerateSubjective}
+            />
           )}
 
-          {/* Step 3: Review */}
+          {/* Step 3: Review（PR-4C 拆） */}
           {step === 3 && (
             <Card>
               <CardHeader>
@@ -1513,6 +878,15 @@ export default function CreateTaskPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Quiz dialog */}
+      <AIQuizDialog
+        open={aiDialogOpen}
+        onClose={() => setAIDialogOpen(false)}
+        taskName={form.taskName}
+        description={form.description}
+        onAccept={handleAIQuizAccept}
+      />
     </div>
   );
 }
