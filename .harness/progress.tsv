@@ -12,3 +12,5 @@ timestamp	unit	round	verdict	cost_usd	description	git_commit
 2026-04-23T17:30:00Z	pr-0	r1	PASS	0.00	tokens 落地;@theme inline 映射齐全;61/61 tests;tsc+build 过;served CSS 6 色全命中;.dark 块完整适配	-
 2026-04-23T17:42:00Z	pr-1	r1	PASS	0.00	4 文件去硬编码;grep 0 匹配;tsc+build+61/61 tests;服务 CSS 全量 emit (sim/quiz/subj/success/warn/danger/ochre/tag-a~f/fs-num);3 type 数据覆盖	-
 2026-04-23T17:52:00Z	pr-2	r1	PASS	0.00	Wordmark 新建;sidebar 重写(232px+bg-paper-alt+brand-soft激活+3px条+⌘K占位+Avatar深靛);layout pl-[232px];auth逻辑零改;7 路由全 200;SSR 闪烁属 pre-existing 非阻塞	-
+2026-04-24T04:46:17Z	pr-1a	r1	PASS	0.00	两 layout async RSC+getSession;Sidebar initialRole/initialName 透传;真登录 SSR grep 教师/学生双向命中(教师工作台=1 学习空间=0 反向亦然);tsc 0+61/61 tests+build 过;providers/auth/API 零改	-
+2026-04-24T04:59:00Z	pr-1b	r1	PASS	0.00	assertCourseAccess 提到 lib/auth/course-access.ts 单一 impl+re-export;schedule/announcement 两分支 AND 合并;老师公告注入 teacherId(admin 不注入);allSettled+partitionSettledSubs+红色失败卡片;真登录 4 角色数据证据 teacher1=5/teacher2=0/admin=5/student=5 符合预期;+13 tests(74 total);tsc+build 过	-
