@@ -10,15 +10,15 @@ import {
   Bot,
   LogOut,
   Menu,
-  GraduationCap,
   CalendarDays,
   Users,
+  Search,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
+import { Wordmark } from "@/components/ui/wordmark";
 import {
   Sheet,
   SheetContent,
@@ -66,6 +66,10 @@ function getRoleLabel(role: UserRole | undefined): string {
   }
 }
 
+function getSectionLabel(role: UserRole | undefined): string {
+  return role === "teacher" || role === "admin" ? "教师工作台" : "学习空间";
+}
+
 function getInitials(name: string | undefined | null): string {
   if (!name) return "U";
   return name.charAt(0).toUpperCase();
@@ -85,21 +89,28 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Logo */}
-      <div className="flex h-16 items-center gap-2.5 px-6">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <GraduationCap className="size-5" />
-        </div>
-        <span className="text-xl font-bold tracking-tight text-foreground">
-          FinSim
-        </span>
+    <div className="flex h-full flex-col bg-paper-alt">
+      {/* Wordmark */}
+      <div className="px-5 pt-[22px] pb-[18px]">
+        <Wordmark size={28} />
       </div>
 
-      <Separator />
+      {/* Search placeholder (⌘K — actual command palette TBD) */}
+      <div className="px-3">
+        <div className="relative flex items-center rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-5">
+          <Search className="mr-2 size-3.5 shrink-0" aria-hidden="true" />
+          <span className="flex-1">搜索...</span>
+          <kbd className="ml-auto rounded bg-paper px-1.5 py-px font-mono text-[10.5px] text-ink-5">
+            ⌘K
+          </kbd>
+        </div>
+      </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 px-3 pt-[18px]">
+        <div className="px-2.5 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink-5">
+          {getSectionLabel(role)}
+        </div>
         {navItems.map((item) => {
           const isActive =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -109,16 +120,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               href={item.href}
               onClick={onNavigate}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "relative mb-0.5 flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
                 isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  ? "bg-brand-soft text-brand font-semibold"
+                  : "text-ink-3 hover:bg-paper hover:text-ink-2"
               )}
             >
+              {isActive && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -left-3 top-1.5 bottom-1.5 w-[3px] rounded-sm bg-brand"
+                />
+              )}
               <item.icon
                 className={cn(
-                  "size-5 shrink-0",
-                  isActive ? "text-primary" : ""
+                  "size-[15px] shrink-0",
+                  isActive ? "text-brand" : "text-ink-4"
                 )}
               />
               {item.label}
@@ -127,19 +144,19 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
 
-      {/* User Info */}
-      <div className="mt-auto border-t p-4">
-        <div className="flex items-center gap-3">
-          <Avatar size="default">
-            <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+      {/* User card */}
+      <div className="border-t border-line p-3">
+        <div className="flex items-center gap-2.5 px-1 py-1">
+          <Avatar size="default" className="size-8">
+            <AvatarFallback className="bg-brand text-[13px] font-semibold text-brand-fg">
               {getInitials(user?.name)}
             </AvatarFallback>
           </Avatar>
-          <div className="flex-1 truncate">
-            <p className="truncate text-sm font-medium text-foreground">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[12.5px] font-semibold text-ink-2">
               {user?.name || "用户"}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="truncate text-[11px] text-ink-4">
               {getRoleLabel(role)}
             </p>
           </div>
@@ -147,7 +164,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             variant="ghost"
             size="icon"
             onClick={handleSignOut}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
+            className="size-7 shrink-0 text-ink-5 hover:text-destructive"
             title="登出"
           >
             <LogOut className="size-4" />
@@ -164,28 +181,29 @@ export function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-60 lg:flex-col border-r bg-background">
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-[232px] lg:flex-col border-r border-line">
         <SidebarContent />
       </aside>
 
       {/* Mobile trigger */}
-      <div className="fixed top-0 left-0 right-0 z-40 flex h-14 items-center border-b bg-background px-4 lg:hidden">
+      <div className="fixed top-0 left-0 right-0 z-40 flex h-14 items-center border-b border-line bg-paper px-4 lg:hidden">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon">
               <Menu className="size-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-60 p-0" showCloseButton={false}>
+          <SheetContent
+            side="left"
+            className="w-[232px] p-0"
+            showCloseButton={false}
+          >
             <SheetTitle className="sr-only">导航菜单</SheetTitle>
             <SidebarContent onNavigate={() => setOpen(false)} />
           </SheetContent>
         </Sheet>
-        <div className="ml-3 flex items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <GraduationCap className="size-4" />
-          </div>
-          <span className="text-lg font-bold">FinSim</span>
+        <div className="ml-3">
+          <Wordmark size={24} />
         </div>
       </div>
     </>

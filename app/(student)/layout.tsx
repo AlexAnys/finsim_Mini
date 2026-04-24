@@ -8,8 +8,7 @@ export default function StudentLayout({
   return (
     <div className="min-h-screen">
       <Sidebar />
-      {/* Main content area: offset for sidebar on desktop, offset for topbar on mobile */}
-      <main className="lg:pl-60">
+      <main className="lg:pl-[232px]">
         <div className="p-6 pt-20 lg:pt-6">{children}</div>
       </main>
     </div>
