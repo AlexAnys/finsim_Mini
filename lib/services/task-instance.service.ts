@@ -118,6 +118,10 @@ export async function getTaskInstanceById(instanceId: string) {
         },
       },
       class: true,
+      course: { select: { id: true, courseTitle: true } },
+      chapter: { select: { id: true, title: true } },
+      section: { select: { id: true, title: true } },
+      _count: { select: { submissions: true } },
     },
   });
 }

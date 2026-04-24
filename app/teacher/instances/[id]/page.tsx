@@ -1,28 +1,21 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useParams, useRouter } from "next/navigation";
 import {
   Loader2,
   AlertCircle,
-  ChevronRight,
-  Send,
-  XCircle,
   FileText,
   Download,
-  Pencil,
   MessageSquare,
   Reply,
-  HelpCircle,
-  Clock,
-  Eye,
+  Send,
+  Sparkles,
+  BarChart3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -33,8 +26,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import {
+  InstanceHeader,
+  type InstanceHeaderData,
+} from "@/components/instance-detail/instance-header";
+import {
+  InstanceTabsNav,
+  type InstanceTabKey,
+} from "@/components/instance-detail/tabs-nav";
+import { OverviewTab } from "@/components/instance-detail/overview-tab";
 
 interface InstanceDetail {
   id: string;
@@ -44,17 +45,21 @@ interface InstanceDetail {
   status: string;
   dueAt: string;
   publishedAt: string | null;
+  publishAt: string | null;
   attemptsAllowed: number | null;
   createdAt: string;
+  slot?: string | null;
   task: {
     id: string;
     taskName: string;
     taskType: string;
+    scoringCriteria?: Array<{ id: string; name: string; maxPoints: number }>;
   };
   class: { id: string; name: string };
   course?: { id: string; courseTitle: string } | null;
   chapter?: { id: string; title: string } | null;
   section?: { id: string; title: string } | null;
+  _count?: { submissions: number };
 }
 
 interface Submission {
@@ -95,19 +100,9 @@ interface DiscussionPost {
   }>;
 }
 
-const statusLabels: Record<string, string> = {
-  draft: "草稿",
-  published: "已发布",
-  closed: "已关闭",
-  archived: "已归档",
-};
-
-const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  draft: "outline",
-  published: "default",
-  closed: "secondary",
-  archived: "destructive",
-};
+interface ClassMember {
+  studentId: string;
+}
 
 const subStatusLabels: Record<string, string> = {
   submitted: "待批改",
@@ -123,18 +118,6 @@ const subStatusVariant: Record<string, "default" | "secondary" | "destructive" |
   failed: "destructive",
 };
 
-const taskTypeLabels: Record<string, string> = {
-  simulation: "模拟对话",
-  quiz: "测验",
-  subjective: "主观题",
-};
-
-const taskTypeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  simulation: MessageSquare,
-  quiz: HelpCircle,
-  subjective: FileText,
-};
-
 const roleLabels: Record<string, string> = {
   teacher: "教师",
   admin: "管理员",
@@ -143,20 +126,17 @@ const roleLabels: Record<string, string> = {
 
 export default function InstanceDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const instanceId = params.id as string;
 
   const [instance, setInstance] = useState<InstanceDetail | null>(null);
   const [submissions, setSubmissions] = useState<SubmissionsResponse | null>(null);
+  const [classMembers, setClassMembers] = useState<ClassMember[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [actionLoading, setActionLoading] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editDueAt, setEditDueAt] = useState("");
-  const [editAttempts, setEditAttempts] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<InstanceTabKey>("overview");
 
   // Discussion state
   const [posts, setPosts] = useState<DiscussionPost[]>([]);
@@ -184,6 +164,19 @@ export default function InstanceDetailPage() {
 
       if (subJson.success) {
         setSubmissions(subJson.data);
+      }
+
+      const classId = instJson.data?.class?.id;
+      if (classId) {
+        try {
+          const cmRes = await fetch(`/api/lms/classes/${classId}/members`);
+          const cmJson = await cmRes.json();
+          if (cmJson.success) {
+            setClassMembers(cmJson.data || []);
+          }
+        } catch {
+          // silent; fallback handled in computed stats
+        }
       }
     } catch {
       setError("网络错误，请稍后重试");
@@ -215,31 +208,34 @@ export default function InstanceDetailPage() {
     fetchPosts();
   }, [fetchPosts]);
 
-  async function handleStatusChange(newStatus: string) {
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/lms/task-instances/${instanceId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "操作失败");
-        return;
+  const handleStatusChange = useCallback(
+    async (newStatus: string) => {
+      setActionLoading(true);
+      try {
+        const res = await fetch(`/api/lms/task-instances/${instanceId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "操作失败");
+          return;
+        }
+        toast.success(
+          newStatus === "published" ? "已发布" : newStatus === "closed" ? "已关闭" : "状态已更新"
+        );
+        setInstance((prev) => (prev ? { ...prev, status: newStatus } : prev));
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      } finally {
+        setActionLoading(false);
       }
-      toast.success(
-        newStatus === "published" ? "已发布" : newStatus === "closed" ? "已关闭" : "状态已更新"
-      );
-      setInstance((prev) => (prev ? { ...prev, status: newStatus } : prev));
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setActionLoading(false);
-    }
-  }
+    },
+    [instanceId]
+  );
 
-  function exportGrades() {
+  const exportGrades = useCallback(() => {
     if (!submissions || submissions.items.length === 0) {
       toast.error("暂无成绩可导出");
       return;
@@ -256,7 +252,7 @@ export default function InstanceDetailPage() {
     ]);
 
     const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
-    const BOM = "\uFEFF";
+    const BOM = "﻿";
     const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -265,46 +261,33 @@ export default function InstanceDetailPage() {
     a.click();
     URL.revokeObjectURL(url);
     toast.success("导出成功");
-  }
+  }, [submissions, instance?.title, instanceId]);
 
-  async function handleSaveEdit() {
-    if (!editTitle.trim()) {
-      toast.error("标题不能为空");
-      return;
-    }
-    setSaving(true);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const body: Record<string, any> = {
-        title: editTitle.trim(),
-        description: editDescription.trim() || undefined,
-      };
-      if (editDueAt) {
-        body.dueAt = new Date(editDueAt).toISOString();
-      }
-      if (editAttempts) {
-        body.attemptsAllowed = parseInt(editAttempts);
-      }
-      const res = await fetch(`/api/lms/task-instances/${instanceId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+  const handleRemind = useCallback(() => {
+    toast.message("催交通知已记录", {
+      description: "后续版本将支持批量发送站内信 / 邮件",
+    });
+  }, []);
+
+  const handleStartGrading = useCallback(() => {
+    setTab("submissions");
+    if (typeof window !== "undefined") {
+      requestAnimationFrame(() => {
+        const el = document.getElementById("tabpanel-submissions");
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "保存失败");
-        return;
-      }
-      toast.success("修改已保存");
-      setEditing(false);
-      setLoading(true);
-      fetchData();
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setSaving(false);
     }
-  }
+  }, []);
+
+  const handlePreviewStudent = useCallback(() => {
+    if (!instance) return;
+    const type = instance.task.taskType;
+    const base =
+      type === "simulation"
+        ? `/sim/${instanceId}?preview=true`
+        : `/tasks/${instanceId}?preview=true`;
+    router.push(base);
+  }, [instance, instanceId, router]);
 
   async function handleCreatePost() {
     if (!newPostContent.trim()) return;
@@ -362,6 +345,29 @@ export default function InstanceDetailPage() {
     }
   }
 
+  const stats = useMemo(() => {
+    const items = submissions?.items || [];
+    const total = submissions?.total ?? items.length;
+    const graded = items.filter((s) => s.status === "graded").length;
+    const grading = items.filter((s) => s.status === "grading").length;
+    const assigned = classMembers?.length ?? Math.max(total, 0);
+    return {
+      assigned,
+      submitted: total,
+      grading,
+      graded,
+    };
+  }, [submissions, classMembers]);
+
+  const totalPoints = useMemo(() => {
+    if (!instance?.task.scoringCriteria) return 100;
+    const sum = instance.task.scoringCriteria.reduce(
+      (acc, c) => acc + (c.maxPoints || 0),
+      0
+    );
+    return sum > 0 ? sum : 100;
+  }, [instance?.task.scoringCriteria]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -382,486 +388,380 @@ export default function InstanceDetailPage() {
 
   if (!instance) return null;
 
-  const gradedCount =
-    submissions?.items.filter((s) => s.status === "graded").length || 0;
-  const totalSubs = submissions?.total || 0;
-  const avgScore =
-    gradedCount > 0
-      ? Math.round(
-          (submissions?.items
-            .filter((s) => s.status === "graded" && s.score !== null)
-            .reduce((sum, s) => sum + (s.score || 0), 0) || 0) / gradedCount
-        )
-      : 0;
-  const maxScoreVal =
-    submissions?.items.find((s) => s.maxScore !== null)?.maxScore || 100;
-
-  const isPastDue = new Date(instance.dueAt) < new Date();
-  const daysRemaining = Math.ceil(
-    (new Date(instance.dueAt).getTime() - Date.now()) / 86400000
-  );
-
-  const TypeIcon = taskTypeIcons[instance.task.taskType] || FileText;
+  const headerData: InstanceHeaderData = {
+    id: instance.id,
+    title: instance.title,
+    taskType: instance.task.taskType,
+    status: instance.status,
+    dueAt: instance.dueAt,
+    assigned: stats.assigned,
+    totalPoints,
+    course: instance.course
+      ? { id: instance.course.id, title: instance.course.courseTitle }
+      : null,
+    chapter: instance.chapter ? { title: instance.chapter.title } : null,
+    section: instance.section ? { title: instance.section.title } : null,
+    slot: instance.slot ?? null,
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-        <Link href="/teacher/instances" className="hover:text-foreground">
-          任务实例
-        </Link>
-        <ChevronRight className="size-4" />
-        <span className="text-foreground">{instance.title}</span>
+    <div className="-mx-4 -my-4 min-h-[calc(100vh-3.5rem)] bg-paper md:-mx-6 md:-my-6">
+      <InstanceHeader
+        instance={headerData}
+        actionLoading={actionLoading}
+        onPublish={() => handleStatusChange("published")}
+        onClose={() => handleStatusChange("closed")}
+        onExport={exportGrades}
+        onRemind={handleRemind}
+        onStartGrading={handleStartGrading}
+      />
+
+      <div className="bg-surface px-6 md:px-10">
+        <InstanceTabsNav
+          value={tab}
+          onChange={setTab}
+          submittedCount={stats.submitted}
+        />
       </div>
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-            <TypeIcon className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold">{instance.title}</h1>
-            {instance.description && (
-              <p className="mt-1 text-sm text-muted-foreground">
-                {instance.description}
-              </p>
-            )}
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <Badge variant={statusVariant[instance.status] || "outline"}>
-                {statusLabels[instance.status] || instance.status}
-              </Badge>
-              <Badge variant="secondary">
-                {taskTypeLabels[instance.task.taskType] || instance.task.taskType}
-              </Badge>
-              {isPastDue ? (
-                <Badge variant="destructive" className="text-xs">
-                  <Clock className="size-3 mr-1" />
-                  已截止
-                </Badge>
-              ) : daysRemaining <= 3 ? (
-                <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">
-                  <Clock className="size-3 mr-1" />
-                  剩余 {daysRemaining} 天
-                </Badge>
-              ) : null}
-            </div>
-            {instance.course && (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {instance.course.courseTitle}
-                {instance.chapter && ` > ${instance.chapter.title}`}
-                {instance.section && ` > ${instance.section.title}`}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setEditTitle(instance.title);
-              setEditDescription(instance.description || "");
-              setEditDueAt(new Date(instance.dueAt).toISOString().slice(0, 16));
-              setEditAttempts(instance.attemptsAllowed?.toString() || "");
-              setEditing(true);
+      <div className="px-6 py-6 md:px-10 md:py-6">
+        {tab === "overview" && (
+          <OverviewTab
+            instance={{
+              id: instance.id,
+              title: instance.title,
+              description: instance.description,
+              taskType: instance.task.taskType,
+              dueAt: instance.dueAt,
+              publishedAt: instance.publishedAt,
+              createdAt: instance.createdAt,
             }}
-          >
-            <Pencil className="size-3 mr-1" />
-            编辑
-          </Button>
-          {instance.status === "draft" && (
-            <Button
-              size="sm"
-              onClick={() => handleStatusChange("published")}
-              disabled={actionLoading}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {actionLoading ? (
-                <Loader2 className="size-3 mr-1 animate-spin" />
-              ) : (
-                <Send className="size-3 mr-1" />
-              )}
-              发布
-            </Button>
-          )}
-          {instance.status === "published" && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleStatusChange("closed")}
-              disabled={actionLoading}
-            >
-              {actionLoading ? (
-                <Loader2 className="size-3 mr-1 animate-spin" />
-              ) : (
-                <XCircle className="size-3 mr-1" />
-              )}
-              关闭
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Quick Action Buttons */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="outline" size="sm" asChild>
-          <Link href={`/teacher/tasks/${instance.task.id}`}>
-            <Eye className="size-3 mr-1" />
-            查看任务配置
-          </Link>
-        </Button>
-        <Button variant="outline" size="sm" onClick={exportGrades}>
-          <Download className="size-3 mr-1" />
-          导出成绩
-        </Button>
-        {instance.task.taskType === "simulation" && (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/sim/${instanceId}?preview=true`}>
-              <MessageSquare className="size-3 mr-1" />
-              测试预览
-            </Link>
-          </Button>
+            stats={stats}
+            onRemind={handleRemind}
+            onStartGrading={handleStartGrading}
+            onPreviewStudent={handlePreviewStudent}
+          />
         )}
-      </div>
 
-      {/* Edit Form */}
-      {editing && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">编辑任务实例</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>标题</Label>
-              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>描述</Label>
-              <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={2} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>截止时间</Label>
-                <Input type="datetime-local" value={editDueAt} onChange={(e) => setEditDueAt(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>尝试次数限制（留空不限制）</Label>
-                <Input type="number" min="1" value={editAttempts} onChange={(e) => setEditAttempts(e.target.value)} placeholder="不限" />
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setEditing(false)} disabled={saving}>取消</Button>
-              <Button onClick={handleSaveEdit} disabled={saving}>
-                {saving ? <><Loader2 className="size-4 mr-2 animate-spin" />保存中...</> : "保存修改"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Metadata Row */}
-      <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
-        <span>{instance.class?.name || "未分配班级"}</span>
-        <span>·</span>
-        <span>截止 {new Date(instance.dueAt).toLocaleDateString("zh-CN")}</span>
-        <span>·</span>
-        <span>来自任务「{instance.task?.taskName}」</span>
-      </div>
-
-      {/* Inline Summary Bar */}
-      <div className="rounded-lg bg-muted/50 px-4 py-2.5 flex items-center gap-4 text-sm">
-        <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">提交</span>
-          <span className="font-medium">{totalSubs}</span>
-        </div>
-        <div className="h-4 w-px bg-border" />
-        <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">已批改</span>
-          <span className="font-medium">{gradedCount}</span>
-        </div>
-        <div className="h-4 w-px bg-border" />
-        <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">均分</span>
-          <span className="font-medium">{avgScore}/{maxScoreVal}</span>
-        </div>
-      </div>
-
-      {/* Tabbed Content: Submissions / Discussion */}
-      <Tabs defaultValue="submissions">
-        <TabsList>
-          <TabsTrigger value="submissions">
-            提交记录
-            {totalSubs > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
-                {totalSubs}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="discussion">
-            讨论区
-            {posts.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
-                {posts.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Submissions Tab */}
-        <TabsContent value="submissions" className="mt-4">
-          <Card id="grades">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">提交记录</CardTitle>
-                <Button variant="outline" size="sm" onClick={exportGrades}>
-                  <Download className="size-3 mr-1" />
-                  导出成绩
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {!submissions || submissions.items.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="size-8 text-muted-foreground mx-auto" />
-                  <p className="mt-2 text-sm text-muted-foreground">暂无提交记录</p>
-                </div>
-              ) : (
-                <>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>学生</TableHead>
-                        <TableHead>状态</TableHead>
-                        <TableHead>分数</TableHead>
-                        <TableHead>提交时间</TableHead>
-                        <TableHead>批改时间</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {submissions.items.map((sub) => (
-                        <TableRow key={sub.id}>
-                          <TableCell className="font-medium">
-                            {sub.student.name}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={subStatusVariant[sub.status] || "outline"}
-                            >
-                              {subStatusLabels[sub.status] || sub.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {sub.status === "graded" && sub.score !== null ? (
-                              <span className="font-medium">
-                                {sub.score}
-                                <span className="text-muted-foreground font-normal">
-                                  {" "}/ {sub.maxScore}
-                                </span>
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {new Date(sub.submittedAt).toLocaleString("zh-CN")}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {sub.gradedAt
-                              ? new Date(sub.gradedAt).toLocaleString("zh-CN")
-                              : "-"}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-
-                  {/* Pagination */}
-                  {submissions.totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-4">
-                      <p className="text-sm text-muted-foreground">
-                        共 {submissions.total} 条记录，第 {submissions.page} /{" "}
-                        {submissions.totalPages} 页
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPage((p) => Math.max(1, p - 1))}
-                          disabled={page <= 1}
-                        >
-                          上一页
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            setPage((p) => Math.min(submissions.totalPages, p + 1))
-                          }
-                          disabled={page >= submissions.totalPages}
-                        >
-                          下一页
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Discussion Tab */}
-        <TabsContent value="discussion" className="mt-4">
-          <Card id="discussion-section">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <MessageSquare className="size-4" />
-                  讨论区
-                </CardTitle>
-                {posts.length > 0 && (
-                  <Badge variant="outline" className="text-xs">
-                    {posts.length} 条讨论
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* New post form */}
-              <div className="space-y-2">
-                <Textarea
-                  placeholder="发表讨论..."
-                  value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
-                  rows={2}
-                />
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={handleCreatePost}
-                    disabled={postingNew || !newPostContent.trim()}
-                  >
-                    {postingNew ? (
-                      <Loader2 className="size-4 mr-1 animate-spin" />
-                    ) : (
-                      <Send className="size-4 mr-1" />
-                    )}
-                    发布
+        {tab === "submissions" && (
+          <div
+            id="tabpanel-submissions"
+            role="tabpanel"
+            aria-labelledby="tab-submissions"
+            className="space-y-4"
+          >
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">提交记录</CardTitle>
+                  <Button variant="outline" size="sm" onClick={exportGrades}>
+                    <Download className="size-3" />
+                    导出成绩
                   </Button>
                 </div>
-              </div>
+              </CardHeader>
+              <CardContent>
+                {!submissions || submissions.items.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="size-8 text-muted-foreground mx-auto" />
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      暂无提交记录
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>学生</TableHead>
+                          <TableHead>状态</TableHead>
+                          <TableHead>分数</TableHead>
+                          <TableHead>提交时间</TableHead>
+                          <TableHead>批改时间</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {submissions.items.map((sub) => (
+                          <TableRow key={sub.id}>
+                            <TableCell className="font-medium">
+                              {sub.student.name}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  subStatusVariant[sub.status] || "outline"
+                                }
+                              >
+                                {subStatusLabels[sub.status] || sub.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {sub.status === "graded" && sub.score !== null ? (
+                                <span className="font-medium">
+                                  {sub.score}
+                                  <span className="text-muted-foreground font-normal">
+                                    {" "}
+                                    / {sub.maxScore}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {new Date(sub.submittedAt).toLocaleString("zh-CN")}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {sub.gradedAt
+                                ? new Date(sub.gradedAt).toLocaleString("zh-CN")
+                                : "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
 
-              <Separator />
-
-              {/* Posts list */}
-              {postsLoading ? (
-                <div className="flex items-center justify-center py-6">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-sm text-muted-foreground">加载讨论...</span>
-                </div>
-              ) : posts.length === 0 ? (
-                <div className="text-center py-8">
-                  <MessageSquare className="size-8 text-muted-foreground mx-auto" />
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    暂无讨论，发布第一条讨论吧
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {posts.map((post) => (
-                    <div key={post.id} className="space-y-2">
-                      <div className="rounded-lg border p-3">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium">{post.author.name}</span>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                            {roleLabels[post.author.role] || post.author.role}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(post.createdAt).toLocaleString("zh-CN")}
-                          </span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap">{post.content}</p>
-                        <div className="mt-2">
+                    {submissions.totalPages > 1 && (
+                      <div className="flex items-center justify-between mt-4">
+                        <p className="text-sm text-muted-foreground">
+                          共 {submissions.total} 条记录，第 {submissions.page} /{" "}
+                          {submissions.totalPages} 页
+                        </p>
+                        <div className="flex items-center gap-2">
                           <Button
-                            variant="ghost"
-                            size="xs"
-                            className="h-6 text-xs px-2"
-                            onClick={() => {
-                              setReplyingTo(replyingTo === post.id ? null : post.id);
-                              setReplyContent("");
-                            }}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page <= 1}
                           >
-                            <Reply className="size-3 mr-0.5" />
-                            回复
+                            上一页
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setPage((p) =>
+                                Math.min(submissions.totalPages, p + 1)
+                              )
+                            }
+                            disabled={page >= submissions.totalPages}
+                          >
+                            下一页
                           </Button>
                         </div>
                       </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
-                      {/* Replies */}
-                      {post.replies.length > 0 && (
-                        <div className="ml-6 space-y-2">
-                          {post.replies.map((reply) => (
-                            <div key={reply.id} className="rounded-lg border border-dashed p-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm font-medium">{reply.author.name}</span>
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                  {roleLabels[reply.author.role] || reply.author.role}
-                                </Badge>
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(reply.createdAt).toLocaleString("zh-CN")}
-                                </span>
-                              </div>
-                              <p className="text-sm whitespace-pre-wrap">{reply.content}</p>
-                            </div>
-                          ))}
-                        </div>
+            {/* 讨论区 */}
+            <Card id="discussion-section">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <MessageSquare className="size-4" />
+                    讨论区
+                  </CardTitle>
+                  {posts.length > 0 && (
+                    <Badge variant="outline" className="text-xs">
+                      {posts.length} 条讨论
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="发表讨论..."
+                    value={newPostContent}
+                    onChange={(e) => setNewPostContent(e.target.value)}
+                    rows={2}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={handleCreatePost}
+                      disabled={postingNew || !newPostContent.trim()}
+                    >
+                      {postingNew ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Send className="size-4" />
                       )}
+                      发布
+                    </Button>
+                  </div>
+                </div>
 
-                      {/* Reply form */}
-                      {replyingTo === post.id && (
-                        <div className="ml-6 space-y-2">
-                          <Textarea
-                            placeholder="输入回复..."
-                            value={replyContent}
-                            onChange={(e) => setReplyContent(e.target.value)}
-                            rows={2}
-                            autoFocus
-                          />
-                          <div className="flex items-center gap-2 justify-end">
-                            <Button
+                <Separator />
+
+                {postsLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-sm text-muted-foreground">
+                      加载讨论...
+                    </span>
+                  </div>
+                ) : posts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <MessageSquare className="size-8 text-muted-foreground mx-auto" />
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      暂无讨论，发布第一条讨论吧
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {posts.map((post) => (
+                      <div key={post.id} className="space-y-2">
+                        <div className="rounded-lg border p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium">
+                              {post.author.name}
+                            </span>
+                            <Badge
                               variant="outline"
-                              size="sm"
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {roleLabels[post.author.role] || post.author.role}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(post.createdAt).toLocaleString("zh-CN")}
+                            </span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">
+                            {post.content}
+                          </p>
+                          <div className="mt-2">
+                            <Button
+                              variant="ghost"
+                              size="xs"
                               onClick={() => {
-                                setReplyingTo(null);
+                                setReplyingTo(
+                                  replyingTo === post.id ? null : post.id
+                                );
                                 setReplyContent("");
                               }}
                             >
-                              取消
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => handleReply(post.id)}
-                              disabled={postingReply || !replyContent.trim()}
-                            >
-                              {postingReply ? (
-                                <Loader2 className="size-4 mr-1 animate-spin" />
-                              ) : (
-                                <Reply className="size-4 mr-1" />
-                              )}
+                              <Reply className="size-3" />
                               回复
                             </Button>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+
+                        {post.replies.length > 0 && (
+                          <div className="ml-6 space-y-2">
+                            {post.replies.map((reply) => (
+                              <div
+                                key={reply.id}
+                                className="rounded-lg border border-dashed p-3"
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium">
+                                    {reply.author.name}
+                                  </span>
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] px-1.5 py-0"
+                                  >
+                                    {roleLabels[reply.author.role] ||
+                                      reply.author.role}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {new Date(reply.createdAt).toLocaleString(
+                                      "zh-CN"
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="text-sm whitespace-pre-wrap">
+                                  {reply.content}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {replyingTo === post.id && (
+                          <div className="ml-6 space-y-2">
+                            <Textarea
+                              placeholder="输入回复..."
+                              value={replyContent}
+                              onChange={(e) => setReplyContent(e.target.value)}
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="flex items-center gap-2 justify-end">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setReplyingTo(null);
+                                  setReplyContent("");
+                                }}
+                              >
+                                取消
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleReply(post.id)}
+                                disabled={
+                                  postingReply || !replyContent.trim()
+                                }
+                              >
+                                {postingReply ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <Reply className="size-4" />
+                                )}
+                                回复
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {tab === "insights" && (
+          <div
+            id="tabpanel-insights"
+            role="tabpanel"
+            aria-labelledby="tab-insights"
+            className="rounded-xl border border-line bg-surface p-10 text-center"
+          >
+            <Sparkles className="mx-auto size-8 text-sim" />
+            <div className="mt-3 text-sm font-medium text-ink-2">
+              AI 洞察即将上线
+            </div>
+            <p className="mt-1 text-xs text-ink-4">
+              PR-5C 会带来共性问题 / 亮点 / 薄弱概念聚合
+            </p>
+          </div>
+        )}
+
+        {tab === "analytics" && (
+          <div
+            id="tabpanel-analytics"
+            role="tabpanel"
+            aria-labelledby="tab-analytics"
+            className="rounded-xl border border-line bg-surface p-10 text-center"
+          >
+            <BarChart3 className="mx-auto size-8 text-ink-4" />
+            <div className="mt-3 text-sm font-medium text-ink-2">
+              数据分析即将上线
+            </div>
+            <p className="mt-1 text-xs text-ink-4">
+              PR-5D 会带来分布 / 散点 / 热图
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
