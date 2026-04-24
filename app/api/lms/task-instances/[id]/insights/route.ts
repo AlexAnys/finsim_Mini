@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertTaskInstanceReadableTeacherOnly } from "@/lib/auth/resource-access";
 import { prisma } from "@/lib/db/prisma";
 import { success, notFound, handleServiceError } from "@/lib/api-utils";
 
@@ -9,6 +10,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    const { user } = result.session;
+    await assertTaskInstanceReadableTeacherOnly(id, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
 
     // Get the task instance with task details
     const instance = await prisma.taskInstance.findUnique({

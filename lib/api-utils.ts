@@ -55,7 +55,14 @@ export function handleServiceError(err: unknown) {
       case "EMPTY_COURSE_LIST":
         return error("EMPTY_COURSE_LIST", "请至少选择一门课程", 400);
       case "TASK_INSTANCE_NOT_FOUND":
+      case "INSTANCE_NOT_FOUND":
         return notFound("任务实例不存在");
+      case "TASK_NOT_FOUND":
+        return notFound("任务不存在");
+      case "SUBMISSION_NOT_FOUND":
+        return notFound("提交不存在");
+      case "JOB_NOT_FOUND":
+        return notFound("导入任务不存在");
       case "TASK_NOT_PUBLISHED":
         return error("TASK_NOT_PUBLISHED", "任务尚未发布", 400);
       case "TASK_OVERDUE":

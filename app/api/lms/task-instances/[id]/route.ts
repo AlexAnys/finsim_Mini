@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertTaskInstanceReadable } from "@/lib/auth/resource-access";
 import { updateTaskInstance, deleteTaskInstance, getTaskInstanceById } from "@/lib/services/task-instance.service";
 import { updateTaskInstanceSchema } from "@/lib/validators/task.schema";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
@@ -10,6 +11,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    const { user } = result.session;
+    await assertTaskInstanceReadable(id, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
     const instance = await getTaskInstanceById(id);
     if (!instance) return notFound("任务实例不存在");
     return success(instance);

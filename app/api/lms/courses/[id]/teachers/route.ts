@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertCourseAccess } from "@/lib/auth/course-access";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { getCourseTeachers, addCourseTeacher, removeCourseTeacher } from "@/lib/services/course.service";
 import { prisma } from "@/lib/db/prisma";
@@ -19,6 +20,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    await assertCourseAccess(id, result.session.user.id, result.session.user.role);
     const teachers = await getCourseTeachers(id);
     return success(teachers);
   } catch (err) {

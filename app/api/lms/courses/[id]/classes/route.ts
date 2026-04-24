@@ -10,6 +10,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    await assertCourseAccess(id, result.session.user.id, result.session.user.role);
     const classes = await getCourseClasses(id);
     return success(classes);
   } catch (err) {

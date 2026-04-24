@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { assertTaskReadable } from "@/lib/auth/resource-access";
 import { getTaskById, updateTask, deleteTask } from "@/lib/services/task.service";
 import { updateTaskSchema } from "@/lib/validators/task.schema";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
@@ -8,10 +9,20 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const result = await requireAuth();
   if (result.error) return result.error;
 
-  const { id } = await params;
-  const task = await getTaskById(id);
-  if (!task) return notFound("任务不存在");
-  return success(task);
+  try {
+    const { id } = await params;
+    const { user } = result.session;
+    await assertTaskReadable(id, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
+    const task = await getTaskById(id);
+    if (!task) return notFound("任务不存在");
+    return success(task);
+  } catch (err) {
+    return handleServiceError(err);
+  }
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

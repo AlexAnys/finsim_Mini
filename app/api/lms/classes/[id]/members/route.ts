@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
 import { prisma } from "@/lib/db/prisma";
 import { success, handleServiceError } from "@/lib/api-utils";
 
@@ -9,6 +10,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    const { user } = result.session;
+    await assertClassAccessForTeacher(id, { id: user.id, role: user.role });
     const members = await prisma.user.findMany({
       where: { classId: id, role: "student" },
       select: {
