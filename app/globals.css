@@ -5,11 +5,14 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* ── Fonts ────────────────────────────────────────────────── */
+  --font-sans: var(--fs-font-sans);
+  --font-mono: var(--fs-font-mono);
+  --font-serif: var(--fs-font-serif);
+
+  /* ── shadcn base color tokens (kept for existing components) ── */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial,
-    sans-serif;
-  --font-mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -39,6 +42,70 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* ── FinSim canvas / ink / line ───────────────────────────── */
+  --color-paper: var(--fs-bg);
+  --color-paper-alt: var(--fs-bg-alt);
+  --color-surface: var(--fs-surface);
+  --color-surface-tint: var(--fs-surface-tint);
+  --color-ink: var(--fs-ink);
+  --color-ink-2: var(--fs-ink-2);
+  --color-ink-3: var(--fs-ink-3);
+  --color-ink-4: var(--fs-ink-4);
+  --color-ink-5: var(--fs-ink-5);
+  --color-line: var(--fs-line);
+  --color-line-2: var(--fs-line-2);
+  --color-hairline: var(--fs-hairline);
+
+  /* ── FinSim brand / accent ───────────────────────────────── */
+  --color-brand: var(--fs-primary);
+  --color-brand-deep: var(--fs-primary-deep);
+  --color-brand-lift: var(--fs-primary-lift);
+  --color-brand-fg: var(--fs-primary-fg);
+  --color-brand-soft: var(--fs-primary-soft);
+  --color-brand-soft-2: var(--fs-primary-soft-2);
+  --color-ochre: var(--fs-accent);
+  --color-ochre-soft: var(--fs-accent-soft);
+
+  /* ── FinSim semantic ─────────────────────────────────────── */
+  --color-success: var(--fs-success);
+  --color-success-soft: var(--fs-success-soft);
+  --color-success-deep: var(--fs-success-deep);
+  --color-warn: var(--fs-warn);
+  --color-warn-soft: var(--fs-warn-soft);
+  --color-danger: var(--fs-danger);
+  --color-danger-soft: var(--fs-danger-soft);
+  --color-info: var(--fs-info);
+  --color-info-soft: var(--fs-info-soft);
+
+  /* ── FinSim task type (3 colors only) ─────────────────────── */
+  --color-sim: var(--fs-sim);
+  --color-sim-soft: var(--fs-sim-soft);
+  --color-quiz: var(--fs-quiz);
+  --color-quiz-soft: var(--fs-quiz-soft);
+  --color-subj: var(--fs-subj);
+  --color-subj-soft: var(--fs-subj-soft);
+
+  /* ── FinSim course tags (6 colors only) ───────────────────── */
+  --color-tag-a: var(--fs-tag-a-bg);
+  --color-tag-a-fg: var(--fs-tag-a-fg);
+  --color-tag-b: var(--fs-tag-b-bg);
+  --color-tag-b-fg: var(--fs-tag-b-fg);
+  --color-tag-c: var(--fs-tag-c-bg);
+  --color-tag-c-fg: var(--fs-tag-c-fg);
+  --color-tag-d: var(--fs-tag-d-bg);
+  --color-tag-d-fg: var(--fs-tag-d-fg);
+  --color-tag-e: var(--fs-tag-e-bg);
+  --color-tag-e-fg: var(--fs-tag-e-fg);
+  --color-tag-f: var(--fs-tag-f-bg);
+  --color-tag-f-fg: var(--fs-tag-f-fg);
+
+  /* ── Shadow utilities ─────────────────────────────────────── */
+  --shadow-fs: var(--fs-shadow);
+  --shadow-fs-lg: var(--fs-shadow-lg);
+  --shadow-fs-pop: var(--fs-shadow-pop);
+
+  /* ── Radius (shadcn scale) ────────────────────────────────── */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -49,72 +116,234 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.546 0.245 262.881);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.96 0.02 262);
-  --secondary-foreground: oklch(0.305 0.1 262);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.96 0.02 262);
-  --accent-foreground: oklch(0.305 0.1 262);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.546 0.245 262.881);
-  --chart-1: oklch(0.546 0.245 262.881);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.546 0.245 262.881);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.96 0.02 262);
-  --sidebar-accent-foreground: oklch(0.305 0.1 262);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* ── FinSim canonical tokens (light) ──────────────────────── */
+  /* Canvas */
+  --fs-bg: #f7f4ec;
+  --fs-bg-alt: #fdfbf5;
+  --fs-surface: #ffffff;
+  --fs-surface-tint: #fbf9f2;
+
+  /* Text */
+  --fs-ink: #0f1623;
+  --fs-ink-2: #1f2937;
+  --fs-ink-3: #4b5563;
+  --fs-ink-4: #6b7280;
+  --fs-ink-5: #9ca3af;
+
+  /* Lines */
+  --fs-line: #e8e4db;
+  --fs-line-2: #efece5;
+  --fs-hairline: #d9d3c6;
+
+  /* Brand */
+  --fs-primary: #1e2a5e;
+  --fs-primary-deep: #111a42;
+  --fs-primary-lift: #2a3975;
+  --fs-primary-fg: #ffffff;
+  --fs-primary-soft: #e7eaf3;
+  --fs-primary-soft-2: #d4dae9;
+
+  /* Accent */
+  --fs-accent: #c48a3c;
+  --fs-accent-soft: #f6ecd8;
+
+  /* Semantic */
+  --fs-success: #0f7a5a;
+  --fs-success-soft: #dcf2e8;
+  --fs-success-deep: #0a5a42;
+  --fs-warn: #b4751c;
+  --fs-warn-soft: #fbefd4;
+  --fs-danger: #b4322b;
+  --fs-danger-soft: #f8e0dd;
+  --fs-info: #2e5fb4;
+  --fs-info-soft: #dde8fa;
+
+  /* Task type (3 colors, restrained) */
+  --fs-sim: #5b4fb8;
+  --fs-sim-soft: #ece9f7;
+  --fs-quiz: #2e5fb4;
+  --fs-quiz-soft: #dde8fa;
+  --fs-subj: #0f7a5a;
+  --fs-subj-soft: #dcf2e8;
+
+  /* Course tags (6 colors, desaturated) */
+  --fs-tag-a-bg: #eae7fa;
+  --fs-tag-a-fg: #453d91;
+  --fs-tag-b-bg: #e0ecfa;
+  --fs-tag-b-fg: #1f447b;
+  --fs-tag-c-bg: #dff0e8;
+  --fs-tag-c-fg: #0a5a42;
+  --fs-tag-d-bg: #faeadb;
+  --fs-tag-d-fg: #8a4f1a;
+  --fs-tag-e-bg: #f6e1e0;
+  --fs-tag-e-fg: #7f2a26;
+  --fs-tag-f-bg: #e3ede8;
+  --fs-tag-f-fg: #2f5e4c;
+
+  /* Elevation */
+  --fs-shadow: 0 1px 2px rgba(15, 22, 35, 0.04),
+    0 1px 3px rgba(15, 22, 35, 0.03);
+  --fs-shadow-lg: 0 1px 2px rgba(15, 22, 35, 0.04),
+    0 8px 24px rgba(15, 22, 35, 0.06);
+  --fs-shadow-pop: 0 4px 16px rgba(15, 22, 35, 0.08),
+    0 2px 4px rgba(15, 22, 35, 0.04);
+
+  /* Type stack */
+  --fs-font-sans: "PingFang SC", "HarmonyOS Sans", "Microsoft YaHei", "Inter",
+    -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --fs-font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace,
+    monospace;
+  --fs-font-serif: "PingFang SC", "Source Han Serif CN", "Songti SC", Georgia,
+    serif;
+
+  /* ── shadcn tokens mapped to FinSim palette ────────────────── */
+  --radius: 0.5rem;
+  --background: var(--fs-bg);
+  --foreground: var(--fs-ink);
+  --card: var(--fs-surface);
+  --card-foreground: var(--fs-ink);
+  --popover: var(--fs-surface);
+  --popover-foreground: var(--fs-ink);
+  --primary: var(--fs-primary);
+  --primary-foreground: var(--fs-primary-fg);
+  --secondary: var(--fs-surface-tint);
+  --secondary-foreground: var(--fs-ink-2);
+  --muted: var(--fs-bg-alt);
+  --muted-foreground: var(--fs-ink-4);
+  --accent: var(--fs-accent);
+  --accent-foreground: var(--fs-primary-fg);
+  --destructive: var(--fs-danger);
+  --destructive-foreground: var(--fs-primary-fg);
+  --border: var(--fs-line);
+  --input: var(--fs-line);
+  --ring: var(--fs-primary-lift);
+  --chart-1: var(--fs-primary);
+  --chart-2: var(--fs-info);
+  --chart-3: var(--fs-success);
+  --chart-4: var(--fs-accent);
+  --chart-5: var(--fs-sim);
+  --sidebar: var(--fs-surface);
+  --sidebar-foreground: var(--fs-ink);
+  --sidebar-primary: var(--fs-primary);
+  --sidebar-primary-foreground: var(--fs-primary-fg);
+  --sidebar-accent: var(--fs-primary-soft);
+  --sidebar-accent-foreground: var(--fs-primary);
+  --sidebar-border: var(--fs-line);
+  --sidebar-ring: var(--fs-primary-lift);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* ── FinSim canonical tokens (dark) ──────────────────────── */
+  /* Canvas — deep neutral, keep brand DNA */
+  --fs-bg: #0f1118;
+  --fs-bg-alt: #151823;
+  --fs-surface: #1a1e2c;
+  --fs-surface-tint: #202637;
+
+  /* Text — inverted ink, ramp kept readable */
+  --fs-ink: #f3f0e8;
+  --fs-ink-2: #e5e1d6;
+  --fs-ink-3: #c4c0b4;
+  --fs-ink-4: #9ca0ae;
+  --fs-ink-5: #6b7186;
+
+  /* Lines — darker, subtle */
+  --fs-line: #2b3042;
+  --fs-line-2: #242838;
+  --fs-hairline: #383e54;
+
+  /* Brand — lifted indigo for contrast on dark surface */
+  --fs-primary: #7b8cd9;
+  --fs-primary-deep: #5566b0;
+  --fs-primary-lift: #9aa8e3;
+  --fs-primary-fg: #0f1118;
+  --fs-primary-soft: #262b46;
+  --fs-primary-soft-2: #303863;
+
+  /* Accent — ochre slightly lifted to keep presence on dark */
+  --fs-accent: #d9a257;
+  --fs-accent-soft: #3b2f1c;
+
+  /* Semantic — lifted for dark bg readability */
+  --fs-success: #4da88a;
+  --fs-success-soft: #1c3530;
+  --fs-success-deep: #7fc2a8;
+  --fs-warn: #d5a24b;
+  --fs-warn-soft: #3a2e1a;
+  --fs-danger: #e07a73;
+  --fs-danger-soft: #3d221f;
+  --fs-info: #6b95df;
+  --fs-info-soft: #1c2a47;
+
+  /* Task type */
+  --fs-sim: #8c82d6;
+  --fs-sim-soft: #26233f;
+  --fs-quiz: #6b95df;
+  --fs-quiz-soft: #1c2a47;
+  --fs-subj: #4da88a;
+  --fs-subj-soft: #1c3530;
+
+  /* Course tags — darker bg, lighter fg */
+  --fs-tag-a-bg: #2b2745;
+  --fs-tag-a-fg: #b3abe6;
+  --fs-tag-b-bg: #1f2a45;
+  --fs-tag-b-fg: #9ab5e6;
+  --fs-tag-c-bg: #1d3330;
+  --fs-tag-c-fg: #7fc2a8;
+  --fs-tag-d-bg: #382a1c;
+  --fs-tag-d-fg: #d6ab74;
+  --fs-tag-e-bg: #3a2321;
+  --fs-tag-e-fg: #db9f9c;
+  --fs-tag-f-bg: #1f2e2a;
+  --fs-tag-f-fg: #8cb5a3;
+
+  /* Elevation — softer shadow on dark */
+  --fs-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);
+  --fs-shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --fs-shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+
+  /* ── shadcn tokens (dark) mapped to FinSim palette ───────── */
+  --background: var(--fs-bg);
+  --foreground: var(--fs-ink);
+  --card: var(--fs-surface);
+  --card-foreground: var(--fs-ink);
+  --popover: var(--fs-surface);
+  --popover-foreground: var(--fs-ink);
+  --primary: var(--fs-primary);
+  --primary-foreground: var(--fs-primary-fg);
+  --secondary: var(--fs-surface-tint);
+  --secondary-foreground: var(--fs-ink);
+  --muted: var(--fs-bg-alt);
+  --muted-foreground: var(--fs-ink-4);
+  --accent: var(--fs-accent);
+  --accent-foreground: var(--fs-primary-fg);
+  --destructive: var(--fs-danger);
+  --destructive-foreground: var(--fs-ink);
+  --border: var(--fs-line);
+  --input: var(--fs-line);
+  --ring: var(--fs-primary-lift);
+  --chart-1: var(--fs-primary);
+  --chart-2: var(--fs-info);
+  --chart-3: var(--fs-success);
+  --chart-4: var(--fs-accent);
+  --chart-5: var(--fs-sim);
+  --sidebar: var(--fs-surface);
+  --sidebar-foreground: var(--fs-ink);
+  --sidebar-primary: var(--fs-primary);
+  --sidebar-primary-foreground: var(--fs-primary-fg);
+  --sidebar-accent: var(--fs-primary-soft);
+  --sidebar-accent-foreground: var(--fs-primary);
+  --sidebar-border: var(--fs-line);
+  --sidebar-ring: var(--fs-primary-lift);
+}
+
+/* ── Numeric alignment utility ─────────────────────────────── */
+.fs-num,
+.fs-numeric,
+[data-numeric] {
+  font-family: var(--fs-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 @layer base {

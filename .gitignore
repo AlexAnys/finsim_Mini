@@ -42,3 +42,6 @@ next-env.d.ts
 
 /lib/generated/prisma
 .gstack/
+
+# Design mockups handoff from claude.ai/design (not for main)
+.harness/mockups/
