@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -64,6 +64,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
+import { EditorHero } from "@/components/teacher-course-edit/editor-hero";
+import { TocSidebar } from "@/components/teacher-course-edit/toc-sidebar";
+import { BlockPropertyPanel } from "@/components/teacher-course-edit/block-property-panel";
+import {
+  buildTocTree,
+  buildCourseCounts,
+  semesterDateDisplay,
+} from "@/lib/utils/course-editor-transforms";
 import { cn } from "@/lib/utils";
 
 interface TaskInstance {
@@ -275,6 +283,13 @@ export default function TeacherCourseDetailPage() {
 
   // Chapter collapse state
   const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(new Set());
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+
+  // Edit course dialog state
+  const [editCourseDialogOpen, setEditCourseDialogOpen] = useState(false);
+  const [editCourseTitle, setEditCourseTitle] = useState("");
+  const [editCourseDescription, setEditCourseDescription] = useState("");
+  const [savingEditCourse, setSavingEditCourse] = useState(false);
 
   // Multi-class state
   const [courseClasses, setCourseClasses] = useState<{ id: string; classId: string; class: { id: string; name: string } }[]>([]);
@@ -432,6 +447,44 @@ export default function TeacherCourseDetailPage() {
       fetchCourseTeachers();
     } catch {
       toast.error("网络错误");
+    }
+  }
+
+  function openEditCourseDialog() {
+    if (!course) return;
+    setEditCourseTitle(course.courseTitle);
+    setEditCourseDescription(course.description ?? "");
+    setEditCourseDialogOpen(true);
+  }
+
+  async function handleEditCourseSave() {
+    if (!course) return;
+    if (!editCourseTitle.trim()) {
+      toast.error("课程名称不能为空");
+      return;
+    }
+    setSavingEditCourse(true);
+    try {
+      const res = await fetch(`/api/lms/courses/${course.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseTitle: editCourseTitle.trim(),
+          description: editCourseDescription.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "保存失败");
+        return;
+      }
+      toast.success("课程已更新");
+      setEditCourseDialogOpen(false);
+      fetchCourse();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setSavingEditCourse(false);
     }
   }
 
@@ -1150,6 +1203,47 @@ export default function TeacherCourseDetailPage() {
     });
   }
 
+  const tocTree = useMemo(
+    () => (course ? buildTocTree(course.chapters) : []),
+    [course],
+  );
+  const counts = useMemo(
+    () =>
+      course
+        ? buildCourseCounts(course.chapters)
+        : { chapterCount: 0, sectionCount: 0, totalTasks: 0, publishedTasks: 0, draftTasks: 0 },
+    [course],
+  );
+
+  const selectedSectionContext = useMemo(() => {
+    if (!course || !activeSectionId) return null;
+    for (const ch of course.chapters) {
+      const section = ch.sections.find((s) => s.id === activeSectionId);
+      if (!section) continue;
+      return {
+        chapterTitle: ch.title,
+        chapterOrder: ch.order,
+        sectionTitle: section.title,
+        sectionOrder: section.order,
+        blocks: section.contentBlocks.map((b) => ({
+          id: b.id,
+          blockType: b.blockType,
+          slot: b.slot,
+          order: b.order,
+        })),
+        tasks: section.taskInstances.map((t) => ({
+          id: t.id,
+          title: t.title,
+          taskType: t.taskType,
+          slot: t.slot,
+          status: t.status,
+          createdAt: t.createdAt,
+        })),
+      };
+    }
+    return null;
+  }, [course, activeSectionId]);
+
   // ---------- Loading / Error states ----------
 
   if (loading) {
@@ -1176,159 +1270,99 @@ export default function TeacherCourseDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-        <Link href="/teacher/courses" className="hover:text-foreground">
-          课程管理
-        </Link>
-        <ChevronRight className="size-4" />
-        <span className="text-foreground">{course.courseTitle}</span>
-      </div>
-
-      {/* Course Header */}
-      <div className="rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 p-6 dark:from-primary/10 dark:to-primary/5">
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-4">
-          <div className="flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <BookOpen className="size-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">{course.courseTitle}</h1>
-            {course.courseCode && (
-              <p className="text-sm text-muted-foreground">{course.courseCode}</p>
-            )}
-            {course.description && (
-              <p className="mt-1 text-sm text-muted-foreground">
-                {course.description}
-              </p>
-            )}
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              {/* Multi-class badges — 若 CourseClass 为空（历史课未回填），退化显示主班 */}
-              {courseClasses.length === 0 && course.class && (
-                <Badge variant="secondary" className="flex items-center gap-1">
-                  <Users className="size-3" />
-                  {course.class.name}
-                </Badge>
-              )}
-              {courseClasses.map((cc) => {
-                const isPrimary = cc.classId === course.class.id;
-                return (
-                  <Badge key={cc.id} variant="secondary" className="flex items-center gap-1">
-                    <Users className="size-3" />
-                    {cc.class.name}
-                    {!isPrimary && (
-                      <button
-                        onClick={() => handleRemoveClass(cc.classId)}
-                        className="ml-0.5 hover:text-destructive"
-                      >
-                        <X className="size-2.5" />
-                      </button>
-                    )}
-                  </Badge>
-                );
-              })}
-              <Badge
-                variant="outline"
-                className="cursor-pointer hover:bg-muted text-muted-foreground"
-                onClick={() => { setAddClassDialogOpen(true); fetchAvailableClasses(); }}
+      <EditorHero
+        courseTitle={course.courseTitle}
+        courseCode={course.courseCode}
+        description={course.description}
+        primaryClassId={course.class.id}
+        courseClasses={courseClasses}
+        fallbackClassName={course.class.name ?? null}
+        teachers={courseTeachers.map((ct) => ({
+          id: ct.id,
+          teacherId: ct.teacherId,
+          teacher: ct.teacher,
+        }))}
+        semesterStartIso={course.semesterStartDate}
+        counts={counts}
+        onAddChapter={() => setChapterDialogOpen(true)}
+        onAddTeacher={() => setTeacherDialogOpen(true)}
+        onEditCourse={openEditCourseDialog}
+        onAddClass={() => { setAddClassDialogOpen(true); fetchAvailableClasses(); }}
+        onEditSemester={() => {
+          setEditSemesterDate(course.semesterStartDate?.slice(0, 10) ?? "");
+          setEditingSemesterDate(true);
+        }}
+        onRemoveClass={handleRemoveClass}
+        onRemoveTeacher={handleRemoveTeacher}
+        semesterBadge={
+          editingSemesterDate ? (
+            <span className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-[3px] text-[11px] text-white/90">
+              <Input
+                type="date"
+                value={editSemesterDate}
+                onChange={(e) => setEditSemesterDate(e.target.value)}
+                className="h-6 w-36 bg-white/10 border-white/20 text-white text-[11px]"
+              />
+              <button
+                type="button"
+                onClick={handleSaveSemesterDate}
+                disabled={savingSemesterDate}
+                className="text-white/80 hover:text-white"
+                aria-label="保存学期日期"
               >
-                <Plus className="size-3 mr-0.5" /> 添加班级
-              </Badge>
+                {savingSemesterDate ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Check className="size-3" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingSemesterDate(false)}
+                className="text-white/80 hover:text-white"
+                aria-label="取消"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setEditSemesterDate(course.semesterStartDate?.slice(0, 10) ?? "");
+                setEditingSemesterDate(true);
+              }}
+              className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-[3px] text-[11px] text-white/90 hover:bg-white/15"
+              aria-label="设置学期开始日期"
+            >
+              <CalendarDays className="size-3" />
+              {course.semesterStartDate
+                ? `学期始 ${semesterDateDisplay(course.semesterStartDate)}`
+                : "设置学期开始日期"}
+              <Pencil className="size-[9px] opacity-70" />
+            </button>
+          )
+        }
+      />
 
-              <span className="text-muted-foreground">·</span>
+      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)_280px]">
+        <TocSidebar
+          chapters={tocTree}
+          collapsedChapterIds={collapsedChapters}
+          activeChapterId={null}
+          activeSectionId={activeSectionId}
+          onToggleChapter={toggleChapter}
+          onJumpChapter={(id) => {
+            setActiveSectionId(null);
+            document.getElementById(`chapter-${id}`)?.scrollIntoView({ behavior: "smooth" });
+          }}
+          onJumpSection={(id) => {
+            setActiveSectionId(id);
+            document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth" });
+          }}
+        />
 
-              {editingSemesterDate ? (
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="date"
-                    value={editSemesterDate}
-                    onChange={(e) => setEditSemesterDate(e.target.value)}
-                    className="h-7 w-40 text-xs"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    onClick={handleSaveSemesterDate}
-                    disabled={savingSemesterDate}
-                  >
-                    {savingSemesterDate ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      <Check className="size-3" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    onClick={() => setEditingSemesterDate(false)}
-                  >
-                    <X className="size-3" />
-                  </Button>
-                </div>
-              ) : course.semesterStartDate ? (
-                <Badge
-                  variant="outline"
-                  className="flex items-center gap-1 w-fit cursor-pointer hover:bg-muted"
-                  onClick={() => {
-                    setEditSemesterDate(course.semesterStartDate!.slice(0, 10));
-                    setEditingSemesterDate(true);
-                  }}
-                >
-                  <CalendarDays className="size-3" />
-                  学期开始：{new Date(course.semesterStartDate).toLocaleDateString("zh-CN")}
-                  <Pencil className="size-2.5 ml-1 text-muted-foreground" />
-                </Badge>
-              ) : (
-                <Badge
-                  variant="outline"
-                  className="flex items-center gap-1 w-fit cursor-pointer hover:bg-muted text-muted-foreground"
-                  onClick={() => {
-                    setEditSemesterDate("");
-                    setEditingSemesterDate(true);
-                  }}
-                >
-                  <CalendarDays className="size-3" />
-                  设置学期开始日期
-                </Badge>
-              )}
-            </div>
-            {/* Collaborative teachers */}
-            {courseTeachers.length > 0 && (
-              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-muted-foreground">协作教师：</span>
-                {courseTeachers.map((ct) => (
-                  <Badge key={ct.id} variant="outline" className="flex items-center gap-1 text-xs">
-                    {ct.teacher.name}
-                    <button
-                      onClick={() => handleRemoveTeacher(ct.teacherId)}
-                      className="ml-0.5 hover:text-destructive"
-                    >
-                      <X className="size-2.5" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setTeacherDialogOpen(true)}>
-            <Users className="size-4 mr-1" />
-            添加协作教师
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setChapterDialogOpen(true)}
-          >
-            <Plus className="size-4 mr-1" />
-            添加章节
-          </Button>
-        </div>
-      </div>
-      </div>
-
+        <div className="min-w-0">
       {/* Tabs Workbench */}
       <Tabs defaultValue="structure" className="w-full">
         <TabsList>
@@ -1411,9 +1445,19 @@ export default function TeacherCourseDetailPage() {
                     </TableHeader>
                     <TableBody>
                       {chapter.sections.map((section) => (
-                        <TableRow key={section.id}>
+                        <TableRow
+                          key={section.id}
+                          id={`section-${section.id}`}
+                          className={cn(
+                            "cursor-pointer",
+                            activeSectionId === section.id && "bg-brand-soft/50",
+                          )}
+                          onClick={() => setActiveSectionId(section.id)}
+                        >
                           <TableCell className="font-medium align-top">
-                            {chapter.order + 1}.{section.order + 1}{" "}
+                            <span className="fs-num mr-1 text-ink-5">
+                              {chapter.order + 1}.{section.order + 1}
+                            </span>
                             {section.title}
                           </TableCell>
                           {slots.map((slot) => {
@@ -1502,6 +1546,10 @@ export default function TeacherCourseDetailPage() {
           <CourseAnnouncementsPanel courseId={courseId} />
         </TabsContent>
       </Tabs>
+        </div>
+
+        <BlockPropertyPanel selected={selectedSectionContext} />
+      </div>
 
       {/* Create Chapter Dialog */}
       <Dialog open={chapterDialogOpen} onOpenChange={setChapterDialogOpen}>
@@ -2519,6 +2567,56 @@ export default function TeacherCourseDetailPage() {
                 <><Loader2 className="size-4 mr-2 animate-spin" />添加中...</>
               ) : (
                 "添加"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Course Dialog */}
+      <Dialog open={editCourseDialogOpen} onOpenChange={setEditCourseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑课程</DialogTitle>
+            <DialogDescription>
+              修改课程名称与描述。其他元数据（班级、学期、协作教师）请在 Hero 区域直接编辑。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="editCourseTitle">课程名称 *</Label>
+              <Input
+                id="editCourseTitle"
+                value={editCourseTitle}
+                onChange={(e) => setEditCourseTitle(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editCourseDescription">课程描述</Label>
+              <Textarea
+                id="editCourseDescription"
+                value={editCourseDescription}
+                onChange={(e) => setEditCourseDescription(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditCourseDialogOpen(false)}
+              disabled={savingEditCourse}
+            >
+              取消
+            </Button>
+            <Button onClick={handleEditCourseSave} disabled={savingEditCourse}>
+              {savingEditCourse ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                "保存"
               )}
             </Button>
           </DialogFooter>
