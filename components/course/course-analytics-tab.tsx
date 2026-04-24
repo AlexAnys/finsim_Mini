@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronDown,
   TrendingDown,
+  AlertCircle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -183,6 +184,26 @@ export function buildStudentRanking(
     .sort((a, b) => b.avgScore - a.avgScore);
 }
 
+// Exported for testing: partition Promise.allSettled results into successful / failed.
+// Used by fetchSummary to keep per-task failures from killing the whole tab.
+export function partitionSettledSubs<T>(
+  instances: Array<{ id: string }>,
+  settled: Array<PromiseSettledResult<T>>
+): { fulfilled: Array<{ instanceId: string; value: T }>; failedIds: string[] } {
+  const fulfilled: Array<{ instanceId: string; value: T }> = [];
+  const failedIds: string[] = [];
+  settled.forEach((r, idx) => {
+    const instanceId = instances[idx]?.id;
+    if (!instanceId) return;
+    if (r.status === "fulfilled") {
+      fulfilled.push({ instanceId, value: r.value });
+    } else {
+      failedIds.push(instanceId);
+    }
+  });
+  return { fulfilled, failedIds };
+}
+
 const taskTypeLabels: Record<string, string> = {
   simulation: "模拟对话",
   quiz: "测验",
@@ -196,6 +217,8 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
   const [instanceStats, setInstanceStats] = useState<InstanceStats[]>([]);
   const [studentPerformance, setStudentPerformance] = useState<StudentPerformance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failedInstanceIds, setFailedInstanceIds] = useState<Set<string>>(new Set());
+  const [failedInstanceTitles, setFailedInstanceTitles] = useState<Map<string, string>>(new Map());
 
   // Expandable task rows
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
@@ -223,16 +246,39 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
 
       const instances: InstanceItem[] = json.data || [];
 
-      // 并行拉取每个 instance 的提交列表（B7 修复：原 for-await 串行 N+1）
-      const subsResults = await Promise.all(
+      // 并行拉取每个 instance 的提交列表（allSettled 隔离失败，避免一个失败整 tab 挂）
+      const settled = await Promise.allSettled(
         instances.map(async (inst) => {
           const subsRes = await fetch(
             `/api/submissions?taskInstanceId=${inst.id}&pageSize=200`
           );
+          if (!subsRes.ok) throw new Error(`HTTP ${subsRes.status}`);
           const subsJson = await subsRes.json();
+          if (subsJson.success === false) {
+            throw new Error(subsJson.error?.message || "FETCH_FAILED");
+          }
           const subs = subsJson.data?.items || subsJson.data || [];
           return { inst, subs };
         })
+      );
+
+      const { fulfilled, failedIds } = partitionSettledSubs(
+        instances.map((i) => ({ id: i.id })),
+        settled
+      );
+      const subsResults = fulfilled.map((f) => f.value);
+
+      if (failedIds.length > 0) {
+        toast.error(`${failedIds.length} 个任务数据加载失败，其余已显示`);
+      }
+
+      setFailedInstanceIds(new Set(failedIds));
+      setFailedInstanceTitles(
+        new Map(
+          instances
+            .filter((i) => failedIds.includes(i.id))
+            .map((i) => [i.id, i.title])
+        )
       );
 
       const stats: InstanceStats[] = subsResults.map(({ inst, subs }) => {
@@ -411,8 +457,8 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
     );
   }
 
-  // --- Empty state ---
-  if (instanceStats.length === 0) {
+  // --- Empty state (nothing succeeded AND nothing failed = no tasks at all) ---
+  if (instanceStats.length === 0 && failedInstanceIds.size === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -684,6 +730,20 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
                     )}
                   </CardContent>
                 )}
+              </Card>
+            );
+          })}
+
+          {/* Per-instance failed rows — allSettled fallback */}
+          {Array.from(failedInstanceIds).map((id) => {
+            const title = failedInstanceTitles.get(id) ?? id;
+            return (
+              <Card key={`failed-${id}`} className="border-destructive/30 bg-destructive/5">
+                <div className="px-4 py-3 flex items-center gap-3 text-sm">
+                  <AlertCircle className="size-4 text-destructive shrink-0" />
+                  <span className="font-medium flex-1 truncate">{title}</span>
+                  <span className="text-xs text-destructive">数据加载失败，稍后重试</span>
+                </div>
               </Card>
             );
           })}

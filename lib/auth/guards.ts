@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth/auth.config";
 import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 
+export { assertCourseAccess } from "@/lib/auth/course-access";
+
 /**
  * 服务端获取 session（用于 Server Components 和 Route Handlers）
  */

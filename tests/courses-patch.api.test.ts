@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/auth/guards", () => ({
-  requireAuth: vi.fn(),
-  requireRole: vi.fn(),
-}));
+vi.mock("@/lib/auth/guards", async () => {
+  // Use the real assertCourseAccess (pure — only touches @/lib/db/prisma which we mock below).
+  const courseAccess = await vi.importActual<typeof import("@/lib/auth/course-access")>(
+    "@/lib/auth/course-access"
+  );
+  return {
+    requireAuth: vi.fn(),
+    requireRole: vi.fn(),
+    assertCourseAccess: courseAccess.assertCourseAccess,
+  };
+});
 
 vi.mock("@/lib/db/prisma", () => ({
   prisma: {

@@ -40,12 +40,22 @@ export async function GET(request: NextRequest) {
   const courseId = searchParams.get("courseId") || undefined;
 
   try {
-    const filters: { courseId?: string; classId?: string; status?: string } = { courseId };
+    const filters: {
+      courseId?: string;
+      classId?: string;
+      teacherId?: string;
+      status?: string;
+    } = { courseId };
+    const { user } = result.session;
 
-    if (result.session.user.role === "student" && result.session.user.classId) {
-      filters.classId = result.session.user.classId;
+    if (user.role === "student" && user.classId) {
+      filters.classId = user.classId;
       filters.status = "published";
+    } else if (user.role === "teacher" && !courseId) {
+      // 老师侧：没指定 courseId 时，只看自己 creator 或 CourseTeacher 的课公告
+      filters.teacherId = user.id;
     }
+    // admin 不加 teacherId 过滤，仍可看全部（保留管理员全局视角）
 
     const announcements = await getAnnouncements(filters);
     return success(announcements);

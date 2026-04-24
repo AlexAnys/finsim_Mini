@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
-import { courseClassFilter } from "@/lib/services/course.service";
+import { courseClassFilter, teacherCourseFilter } from "@/lib/services/course.service";
+import type { Prisma } from "@prisma/client";
 
 export async function createAnnouncement(data: {
   courseId: string;
@@ -32,14 +33,25 @@ export async function createAnnouncement(data: {
 export async function getAnnouncements(filters: {
   courseId?: string;
   classId?: string;
+  teacherId?: string;
   status?: string;
 }) {
+  const where: Prisma.AnnouncementWhereInput = {};
+  if (filters.courseId) where.courseId = filters.courseId;
+  if (filters.status) where.status = filters.status as "published" | "draft" | "archived";
+
+  // classId / teacherId 同样落到 course 子条件下，显式合并避免 spread 同名 key 覆盖。
+  const courseConditions: Prisma.CourseWhereInput[] = [];
+  if (filters.classId) courseConditions.push(courseClassFilter(filters.classId));
+  if (filters.teacherId) courseConditions.push(teacherCourseFilter(filters.teacherId));
+  if (courseConditions.length === 1) {
+    where.course = courseConditions[0];
+  } else if (courseConditions.length > 1) {
+    where.course = { AND: courseConditions };
+  }
+
   return prisma.announcement.findMany({
-    where: {
-      ...(filters.courseId && { courseId: filters.courseId }),
-      ...(filters.classId && { course: courseClassFilter(filters.classId) }),
-      ...(filters.status && { status: filters.status as "published" | "draft" | "archived" }),
-    },
+    where,
     include: {
       course: { select: { courseTitle: true } },
       creator: { select: { name: true } },

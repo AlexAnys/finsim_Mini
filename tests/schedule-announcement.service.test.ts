@@ -33,6 +33,27 @@ describe("getScheduleSlots with classId", () => {
     expect(call.include.course.select.courseTitle).toBe(true);
     expect(call.include.course.select.classId).toBe(true);
   });
+
+  it("combines classId + teacherId via AND (no spread key collision)", async () => {
+    (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await getScheduleSlots({ classId: "class-x", teacherId: "t-2" });
+
+    const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.where.course).toEqual({
+      AND: [
+        { OR: [{ classId: "class-x" }, { classes: { some: { classId: "class-x" } } }] },
+        { OR: [{ createdBy: "t-2" }, { teachers: { some: { teacherId: "t-2" } } }] },
+      ],
+    });
+  });
+
+  it("courseId only: no course filter in where", async () => {
+    (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await getScheduleSlots({ courseId: "c-1" });
+
+    const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.where).toEqual({ courseId: "c-1" });
+  });
 });
 
 describe("getAnnouncements with classId", () => {
@@ -46,5 +67,23 @@ describe("getAnnouncements with classId", () => {
     expect(call.where.course).toEqual({
       OR: [{ classId: "class-secondary" }, { classes: { some: { classId: "class-secondary" } } }],
     });
+  });
+
+  it("teacherId filter scopes to owned + CourseTeacher courses", async () => {
+    (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await getAnnouncements({ teacherId: "t-5" });
+
+    const call = (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.where.course).toEqual({
+      OR: [{ createdBy: "t-5" }, { teachers: { some: { teacherId: "t-5" } } }],
+    });
+  });
+
+  it("no filter = no course restriction (admin全局视角)", async () => {
+    (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await getAnnouncements({});
+
+    const call = (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.where.course).toBeUndefined();
   });
 });

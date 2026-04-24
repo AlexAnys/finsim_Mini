@@ -1,20 +1,9 @@
 import { NextRequest } from "next/server";
-import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { requireAuth, requireRole, assertCourseAccess } from "@/lib/auth/guards";
 import { getCourseWithStructure } from "@/lib/services/course.service";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
-
-async function assertCourseAccess(courseId: string, userId: string, userRole: string) {
-  if (userRole === "admin") return;
-  const course = await prisma.course.findUnique({ where: { id: courseId } });
-  if (!course) throw new Error("COURSE_NOT_FOUND");
-  if (course.createdBy === userId) return;
-  const ct = await prisma.courseTeacher.findUnique({
-    where: { courseId_teacherId: { courseId, teacherId: userId } },
-  });
-  if (!ct) throw new Error("FORBIDDEN");
-}
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const result = await requireAuth();
