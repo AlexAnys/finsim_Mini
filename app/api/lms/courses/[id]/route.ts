@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { requireAuth, requireRole, assertCourseAccess } from "@/lib/auth/guards";
+import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { assertCourseAccess, assertCourseReadable } from "@/lib/auth/course-access";
 import { getCourseWithStructure } from "@/lib/services/course.service";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
@@ -11,6 +12,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id } = await params;
+    const { user } = result.session;
+    await assertCourseReadable(id, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
     const course = await getCourseWithStructure(id);
     if (!course) return notFound("课程不存在");
     return success(course);
