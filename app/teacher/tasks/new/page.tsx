@@ -8,10 +8,7 @@ import {
   ChevronRight,
   Check,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { mergeGeneratedQuestions } from "@/lib/utils/quiz-merge";
@@ -21,6 +18,7 @@ import { WizardStepBasic } from "@/components/task-wizard/wizard-step-basic";
 import { WizardStepSim } from "@/components/task-wizard/wizard-step-sim";
 import { WizardStepQuiz } from "@/components/task-wizard/wizard-step-quiz";
 import { WizardStepSubjective } from "@/components/task-wizard/wizard-step-subjective";
+import { WizardStepReview } from "@/components/task-wizard/wizard-step-review";
 import {
   AIQuizDialog,
   type GeneratedQuestion,
@@ -145,19 +143,6 @@ const initialFormData: FormData = {
   wordLimit: "",
   allowAttachment: false,
   maxAttachments: "3",
-};
-
-const taskTypeLabels: Record<TaskType, string> = {
-  simulation: "模拟对话",
-  quiz: "测验",
-  subjective: "主观题",
-};
-
-const questionTypeLabels: Record<QuizQuestionType, string> = {
-  single_choice: "单选题",
-  multiple_choice: "多选题",
-  true_false: "判断题",
-  short_answer: "简答题",
 };
 
 export default function CreateTaskPage() {
@@ -677,169 +662,27 @@ export default function CreateTaskPage() {
             />
           )}
 
-          {/* Step 3: Review（PR-4C 拆） */}
           {step === 3 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>确认信息</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <span className="text-sm text-muted-foreground">任务名称</span>
-                    <p className="font-medium">{form.taskName}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">任务类型</span>
-                    <p>
-                      <Badge variant="secondary">
-                        {taskTypeLabels[form.taskType]}
-                      </Badge>
-                    </p>
-                  </div>
-                </div>
-
-                {form.description && (
-                  <div>
-                    <span className="text-sm text-muted-foreground">描述</span>
-                    <p className="text-sm">{form.description}</p>
-                  </div>
-                )}
-
-                <Separator />
-
-                {form.taskType === "simulation" && (
-                  <div className="space-y-3">
-                    <h3 className="font-medium">模拟对话配置</h3>
-                    <div>
-                      <span className="text-sm text-muted-foreground">场景描述</span>
-                      <p className="text-sm whitespace-pre-wrap">{form.scenario}</p>
-                    </div>
-                    <div>
-                      <span className="text-sm text-muted-foreground">开场白</span>
-                      <p className="text-sm">{form.openingLine}</p>
-                    </div>
-                    {form.requirements.filter((r) => r.trim()).length > 0 && (
-                      <div>
-                        <span className="text-sm text-muted-foreground">对话要求</span>
-                        <ul className="list-disc list-inside text-sm">
-                          {form.requirements
-                            .filter((r) => r.trim())
-                            .map((r, i) => (
-                              <li key={i}>{r}</li>
-                            ))}
-                        </ul>
-                      </div>
-                    )}
-                    {form.scoringCriteria.filter((c) => c.name.trim()).length > 0 && (
-                      <div>
-                        <span className="text-sm text-muted-foreground">评分标准</span>
-                        <div className="mt-1 space-y-1">
-                          {form.scoringCriteria
-                            .filter((c) => c.name.trim())
-                            .map((c, i) => (
-                              <p key={i} className="text-sm">
-                                {c.name}（{c.maxPoints} 分）
-                                {c.description && ` - ${c.description}`}
-                              </p>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                    {form.allocationSections.filter((s) => s.label.trim()).length > 0 && (
-                      <div>
-                        <span className="text-sm text-muted-foreground">资产配置</span>
-                        <div className="mt-1 space-y-1">
-                          {form.allocationSections
-                            .filter((s) => s.label.trim())
-                            .map((s, i) => (
-                              <p key={i} className="text-sm">
-                                {s.label}:
-                                {s.items
-                                  .filter((item) => item.label.trim())
-                                  .map((item) => ` ${item.label}`)
-                                  .join(",")}
-                              </p>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {form.taskType === "quiz" && (
-                  <div className="space-y-3">
-                    <h3 className="font-medium">测验配置</h3>
-                    <div className="grid gap-2 sm:grid-cols-3 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">时间限制: </span>
-                        {form.timeLimitMinutes
-                          ? `${form.timeLimitMinutes} 分钟`
-                          : "不限时"}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">模式: </span>
-                        {form.quizMode === "fixed" ? "固定题目" : "自适应"}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">显示答案: </span>
-                        {form.showResult ? "是" : "否"}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-sm text-muted-foreground">
-                        共 {form.questions.length} 道题目
-                      </span>
-                      <div className="mt-1 space-y-1">
-                        {form.questions.map((q, i) => (
-                          <p key={i} className="text-sm">
-                            {i + 1}. [{questionTypeLabels[q.type]}] {q.stem || "(空)"}{" "}
-                            ({q.points} 分)
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {form.taskType === "subjective" && (
-                  <div className="space-y-3">
-                    <h3 className="font-medium">主观题配置</h3>
-                    <div>
-                      <span className="text-sm text-muted-foreground">题目提示</span>
-                      <p className="text-sm whitespace-pre-wrap">{form.prompt}</p>
-                    </div>
-                    {form.wordLimit && (
-                      <p className="text-sm">
-                        <span className="text-muted-foreground">字数限制: </span>
-                        {form.wordLimit} 字
-                      </p>
-                    )}
-                    <p className="text-sm">
-                      <span className="text-muted-foreground">允许附件: </span>
-                      {form.allowAttachment
-                        ? `是（最多 ${form.maxAttachments} 个）`
-                        : "否"}
-                    </p>
-                    {form.scoringCriteria.filter((c) => c.name.trim()).length > 0 && (
-                      <div>
-                        <span className="text-sm text-muted-foreground">评分标准</span>
-                        <div className="mt-1 space-y-1">
-                          {form.scoringCriteria
-                            .filter((c) => c.name.trim())
-                            .map((c, i) => (
-                              <p key={i} className="text-sm">
-                                {c.name}（{c.maxPoints} 分）
-                                {c.description && ` - ${c.description}`}
-                              </p>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <WizardStepReview
+              taskType={form.taskType}
+              taskName={form.taskName}
+              description={form.description}
+              totalPoints={form.totalPoints}
+              timeLimitMinutes={form.timeLimitMinutes}
+              scenario={form.scenario}
+              openingLine={form.openingLine}
+              requirements={form.requirements}
+              scoringCriteria={form.scoringCriteria}
+              allocationSections={form.allocationSections}
+              quizMode={form.quizMode}
+              shuffleQuestions={form.shuffleQuestions}
+              showResult={form.showResult}
+              questions={form.questions}
+              prompt={form.prompt}
+              wordLimit={form.wordLimit}
+              allowAttachment={form.allowAttachment}
+              maxAttachments={form.maxAttachments}
+            />
           )}
 
           {/* Footer nav */}
