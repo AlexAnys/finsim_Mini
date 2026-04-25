@@ -18,6 +18,7 @@
     "@ai-sdk/openai": "^3.0.30",
     "@hookform/resolvers": "^5.2.2",
     "@prisma/client": "^6.19.2",
+    "@tanstack/react-virtual": "^3.13.24",
     "ai": "^6.0.97",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",

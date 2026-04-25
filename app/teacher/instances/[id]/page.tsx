@@ -5,8 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Loader2,
   AlertCircle,
-  FileText,
-  Download,
   MessageSquare,
   Reply,
   Send,
@@ -18,14 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { toast } from "sonner";
 import {
   InstanceHeader,
@@ -36,6 +26,12 @@ import {
   type InstanceTabKey,
 } from "@/components/instance-detail/tabs-nav";
 import { OverviewTab } from "@/components/instance-detail/overview-tab";
+import { SubmissionsTab } from "@/components/instance-detail/submissions-tab";
+import { GradingDrawer } from "@/components/instance-detail/grading-drawer";
+import {
+  normalizeSubmission,
+  type NormalizedSubmission,
+} from "@/components/instance-detail/submissions-utils";
 
 interface InstanceDetail {
   id: string;
@@ -62,19 +58,8 @@ interface InstanceDetail {
   _count?: { submissions: number };
 }
 
-interface Submission {
-  id: string;
-  status: string;
-  score: number | null;
-  maxScore: number | null;
-  submittedAt: string;
-  gradedAt: string | null;
-  student: { id: string; name: string };
-  task: { id: string; taskName: string };
-}
-
 interface SubmissionsResponse {
-  items: Submission[];
+  items: Array<Parameters<typeof normalizeSubmission>[0]>;
   total: number;
   page: number;
   pageSize: number;
@@ -111,18 +96,13 @@ const subStatusLabels: Record<string, string> = {
   failed: "批改失败",
 };
 
-const subStatusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  submitted: "outline",
-  grading: "secondary",
-  graded: "default",
-  failed: "destructive",
-};
-
 const roleLabels: Record<string, string> = {
   teacher: "教师",
   admin: "管理员",
   student: "学生",
 };
+
+const SUBMISSIONS_PAGE_SIZE = 100;
 
 export default function InstanceDetailPage() {
   const params = useParams();
@@ -134,9 +114,12 @@ export default function InstanceDetailPage() {
   const [classMembers, setClassMembers] = useState<ClassMember[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
   const [actionLoading, setActionLoading] = useState(false);
   const [tab, setTab] = useState<InstanceTabKey>("overview");
+
+  // Drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
 
   // Discussion state
   const [posts, setPosts] = useState<DiscussionPost[]>([]);
@@ -151,7 +134,9 @@ export default function InstanceDetailPage() {
     try {
       const [instRes, subRes] = await Promise.all([
         fetch(`/api/lms/task-instances/${instanceId}`),
-        fetch(`/api/submissions?taskInstanceId=${instanceId}&page=${page}&pageSize=20`),
+        fetch(
+          `/api/submissions?taskInstanceId=${instanceId}&page=1&pageSize=${SUBMISSIONS_PAGE_SIZE}`
+        ),
       ]);
       const instJson = await instRes.json();
       const subJson = await subRes.json();
@@ -183,7 +168,19 @@ export default function InstanceDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [instanceId, page]);
+  }, [instanceId]);
+
+  const refreshSubmissions = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/submissions?taskInstanceId=${instanceId}&page=1&pageSize=${SUBMISSIONS_PAGE_SIZE}`
+      );
+      const json = await res.json();
+      if (json.success) setSubmissions(json.data);
+    } catch {
+      // silent
+    }
+  }, [instanceId]);
 
   const fetchPosts = useCallback(async () => {
     setPostsLoading(true);
@@ -235,6 +232,11 @@ export default function InstanceDetailPage() {
     [instanceId]
   );
 
+  const normalizedRows = useMemo<NormalizedSubmission[]>(() => {
+    if (!submissions?.items) return [];
+    return submissions.items.map(normalizeSubmission);
+  }, [submissions]);
+
   const exportGrades = useCallback(() => {
     if (!submissions || submissions.items.length === 0) {
       toast.error("暂无成绩可导出");
@@ -245,8 +247,8 @@ export default function InstanceDetailPage() {
     const rows = submissions.items.map((sub) => [
       sub.student.name,
       subStatusLabels[sub.status] || sub.status,
-      sub.score !== null ? String(sub.score) : "-",
-      sub.maxScore !== null ? String(sub.maxScore) : "-",
+      sub.score !== null && sub.score !== undefined ? String(sub.score) : "-",
+      sub.maxScore !== null && sub.maxScore !== undefined ? String(sub.maxScore) : "-",
       new Date(sub.submittedAt).toLocaleString("zh-CN"),
       sub.gradedAt ? new Date(sub.gradedAt).toLocaleString("zh-CN") : "-",
     ]);
@@ -288,6 +290,48 @@ export default function InstanceDetailPage() {
         : `/tasks/${instanceId}?preview=true`;
     router.push(base);
   }, [instance, instanceId, router]);
+
+  const handleOpenGrading = useCallback((submissionId: string) => {
+    setActiveSubmissionId(submissionId);
+    setDrawerOpen(true);
+  }, []);
+
+  const handleDrawerSaved = useCallback(
+    (savedId: string) => {
+      toast.success("评分已保存");
+      void refreshSubmissions();
+      void savedId;
+    },
+    [refreshSubmissions]
+  );
+
+  const handleDrawerNext = useCallback(
+    (currentId: string) => {
+      const idx = normalizedRows.findIndex((r) => r.id === currentId);
+      const nextRow = normalizedRows
+        .slice(idx + 1)
+        .find((r) => r.status !== "graded");
+      if (nextRow) {
+        setActiveSubmissionId(nextRow.id);
+      } else {
+        toast.message("已是最后一份待批改");
+        setDrawerOpen(false);
+      }
+    },
+    [normalizedRows]
+  );
+
+  const handleBulkGrade = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const first = ids[0];
+      handleOpenGrading(first);
+      toast.message(`已开始批改 ${ids.length} 份`, {
+        description: "保存后会跳到下一份",
+      });
+    },
+    [handleOpenGrading]
+  );
 
   async function handleCreatePost() {
     if (!newPostContent.trim()) return;
@@ -346,10 +390,11 @@ export default function InstanceDetailPage() {
   }
 
   const stats = useMemo(() => {
-    const items = submissions?.items || [];
-    const total = submissions?.total ?? items.length;
-    const graded = items.filter((s) => s.status === "graded").length;
-    const grading = items.filter((s) => s.status === "grading").length;
+    const total = normalizedRows.length;
+    const graded = normalizedRows.filter((s) => s.status === "graded").length;
+    const grading = normalizedRows.filter(
+      (s) => s.status === "grading" || s.status === "submitted"
+    ).length;
     const assigned = classMembers?.length ?? Math.max(total, 0);
     return {
       assigned,
@@ -357,7 +402,7 @@ export default function InstanceDetailPage() {
       grading,
       graded,
     };
-  }, [submissions, classMembers]);
+  }, [normalizedRows, classMembers]);
 
   const totalPoints = useMemo(() => {
     if (!instance?.task.scoringCriteria) return 100;
@@ -444,119 +489,16 @@ export default function InstanceDetailPage() {
         )}
 
         {tab === "submissions" && (
-          <div
-            id="tabpanel-submissions"
-            role="tabpanel"
-            aria-labelledby="tab-submissions"
-            className="space-y-4"
-          >
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">提交记录</CardTitle>
-                  <Button variant="outline" size="sm" onClick={exportGrades}>
-                    <Download className="size-3" />
-                    导出成绩
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {!submissions || submissions.items.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FileText className="size-8 text-muted-foreground mx-auto" />
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      暂无提交记录
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>学生</TableHead>
-                          <TableHead>状态</TableHead>
-                          <TableHead>分数</TableHead>
-                          <TableHead>提交时间</TableHead>
-                          <TableHead>批改时间</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {submissions.items.map((sub) => (
-                          <TableRow key={sub.id}>
-                            <TableCell className="font-medium">
-                              {sub.student.name}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  subStatusVariant[sub.status] || "outline"
-                                }
-                              >
-                                {subStatusLabels[sub.status] || sub.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {sub.status === "graded" && sub.score !== null ? (
-                                <span className="font-medium">
-                                  {sub.score}
-                                  <span className="text-muted-foreground font-normal">
-                                    {" "}
-                                    / {sub.maxScore}
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground text-sm">
-                              {new Date(sub.submittedAt).toLocaleString("zh-CN")}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground text-sm">
-                              {sub.gradedAt
-                                ? new Date(sub.gradedAt).toLocaleString("zh-CN")
-                                : "-"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+          <div className="space-y-6">
+            <SubmissionsTab
+              rows={normalizedRows}
+              loading={false}
+              onOpenGrading={handleOpenGrading}
+              onExport={exportGrades}
+              onBulkGrade={handleBulkGrade}
+            />
 
-                    {submissions.totalPages > 1 && (
-                      <div className="flex items-center justify-between mt-4">
-                        <p className="text-sm text-muted-foreground">
-                          共 {submissions.total} 条记录，第 {submissions.page} /{" "}
-                          {submissions.totalPages} 页
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            disabled={page <= 1}
-                          >
-                            上一页
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              setPage((p) =>
-                                Math.min(submissions.totalPages, p + 1)
-                              )
-                            }
-                            disabled={page >= submissions.totalPages}
-                          >
-                            下一页
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* 讨论区 */}
+            {/* 讨论区（保留入口） */}
             <Card id="discussion-section">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -762,6 +704,15 @@ export default function InstanceDetailPage() {
           </div>
         )}
       </div>
+
+      <GradingDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        submissionId={activeSubmissionId}
+        showAiSuggestion={true}
+        onSaved={handleDrawerSaved}
+        onNext={handleDrawerNext}
+      />
     </div>
   );
 }
