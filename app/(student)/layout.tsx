@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { getSession } from "@/lib/auth/guards";
@@ -9,8 +10,13 @@ export default async function StudentLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession();
-  const initialRole = session?.user?.role as UserRole | undefined;
-  const initialName = session?.user?.name ?? null;
+
+  if (!session?.user) {
+    redirect("/login");
+  }
+
+  const initialRole = session.user.role as UserRole | undefined;
+  const initialName = session.user.name ?? null;
 
   return (
     <div className="min-h-screen">
