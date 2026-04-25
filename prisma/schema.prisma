@@ -741,6 +741,7 @@ model AnalysisReport {
   createdAt      DateTime @default(now())
   commonIssues   Json?
   aggregatedAt   DateTime?
+  moodTimeline   Json?
 
   creator      User          @relation("ReportCreator", fields: [createdBy], references: [id])
   task         Task?         @relation("ReportTask", fields: [taskId], references: [id])

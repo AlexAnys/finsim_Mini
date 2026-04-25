@@ -1,6 +1,25 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import { aiGenerateJSON } from "./ai.service";
+
+/**
+ * PR-7B: legacy mood enum keys → 0-1 score fallback for transcripts that have
+ * `mood: "ANGRY"` but no `moodScore`. Mid-band guess for each archetype.
+ */
+function moodKeyToScoreFallback(label?: string): number {
+  switch (label) {
+    case "HAPPY": return 0.05;
+    case "RELAXED": return 0.18;
+    case "EXCITED": return 0.10;
+    case "NEUTRAL": return 0.32;
+    case "SKEPTICAL": return 0.48;
+    case "CONFUSED": return 0.62;
+    case "ANGRY": return 0.78;
+    case "DISAPPOINTED": return 0.92;
+    default: return 0.30;
+  }
+}
 
 /**
  * Insights aggregation service.
@@ -38,6 +57,8 @@ export interface AggregateInsightsResult {
   aggregatedAt: Date;
   studentCount: number;
   reportId: string;
+  /** PR-7B: number of students whose simulation transcripts contained mood data (for QA visibility) */
+  moodTimelineCount?: number;
 }
 
 const aggregateSchema = z.object({
@@ -122,6 +143,21 @@ export async function aggregateInsights(
     conceptTags: string[];
   };
 
+  // PR-7B: per-student mood trajectory from simulation transcripts.
+  type MoodTimelineEntry = {
+    studentId: string;
+    studentName: string;
+    submissionId: string;
+    /** Array indexed by AI-turn number (1-based). null entries are turns w/o mood data. */
+    points: Array<{
+      turn: number;
+      score: number;
+      label: string | null;
+      hint: string | null;
+    }>;
+  };
+  const moodTimeline: MoodTimelineEntry[] = [];
+
   const evaluations: EvaluationSummary[] = [];
   for (const s of submissions) {
     let conceptTags: string[] = [];
@@ -132,6 +168,48 @@ export async function aggregateInsights(
         | { feedback?: string }
         | null;
       feedback = ev?.feedback || "";
+
+      // Walk transcript and extract mood timeline (AI turns only).
+      const transcript = s.simulationSubmission.transcript as
+        | Array<{
+            role?: string;
+            mood?: string;
+            moodScore?: number;
+            hint?: string;
+          }>
+        | null;
+      if (Array.isArray(transcript)) {
+        const points: MoodTimelineEntry["points"] = [];
+        let aiTurn = 0;
+        for (const m of transcript) {
+          if (m && m.role === "ai") {
+            aiTurn++;
+            if (
+              typeof m.moodScore === "number" ||
+              typeof m.mood === "string" ||
+              typeof m.hint === "string"
+            ) {
+              points.push({
+                turn: aiTurn,
+                score:
+                  typeof m.moodScore === "number"
+                    ? m.moodScore
+                    : moodKeyToScoreFallback(m.mood),
+                label: typeof m.mood === "string" ? m.mood : null,
+                hint: typeof m.hint === "string" ? m.hint : null,
+              });
+            }
+          }
+        }
+        if (points.length > 0) {
+          moodTimeline.push({
+            studentId: s.student.id,
+            studentName: s.student.name,
+            submissionId: s.id,
+            points,
+          });
+        }
+      }
     } else if (s.quizSubmission) {
       conceptTags = s.quizSubmission.conceptTags || [];
       const ev = s.quizSubmission.evaluation as { feedback?: string } | null;
@@ -220,6 +298,15 @@ ${corpus}
     weaknessConcepts,
   };
 
+  // PR-7B: include moodTimeline (only meaningful for simulation tasks; empty array OK).
+  // Prisma requires Prisma.DbNull sentinel (not raw null) when clearing a nullable Json column.
+  const moodTimelineJson:
+    | import("@prisma/client").Prisma.InputJsonValue
+    | typeof Prisma.DbNull =
+    moodTimeline.length > 0
+      ? (moodTimeline as unknown as import("@prisma/client").Prisma.InputJsonValue)
+      : Prisma.DbNull;
+
   // Persist (upsert by instanceId+teacher: keep one row per teacher per instance)
   const existing = await prisma.analysisReport.findFirst({
     where: { taskInstanceId: instanceId, createdBy: teacherId },
@@ -234,6 +321,7 @@ ${corpus}
         commonIssues: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
         aggregatedAt,
         report: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
+        moodTimeline: moodTimelineJson,
       },
     });
   } else {
@@ -247,6 +335,7 @@ ${corpus}
         commonIssues:
           aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
         aggregatedAt,
+        moodTimeline: moodTimelineJson,
       },
     });
   }
@@ -256,5 +345,6 @@ ${corpus}
     aggregatedAt,
     studentCount: evaluations.length,
     reportId: saved.id,
+    moodTimelineCount: moodTimeline.length,
   };
 }

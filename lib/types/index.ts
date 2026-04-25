@@ -58,8 +58,19 @@ export type StrictnessLevel = "LENIENT" | "MODERATE" | "STRICT" | "VERY_STRICT";
 // 学习伙伴模式
 export type StudyBuddyMode = "socratic" | "direct";
 
-// 情绪
-export type MoodType = "HAPPY" | "NEUTRAL" | "ANGRY" | "CONFUSED" | "SKEPTICAL";
+// 情绪 (PR-7B: 8 档 D1)
+// HAPPY=平静 / RELAXED=放松 / EXCITED=兴奋 / NEUTRAL=犹豫
+// SKEPTICAL=怀疑 / CONFUSED=略焦虑 / ANGRY=焦虑 / DISAPPOINTED=失望
+// 旧 5 档值 (HAPPY/NEUTRAL/ANGRY/CONFUSED/SKEPTICAL) 仍合法 — 历史 transcript 数据零迁移
+export type MoodType =
+  | "HAPPY"
+  | "RELAXED"
+  | "EXCITED"
+  | "NEUTRAL"
+  | "SKEPTICAL"
+  | "CONFUSED"
+  | "ANGRY"
+  | "DISAPPOINTED";
 
 // AI Feature
 export type AIFeature =
@@ -117,6 +128,10 @@ export interface TranscriptMessage {
   text: string;
   timestamp: string;
   mood?: MoodType;
+  /** PR-7B: 0-1 single-axis mood intensity. 0=平静, 1=失望/焦虑 */
+  moodScore?: number;
+  /** PR-7B: Socratic hint surfaced when student perf low or off-track */
+  hint?: string;
 }
 
 // 资产配置

@@ -75,25 +75,28 @@ function generateId(): string {
 
 // ---------- Constants ----------
 
-// 8-band mood ramp (PR-7B will fill mid bands once schema extends to 8 states).
-// Order matters: index used by mood meter to highlight active bar.
-const MOOD_BANDS: { key: MoodType | "PLACEHOLDER"; label: string; tone: "good" | "warn" | "bad" | "neutral" }[] = [
+// 8-band mood ramp (PR-7B: AI now returns 8 archetype labels via JSON).
+// Order matches the bandIndex used by MOOD_COLORS — visual position == mood gravity.
+const MOOD_BANDS: { key: MoodType; label: string; tone: "good" | "warn" | "bad" | "neutral" }[] = [
   { key: "HAPPY", label: "平静", tone: "good" },
-  { key: "PLACEHOLDER", label: "放松", tone: "good" },
-  { key: "PLACEHOLDER", label: "兴奋", tone: "good" },
+  { key: "RELAXED", label: "放松", tone: "good" },
+  { key: "EXCITED", label: "兴奋", tone: "good" },
   { key: "NEUTRAL", label: "犹豫", tone: "neutral" },
   { key: "SKEPTICAL", label: "怀疑", tone: "warn" },
   { key: "CONFUSED", label: "略焦虑", tone: "warn" },
   { key: "ANGRY", label: "焦虑", tone: "bad" },
-  { key: "PLACEHOLDER", label: "失望", tone: "bad" },
+  { key: "DISAPPOINTED", label: "失望", tone: "bad" },
 ];
 
 const MOOD_COLORS: Record<MoodType, { bg: string; text: string; label: string; bandIndex: number; tone: "good" | "warn" | "bad" | "neutral" }> = {
   HAPPY: { bg: "bg-green-100", text: "text-green-700", label: "平静", bandIndex: 0, tone: "good" },
+  RELAXED: { bg: "bg-green-100", text: "text-green-700", label: "放松", bandIndex: 1, tone: "good" },
+  EXCITED: { bg: "bg-green-100", text: "text-green-800", label: "兴奋", bandIndex: 2, tone: "good" },
   NEUTRAL: { bg: "bg-slate-100", text: "text-slate-600", label: "犹豫", bandIndex: 3, tone: "neutral" },
   SKEPTICAL: { bg: "bg-yellow-100", text: "text-yellow-700", label: "怀疑", bandIndex: 4, tone: "warn" },
   CONFUSED: { bg: "bg-orange-100", text: "text-orange-700", label: "略焦虑", bandIndex: 5, tone: "warn" },
   ANGRY: { bg: "bg-red-100", text: "text-red-700", label: "焦虑", bandIndex: 6, tone: "bad" },
+  DISAPPOINTED: { bg: "bg-red-100", text: "text-red-800", label: "失望", bandIndex: 7, tone: "bad" },
 };
 
 const DRAFT_KEY_PREFIX = "finsim_sim_draft_";
@@ -226,19 +229,26 @@ export function SimulationRunner({
     saveDraft(messages, mood, allocations);
   }, [messages, mood, allocations, saveDraft]);
 
-  // Parse mood from AI response
-  // Supports both [MOOD: CONFUSED] and [CONFUSED] formats
-  function parseMoodFromText(text: string): { cleanText: string; mood?: MoodType } {
-    const moodPattern = /\[(?:MOOD:\s*)?(\w+)\]\s*$/i;
-    const moodMatch = text.match(moodPattern);
-    if (moodMatch) {
-      const moodStr = moodMatch[1].toUpperCase() as MoodType;
-      if (MOOD_COLORS[moodStr]) {
-        const cleanText = text.replace(moodPattern, "").trim();
-        return { cleanText, mood: moodStr };
-      }
+  // PR-7B legacy fallback: still strip residual [MOOD: XXX] tag if a non-JSON
+  // provider response slipped through (e.g. fallback path in chatReply). Modern
+  // mood now arrives as a structured field from /api/ai/chat.
+  function stripLegacyMoodTag(text: string): string {
+    return text.replace(/\[(?:MOOD:\s*)?\w+\]\s*$/i, "").trim();
+  }
+
+  // Map AI's 8 Chinese mood labels → MoodType key. Defensive default = NEUTRAL.
+  function moodKeyFromLabel(label?: string): MoodType {
+    switch (label) {
+      case "平静": return "HAPPY";
+      case "放松": return "RELAXED";
+      case "兴奋": return "EXCITED";
+      case "犹豫": return "NEUTRAL";
+      case "怀疑": return "SKEPTICAL";
+      case "略焦虑": return "CONFUSED";
+      case "焦虑": return "ANGRY";
+      case "失望": return "DISAPPOINTED";
+      default: return "NEUTRAL";
     }
-    return { cleanText: text };
   }
 
   // Send message
@@ -258,6 +268,16 @@ export function SimulationRunner({
     setInputValue("");
     setIsSending(true);
 
+    // PR-7B B3: turn index of the last AI hint emitted, used to space hints ≥3 turns apart
+    let lastHintTurn: number | undefined;
+    let runningStudentTurns = 0;
+    for (const m of messages) {
+      if (m.role === "student") runningStudentTurns++;
+      if (m.role === "ai" && m.hint) lastHintTurn = runningStudentTurns;
+    }
+
+    const objectives = scoringCriteria.map((c) => c.label);
+
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
@@ -267,6 +287,8 @@ export function SimulationRunner({
           scenario,
           openingLine,
           systemPrompt,
+          lastHintTurn,
+          objectives,
         }),
       });
 
@@ -276,18 +298,36 @@ export function SimulationRunner({
       }
 
       const data = await res.json();
-      const aiText = data.data?.reply || data.reply || "";
-      const { cleanText, mood: newMood } = parseMoodFromText(aiText);
+      const payload = data.data || data;
+      const rawReply: string = payload?.reply || "";
+      const aiText = stripLegacyMoodTag(rawReply);
+
+      // PR-7B: prefer structured mood field; fall back to NEUTRAL for legacy responses.
+      const moodObj = payload?.mood as
+        | { score: number; key?: string; label?: string }
+        | undefined;
+      const newMood: MoodType = moodObj
+        ? moodKeyFromLabel(moodObj.label)
+        : "NEUTRAL";
+      const newMoodScore: number | undefined =
+        typeof moodObj?.score === "number" ? moodObj.score : undefined;
+
+      const aiHint: string | undefined =
+        typeof payload?.hint === "string" && payload.hint.trim().length > 0
+          ? payload.hint
+          : undefined;
 
       const aiMsg: TranscriptMessage = {
         id: generateId(),
         role: "ai",
-        text: cleanText,
+        text: aiText,
         timestamp: new Date().toISOString(),
         mood: newMood,
+        moodScore: newMoodScore,
+        hint: aiHint,
       };
 
-      if (newMood) setMood(newMood);
+      setMood(newMood);
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "发送消息失败，请重试");
@@ -992,8 +1032,8 @@ function SimMsg({ m }: { m: TranscriptMessage }) {
           </div>
         )}
 
-        {/* Hint placeholder — populated by PR-7B AI integration */}
-        {isAI && (m as TranscriptMessage & { hint?: string }).hint && (
+        {/* PR-7B: Socratic hint from learning buddy — surfaced when student perf low or off-track */}
+        {isAI && m.hint && (
           <div
             className="mt-1.5 flex items-center gap-1.5 rounded-r-md px-2.5 py-1.5 text-[11px]"
             style={{
@@ -1003,7 +1043,7 @@ function SimMsg({ m }: { m: TranscriptMessage }) {
             }}
           >
             <Sparkles size={10} style={{ color: "var(--fs-sim)" }} />
-            学习伙伴：{(m as TranscriptMessage & { hint?: string }).hint}
+            <span>学习伙伴：{m.hint}</span>
           </div>
         )}
       </div>

@@ -218,8 +218,42 @@ export async function aiGenerateJSON<T>(
 }
 
 // ============================================
-// 模拟对话 - AI 聊天回复
+// 模拟对话 - AI 聊天回复（PR-7B: JSON 输出 + mood + B3 hint trigger）
 // ============================================
+
+const MOOD_LABEL_TO_KEY: Record<string, string> = {
+  "平静": "HAPPY",
+  "放松": "RELAXED",
+  "兴奋": "EXCITED",
+  "犹豫": "NEUTRAL",
+  "怀疑": "SKEPTICAL",
+  "略焦虑": "CONFUSED",
+  "焦虑": "ANGRY",
+  "失望": "DISAPPOINTED",
+};
+
+const VALID_MOOD_KEYS = new Set(Object.values(MOOD_LABEL_TO_KEY));
+
+const chatReplySchema = z.object({
+  reply: z.string().min(1),
+  mood_score: z.number().min(0).max(1),
+  mood_label: z.string(),
+  student_perf: z.number().min(0).max(1),
+  deviated_dimensions: z.array(z.string()).default([]),
+});
+
+export interface ChatReplyResult {
+  reply: string;
+  mood: {
+    score: number;
+    key: string;
+    label: string;
+  };
+  hint?: string;
+  studentPerf: number;
+  deviatedDimensions: string[];
+  hintTriggered: boolean;
+}
 
 export async function chatReply(
   userId: string,
@@ -228,15 +262,27 @@ export async function chatReply(
     scenario: string;
     openingLine?: string;
     systemPrompt?: string;
+    /** PR-7B: turn index of the most recent hint (so service can enforce ">=3 turns since last hint") */
+    lastHintTurn?: number;
+    /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
+    objectives?: string[];
   }
-): Promise<string> {
-  const systemPrompt = (data.systemPrompt?.replace("{scenario}", data.scenario)) || `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：
+): Promise<ChatReplyResult> {
+  const objectivesBlock =
+    data.objectives && data.objectives.length > 0
+      ? `\n【对话目标维度】（用作 student_perf 评估与 deviated_dimensions 命名）:\n${data.objectives.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n`
+      : "";
+
+  const personaPrompt =
+    data.systemPrompt?.replace("{scenario}", data.scenario) ||
+    `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：
 
 ${data.scenario}
 
-【核心人设】
+【核心人设 · 中等顽固】
 - 你是一个普通人，对理财知识了解不多，但愿意学习和听取专业建议。
-- 你有自己的顾虑和偏好，但你不是一个"油盐不进"的人。当理财经理给出合理解释时，你会逐渐理解和接受。
+- 你有自己的立场与偏好。当理财经理建议明显违背你的风险偏好或财务约束时，你会礼貌但坚定地表达异议，需要对方拿出有说服力的解释才会松动。
+- 你会有一些隐性需求（教育金 / 应急金 / 父母赡养 / 家庭目标等），不会一上来全盘托出，而是在对话推进中逐渐透露。
 - 你会主动提出与对话目标相关的问题，推动对话朝有意义的方向发展。
 
 【对话风格】
@@ -244,31 +290,155 @@ ${data.scenario}
 2. 每条回复 2-4 句话。可以分享自己的想法、提出疑问、或回应理财经理的建议。
 3. 当理财经理解释得好时，表示认可并追问更深入的问题。
 4. 当理财经理说得不清楚时，礼貌地请求进一步解释，而不是直接拒绝。
-5. 不要一味表达不信任或完全拒绝风险。你是来寻求帮助的，不是来刁难人的。
-
-【情绪标签】
-在每条回复末尾附加：[MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY]
-- HAPPY: 理财经理的建议让你觉得有道理、有帮助
-- NEUTRAL: 正常交流、信息确认
-- CONFUSED: 理财经理用了太多术语或解释不够清楚
-- SKEPTICAL: 理财经理的建议明显不符合你的实际情况
-- ANGRY: 仅在理财经理反复推销明显不适合的产品时才使用（极少出现）
+5. 不要一味表达不信任或完全拒绝风险，但也不要对所有建议都立刻同意。
 
 【禁止行为】
 - 不要暴露你是 AI 或模拟角色。
 - 不要重复理财经理刚说过的话。
 - 不要无端制造对抗或拒绝所有建议。`;
 
+  const systemPrompt = `${personaPrompt}
+${objectivesBlock}
+【输出格式 · 严格 JSON · PR-7B】
+请输出严格 JSON（不要包含其他任何文字、不要 Markdown 代码块）：
+{
+  "reply": "作为客户的中文回复，2-4 句话",
+  "mood_score": 0.0,
+  "mood_label": "平静",
+  "student_perf": 0.0,
+  "deviated_dimensions": []
+}
+
+字段定义：
+- mood_score: 当前你（客户）的情绪强度，0=最平静放松、1=最焦虑失望。与 mood_label 协调一致。
+- mood_label 必须从这 8 个中文标签中精确选 1 个：平静 / 放松 / 兴奋 / 犹豫 / 怀疑 / 略焦虑 / 焦虑 / 失望
+  · 平静（0.00-0.12）: 无情绪波动
+  · 放松（0.12-0.25）: 觉得对方的话有道理、有安全感
+  · 兴奋: 仅当对方建议让你眼前一亮、看到新可能
+  · 犹豫（0.25-0.40）: 还在思考、信息确认中
+  · 怀疑（0.40-0.55）: 觉得对方建议有点不对劲，但还在听
+  · 略焦虑（0.55-0.70）: 对方用术语堆砌或建议偏离你的偏好
+  · 焦虑（0.70-0.85）: 对方反复忽视你的核心顾虑
+  · 失望（0.85-1.00）: 对方让你觉得这次咨询没价值
+- student_perf: 评估理财经理（学生）本轮表现，0=极差/答非所问，1=非常专业且贴合目标。
+- deviated_dimensions: 学生本轮明显偏离的对话目标维度（从【对话目标维度】中选取名称；没有则空数组）。
+
+不要在 reply 里附加 [MOOD: XXX] 标签 — mood 通过 JSON 字段传递。`;
+
   const conversationHistory = data.transcript
     .map((m) => `${m.role === "student" ? "理财经理" : "客户"}: ${m.text}`)
     .join("\n");
 
-  return aiGenerateText(
-    "simulation",
-    userId,
-    systemPrompt,
-    `对话历史:\n${conversationHistory}\n\n请作为客户继续回复：`
-  );
+  const userPrompt = `对话历史:\n${conversationHistory}\n\n请作为客户继续回复并按上面 JSON 格式输出。`;
+
+  const currentTurn = data.transcript.filter((m) => m.role === "student").length;
+
+  let parsed: z.infer<typeof chatReplySchema>;
+  try {
+    parsed = await aiGenerateJSON(
+      "simulation",
+      userId,
+      systemPrompt,
+      userPrompt,
+      chatReplySchema
+    );
+  } catch {
+    const fallbackText = await aiGenerateText(
+      "simulation",
+      userId,
+      personaPrompt,
+      userPrompt
+    );
+    return {
+      reply: stripMoodTagFromText(fallbackText),
+      mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
+      hint: undefined,
+      studentPerf: 0.5,
+      deviatedDimensions: [],
+      hintTriggered: false,
+    };
+  }
+
+  const candidateKey = MOOD_LABEL_TO_KEY[parsed.mood_label];
+  const moodKey = candidateKey && VALID_MOOD_KEYS.has(candidateKey) ? candidateKey : "NEUTRAL";
+
+  const lastHintTurn = data.lastHintTurn;
+  const turnsSinceHint =
+    typeof lastHintTurn === "number"
+      ? currentTurn - lastHintTurn
+      : currentTurn >= 3
+        ? 3
+        : 0;
+  const offTrack =
+    parsed.student_perf < 0.5 || parsed.deviated_dimensions.length >= 1;
+  const hintTriggered = offTrack && turnsSinceHint >= 3;
+
+  let hint: string | undefined;
+  if (hintTriggered) {
+    hint = await generateSocraticHint(userId, {
+      transcript: data.transcript,
+      scenario: data.scenario,
+      objectives: data.objectives ?? [],
+      deviatedDimensions: parsed.deviated_dimensions,
+    });
+  }
+
+  return {
+    reply: parsed.reply,
+    mood: { score: parsed.mood_score, key: moodKey, label: parsed.mood_label },
+    hint,
+    studentPerf: parsed.student_perf,
+    deviatedDimensions: parsed.deviated_dimensions,
+    hintTriggered: hintTriggered && !!hint,
+  };
+}
+
+function stripMoodTagFromText(text: string): string {
+  return text.replace(/\[(?:MOOD:\s*)?\w+\]\s*$/i, "").trim();
+}
+
+const hintSchema = z.object({ hint: z.string().min(1) });
+
+async function generateSocraticHint(
+  userId: string,
+  data: {
+    transcript: Array<{ role: string; text: string }>;
+    scenario: string;
+    objectives: string[];
+    deviatedDimensions: string[];
+  }
+): Promise<string | undefined> {
+  try {
+    const systemPrompt = `你是一位金融教育的学习伙伴。学生（理财顾问）在本轮对话中表现欠佳或偏离了对话目标。
+请用 Socratic（苏格拉底）方式给学生一个简短的追问式提示，引导他自己想到改进点 — 不要直接给答案。
+
+要求：
+1. 提示长度 18-40 个汉字，单句疑问形式。
+2. 中文，口吻像同伴而不是导师。
+3. 必须紧扣偏离的目标维度或核心顾虑（不要泛泛而谈）。
+4. 严格 JSON 输出: { "hint": "..." }`;
+
+    const recent = data.transcript.slice(-6).map((m) => `${m.role === "student" ? "学生" : "客户"}: ${m.text}`).join("\n");
+    const userPrompt = `场景: ${data.scenario}
+对话目标: ${data.objectives.join(" / ") || "（未提供）"}
+本轮学生偏离的维度: ${data.deviatedDimensions.join(" / ") || "（未明确，但 student_perf 偏低）"}
+
+最近 6 轮对话:
+${recent}
+
+请按 Socratic 方式给一句追问式提示。`;
+
+    const out = await aiGenerateJSON(
+      "studyBuddyReply",
+      userId,
+      systemPrompt,
+      userPrompt,
+      hintSchema
+    );
+    return out.hint;
+  } catch {
+    return undefined;
+  }
 }
 
 // ============================================
