@@ -8,7 +8,6 @@ import {
   MessageSquare,
   Reply,
   Send,
-  BarChart3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +27,7 @@ import { OverviewTab } from "@/components/instance-detail/overview-tab";
 import { SubmissionsTab } from "@/components/instance-detail/submissions-tab";
 import { GradingDrawer } from "@/components/instance-detail/grading-drawer";
 import { InsightsTab } from "@/components/instance-detail/insights-tab";
+import { AnalyticsTab } from "@/components/instance-detail/analytics-tab";
 import {
   normalizeSubmission,
   type NormalizedSubmission,
@@ -682,20 +682,7 @@ export default function InstanceDetailPage() {
         )}
 
         {tab === "analytics" && (
-          <div
-            id="tabpanel-analytics"
-            role="tabpanel"
-            aria-labelledby="tab-analytics"
-            className="rounded-xl border border-line bg-surface p-10 text-center"
-          >
-            <BarChart3 className="mx-auto size-8 text-ink-4" />
-            <div className="mt-3 text-sm font-medium text-ink-2">
-              数据分析即将上线
-            </div>
-            <p className="mt-1 text-xs text-ink-4">
-              PR-5D 会带来分布 / 散点 / 热图
-            </p>
-          </div>
+          <AnalyticsTab rows={normalizedRows} taskType={instance.task.taskType} />
         )}
       </div>
 
