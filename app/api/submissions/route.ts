@@ -3,7 +3,11 @@ import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { createSubmission, getSubmissions } from "@/lib/services/submission.service";
 import { gradeSubmission } from "@/lib/services/grading.service";
 import { createSubmissionSchema } from "@/lib/validators/submission.schema";
-import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
+import {
+  assertTaskInstanceReadable,
+  assertTaskReadable,
+} from "@/lib/auth/resource-access";
+import { success, created, validationError, handleServiceError, error } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
   const result = await requireRole(["student"]);
@@ -39,13 +43,35 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1");
   const pageSize = parseInt(searchParams.get("pageSize") || "20");
 
+  const { user } = result.session;
+
   // 学生只能看自己的
   const effectiveStudentId =
-    result.session.user.role === "student"
-      ? result.session.user.id
-      : studentId;
+    user.role === "student" ? user.id : studentId;
+
+  // 防止广扫：必须至少提供一个范围限定（taskInstanceId / taskId / studentId 之一）
+  if (!taskInstanceId && !taskId && !effectiveStudentId) {
+    return error("FORBIDDEN", "必须提供 taskInstanceId / taskId / studentId 之一", 403);
+  }
 
   try {
+    // 教师/管理员若按 taskInstanceId 拉列表，必须验证对该实例有访问权
+    if (taskInstanceId && user.role !== "student") {
+      await assertTaskInstanceReadable(taskInstanceId, {
+        id: user.id,
+        role: user.role,
+        classId: user.classId,
+      });
+    }
+    // 教师/管理员若按 taskId 拉列表，必须验证对该 task 有访问权
+    if (taskId && user.role !== "student") {
+      await assertTaskReadable(taskId, {
+        id: user.id,
+        role: user.role,
+        classId: user.classId,
+      });
+    }
+
     const data = await getSubmissions({
       taskInstanceId,
       studentId: effectiveStudentId,
