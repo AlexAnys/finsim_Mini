@@ -1,15 +1,43 @@
 import { z } from "zod";
 
-// 对话消息
+// 对话消息（PR-7B 升级 mood 8 档 + moodScore/hint；PR-7C 仅复用）
 export const transcriptMessageSchema = z.object({
   id: z.string(),
   role: z.enum(["student", "ai"]),
   text: z.string(),
   timestamp: z.string(),
-  mood: z.enum(["HAPPY", "NEUTRAL", "ANGRY", "CONFUSED", "SKEPTICAL"]).optional(),
+  mood: z
+    .enum([
+      "HAPPY",
+      "RELAXED",
+      "EXCITED",
+      "NEUTRAL",
+      "SKEPTICAL",
+      "CONFUSED",
+      "ANGRY",
+      "DISAPPOINTED",
+    ])
+    .optional(),
+  moodScore: z.number().min(0).max(1).optional(),
+  hint: z.string().optional(),
 });
 
-// 资产配置
+// 资产配置 snapshot（PR-7C：学生在对话过程中按"记录当前配比"按钮触发）
+export const allocationSnapshotSchema = z.object({
+  /** 学生轮数（即对话中 student-role 消息的累计计数）；从 1 起 */
+  turn: z.number().int().min(0),
+  /** ISO timestamp */
+  ts: z.string(),
+  /** 当前快照下的配比（来自所有 sections 拍平后的 [{label, value}]） */
+  allocations: z.array(
+    z.object({
+      label: z.string(),
+      value: z.number().min(0).max(100),
+    })
+  ),
+});
+
+// 资产配置（PR-7C：sections 必填；snapshots 可选）
 export const assetAllocationSchema = z.object({
   sections: z.array(z.object({
     label: z.string(),
@@ -18,6 +46,7 @@ export const assetAllocationSchema = z.object({
       value: z.number().min(0).max(100),
     })),
   })),
+  snapshots: z.array(allocationSnapshotSchema).optional(),
 });
 
 // 评分标准分项结果
@@ -111,6 +140,7 @@ export const createSubmissionSchema = z.discriminatedUnion("taskType", [
 ]);
 
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
+export type AllocationSnapshot = z.infer<typeof allocationSnapshotSchema>;
 
 // 学习伙伴消息
 export const studyBuddyMessageSchema = z.object({

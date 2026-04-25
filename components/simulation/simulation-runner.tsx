@@ -20,6 +20,13 @@ import {
   type SimulationEvaluation,
   type AssetAllocation,
 } from "@/lib/types";
+
+// PR-7C: snapshot of an allocation at a point in time
+interface AllocationSnapshot {
+  turn: number;
+  ts: string;
+  allocations: Array<{ label: string; value: number }>;
+}
 import { EvaluationView } from "./evaluation-view";
 import { StudyBuddyPanel } from "./study-buddy-panel";
 
@@ -187,6 +194,22 @@ export function SimulationRunner({
   });
   const [allocationSubmitCount, setAllocationSubmitCount] = useState(0);
 
+  // PR-7C: per-student allocation snapshot history (persisted in localStorage,
+  // submitted with the final Submission via assets.snapshots).
+  const [snapshots, setSnapshots] = useState<AllocationSnapshot[]>(() => {
+    if (typeof window === "undefined") return [];
+    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.snapshots)) return parsed.snapshots;
+      } catch {
+        // fall through
+      }
+    }
+    return [];
+  });
+
   // Evaluation state
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluation, setEvaluation] = useState<SimulationEvaluation | null>(null);
@@ -213,21 +236,31 @@ export function SimulationRunner({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Save draft
+  // Save draft (PR-7C: now includes snapshots)
   const saveDraft = useCallback(
-    (msgs: TranscriptMessage[], moodVal: MoodType, allocs: AssetAllocation["sections"]) => {
+    (
+      msgs: TranscriptMessage[],
+      moodVal: MoodType,
+      allocs: AssetAllocation["sections"],
+      snaps: AllocationSnapshot[]
+    ) => {
       if (typeof window === "undefined") return;
       localStorage.setItem(
         DRAFT_KEY_PREFIX + taskInstanceId,
-        JSON.stringify({ messages: msgs, mood: moodVal, allocations: allocs })
+        JSON.stringify({
+          messages: msgs,
+          mood: moodVal,
+          allocations: allocs,
+          snapshots: snaps,
+        })
       );
     },
     [taskInstanceId]
   );
 
   useEffect(() => {
-    saveDraft(messages, mood, allocations);
-  }, [messages, mood, allocations, saveDraft]);
+    saveDraft(messages, mood, allocations, snapshots);
+  }, [messages, mood, allocations, snapshots, saveDraft]);
 
   // PR-7B legacy fallback: still strip residual [MOOD: XXX] tag if a non-JSON
   // provider response slipped through (e.g. fallback path in chatReply). Modern
@@ -352,7 +385,8 @@ export function SimulationRunner({
     });
   }
 
-  // Submit allocation
+  // Record allocation snapshot (PR-7C). Validates 100% per section, then
+  // appends a {turn, ts, allocations: [{label, value}]} entry.
   function handleSubmitAllocation() {
     for (const section of allocations) {
       const total = section.items.reduce((sum, item) => sum + item.value, 0);
@@ -361,8 +395,16 @@ export function SimulationRunner({
         return;
       }
     }
+    const turn = messages.filter((m) => m.role === "student").length;
+    const flat = allocations.flatMap((s) =>
+      s.items.map((it) => ({ label: it.label, value: it.value }))
+    );
+    setSnapshots((prev) => [
+      ...prev,
+      { turn, ts: new Date().toISOString(), allocations: flat },
+    ]);
     setAllocationSubmitCount((c) => c + 1);
-    toast.success("资产配置已提交");
+    toast.success("已记录当前配比");
   }
 
   // Reset allocation to defaults (visual-only convenience; doesn't touch submit count)
@@ -403,7 +445,10 @@ export function SimulationRunner({
             rubric: scoringCriteria.map(c => ({
               id: c.id, name: c.label, description: c.description, maxPoints: c.maxScore,
             })),
-            assets: allocations.length > 0 ? { sections: allocations } : undefined,
+            assets:
+              allocations.length > 0
+                ? { sections: allocations, snapshots }
+                : undefined,
           }),
         });
         if (!res.ok) {
@@ -431,7 +476,10 @@ export function SimulationRunner({
           taskId,
           taskInstanceId,
           transcript: messages,
-          assets: allocations.length > 0 ? { sections: allocations } : undefined,
+          assets:
+            allocations.length > 0
+              ? { sections: allocations, snapshots }
+              : undefined,
         }),
       });
       if (!res.ok) {
@@ -466,7 +514,10 @@ export function SimulationRunner({
           taskId,
           taskInstanceId,
           transcript: messages,
-          assets: allocations.length > 0 ? { sections: allocations } : undefined,
+          assets:
+            allocations.length > 0
+              ? { sections: allocations, snapshots }
+              : undefined,
           evaluation,
         }),
       });
@@ -502,6 +553,7 @@ export function SimulationRunner({
       })) ?? []
     );
     setAllocationSubmitCount(0);
+    setSnapshots([]);
     localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
   }
 
@@ -604,6 +656,7 @@ export function SimulationRunner({
           allocations={allocations}
           maxSubmissions={maxSubmissions}
           submitCount={allocationSubmitCount}
+          snapshots={snapshots}
           disabled={!!evaluation}
           onChange={handleAllocationChange}
           onSubmit={handleSubmitAllocation}
@@ -1055,6 +1108,7 @@ function SimRightPanel({
   allocations,
   maxSubmissions,
   submitCount,
+  snapshots,
   disabled,
   onChange,
   onSubmit,
@@ -1063,6 +1117,7 @@ function SimRightPanel({
   allocations: AssetAllocation["sections"];
   maxSubmissions: number;
   submitCount: number;
+  snapshots: AllocationSnapshot[];
   disabled: boolean;
   onChange: (s: number, i: number, v: number) => void;
   onSubmit: () => void;
@@ -1181,6 +1236,21 @@ function SimRightPanel({
           background: "var(--fs-bg-alt)",
         }}
       >
+        {snapshots.length > 0 && (
+          <div
+            className="mb-2 rounded-md px-2.5 py-1.5 text-[11px] leading-[1.45]"
+            style={{
+              background: "var(--fs-success-soft)",
+              border: "1px solid var(--fs-line)",
+              color: "var(--fs-success-deep)",
+            }}
+          >
+            <b>已记录 {snapshots.length} 次配比</b>
+            <span className="ml-1.5 text-[10.5px] opacity-80">
+              最近：第 {snapshots[snapshots.length - 1].turn} 轮
+            </span>
+          </div>
+        )}
         <div
           className="mb-2.5 rounded-md px-2.5 py-2 text-[11px] leading-[1.5]"
           style={{

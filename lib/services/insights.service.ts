@@ -35,6 +35,20 @@ function moodKeyToScoreFallback(label?: string): number {
  * triggers aggregation manually (button), so we only spend AI tokens on demand.
  */
 
+export interface AllocationSnapshotEntry {
+  studentId: string;
+  studentName: string;
+  submissionId: string;
+  /** Final allocations submitted (flat label/value pairs across all sections) */
+  finalAllocations: Array<{ label: string; value: number }>;
+  /** Chronological snapshots taken via "记录当前配比" during the simulation */
+  snapshots: Array<{
+    turn: number;
+    ts: string;
+    allocations: Array<{ label: string; value: number }>;
+  }>;
+}
+
 export interface AggregatedInsights {
   commonIssues: Array<{
     title: string;
@@ -50,6 +64,8 @@ export interface AggregatedInsights {
     tag: string;
     count: number;
   }>;
+  /** PR-7C: per-student allocation evolution. Empty array for non-simulation aggregations. */
+  allocationSnapshots?: AllocationSnapshotEntry[];
 }
 
 export interface AggregateInsightsResult {
@@ -59,6 +75,8 @@ export interface AggregateInsightsResult {
   reportId: string;
   /** PR-7B: number of students whose simulation transcripts contained mood data (for QA visibility) */
   moodTimelineCount?: number;
+  /** PR-7C: number of students whose sim submissions had at least 1 allocation snapshot */
+  allocationSnapshotsCount?: number;
 }
 
 const aggregateSchema = z.object({
@@ -157,6 +175,8 @@ export async function aggregateInsights(
     }>;
   };
   const moodTimeline: MoodTimelineEntry[] = [];
+  // PR-7C: per-student allocation snapshot collection from simulationSubmission.assets
+  const allocationSnapshots: AllocationSnapshotEntry[] = [];
 
   const evaluations: EvaluationSummary[] = [];
   for (const s of submissions) {
@@ -168,6 +188,56 @@ export async function aggregateInsights(
         | { feedback?: string }
         | null;
       feedback = ev?.feedback || "";
+
+      // PR-7C: harvest allocation snapshots from assets payload (if any).
+      const assets = s.simulationSubmission.assets as
+        | {
+            sections?: Array<{
+              label?: string;
+              items?: Array<{ label?: string; value?: number }>;
+            }>;
+            snapshots?: Array<{
+              turn?: number;
+              ts?: string;
+              allocations?: Array<{ label?: string; value?: number }>;
+            }>;
+          }
+        | null;
+      if (assets) {
+        const finalAllocs: Array<{ label: string; value: number }> = [];
+        for (const sec of assets.sections ?? []) {
+          for (const it of sec.items ?? []) {
+            if (typeof it.label === "string" && typeof it.value === "number") {
+              finalAllocs.push({ label: it.label, value: it.value });
+            }
+          }
+        }
+        const cleanSnaps: AllocationSnapshotEntry["snapshots"] = [];
+        for (const snap of assets.snapshots ?? []) {
+          if (
+            typeof snap.turn === "number" &&
+            typeof snap.ts === "string" &&
+            Array.isArray(snap.allocations)
+          ) {
+            const allocs: Array<{ label: string; value: number }> = [];
+            for (const a of snap.allocations) {
+              if (typeof a.label === "string" && typeof a.value === "number") {
+                allocs.push({ label: a.label, value: a.value });
+              }
+            }
+            cleanSnaps.push({ turn: snap.turn, ts: snap.ts, allocations: allocs });
+          }
+        }
+        if (finalAllocs.length > 0 || cleanSnaps.length > 0) {
+          allocationSnapshots.push({
+            studentId: s.student.id,
+            studentName: s.student.name,
+            submissionId: s.id,
+            finalAllocations: finalAllocs,
+            snapshots: cleanSnaps,
+          });
+        }
+      }
 
       // Walk transcript and extract mood timeline (AI turns only).
       const transcript = s.simulationSubmission.transcript as
@@ -296,6 +366,9 @@ ${corpus}
     commonIssues: ai.commonIssues.slice(0, 5),
     highlights: ai.highlights.slice(0, 3),
     weaknessConcepts,
+    ...(allocationSnapshots.length > 0
+      ? { allocationSnapshots }
+      : {}),
   };
 
   // PR-7B: include moodTimeline (only meaningful for simulation tasks; empty array OK).
@@ -346,5 +419,6 @@ ${corpus}
     studentCount: evaluations.length,
     reportId: saved.id,
     moodTimelineCount: moodTimeline.length,
+    allocationSnapshotsCount: allocationSnapshots.length,
   };
 }

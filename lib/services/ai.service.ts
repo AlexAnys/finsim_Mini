@@ -455,7 +455,15 @@ export async function evaluateSimulation(
     strictnessLevel: string;
     transcript: Array<{ role: string; text: string }>;
     rubric: Array<{ id: string; name: string; description?: string; maxPoints: number }>;
-    assets?: { sections: Array<{ label: string; items: Array<{ label: string; value: number }> }> };
+    assets?: {
+      sections: Array<{ label: string; items: Array<{ label: string; value: number }> }>;
+      /** PR-7C: chronological snapshots of allocation taken via "记录当前配比" button. */
+      snapshots?: Array<{
+        turn: number;
+        ts: string;
+        allocations: Array<{ label: string; value: number }>;
+      }>;
+    };
   }
 ) {
   const evaluationSchema = z.object({
@@ -497,11 +505,24 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
     .join("\n")
     .slice(0, 30000);
 
-  const userPrompt = `对话记录:\n${conversationText}\n\n${
-    data.assets
-      ? `资产配置方案:\n${JSON.stringify(data.assets, null, 2)}\n\n`
-      : ""
-  }请按照评分标准逐项评估，返回 JSON:
+  const finalAllocations = data.assets
+    ? `最终资产配置方案（提交时刻）:\n${JSON.stringify({ sections: data.assets.sections }, null, 2)}\n\n`
+    : "";
+
+  const snapshots = data.assets?.snapshots || [];
+  const snapshotsBlock =
+    snapshots.length > 0
+      ? `资产配置演变（共 ${snapshots.length} 次"记录当前配比"快照）:\n${snapshots
+          .map(
+            (s) =>
+              `[第 ${s.turn} 轮 · ${s.ts}] ${s.allocations
+                .map((a) => `${a.label}=${a.value}%`)
+                .join(", ")}`
+          )
+          .join("\n")}\n\n请参考资产配置演变：留意学生在对话中根据客户偏好/顾虑的变化是否调整了配置（积极信号），或反复在风险/保守之间摇摆（潜在问题）。把"是否随对话信息更新配置决策"作为"专业度/方案完整性"维度的判分依据之一。\n\n`
+      : "";
+
+  const userPrompt = `对话记录:\n${conversationText}\n\n${finalAllocations}${snapshotsBlock}请按照评分标准逐项评估，返回 JSON:
 {
   "totalScore": 总分,
   "feedback": "总体评语",
