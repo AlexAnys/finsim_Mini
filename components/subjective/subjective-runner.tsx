@@ -4,21 +4,23 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Save,
-  Send,
-  Loader2,
   CheckCircle,
   Upload,
   X,
   FileText,
   Target,
   AlertCircle,
+  Check,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { RunnerTopbar } from "@/components/runner/runner-topbar";
+import { RunnerMetaWordCount, RunnerMetaSavedChip } from "@/components/runner/runner-meta";
 
 // ---------- Helpers ----------
 
@@ -64,6 +66,8 @@ interface SubjectiveRunnerProps {
   taskConfig: SubjectiveTaskConfig | { subjectiveConfig: SubjectiveTaskConfig };
   taskId: string;
   taskInstanceId: string;
+  taskName: string;
+  taskSubtitle?: string;
 }
 
 interface UploadedFile {
@@ -115,7 +119,10 @@ export function SubjectiveRunner({
   taskConfig: rawTaskConfig,
   taskId,
   taskInstanceId,
+  taskName,
+  taskSubtitle,
 }: SubjectiveRunnerProps) {
+  const router = useRouter();
   const config = useMemo(() => unwrapConfig(rawTaskConfig), [rawTaskConfig]);
 
   const prompt = config.prompt;
@@ -358,6 +365,36 @@ export function SubjectiveRunner({
   // ---------- Render: in progress ----------
   return (
     <div className="flex h-full flex-col gap-4">
+      {/* Top bar */}
+      <RunnerTopbar
+        onBack={() => router.back()}
+        title={taskName}
+        subtitle={taskSubtitle ?? "主观题"}
+        metaSlots={
+          <>
+            <RunnerMetaSavedChip saving={isSavingDraft} />
+            <RunnerMetaWordCount count={wordCount} limit={wordLimit} />
+          </>
+        }
+        actions={[
+          {
+            label: "存草稿",
+            onClick: handleSaveDraft,
+            icon: Save,
+            variant: "secondary",
+          },
+          {
+            label: "提交",
+            onClick: handleSubmit,
+            icon: Check,
+            variant: "primary",
+            loading: isSubmitting,
+            loadingLabel: "提交中...",
+            disabled: isSubmitting || isOverLimit,
+          },
+        ]}
+      />
+
       <div className="flex flex-1 gap-4 overflow-hidden">
         {/* Left panel - Task info (1/3) */}
         <div className="w-1/3 min-w-[280px]">
@@ -557,28 +594,6 @@ export function SubjectiveRunner({
         </div>
       </div>
 
-      {/* Bottom bar */}
-      <Card className="py-3">
-        <CardContent className="flex items-center justify-between">
-          <Button variant="outline" onClick={handleSaveDraft}>
-            <Save className="size-4" />
-            保存草稿
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || isOverLimit}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                提交中...
-              </>
-            ) : (
-              <>
-                <Send className="size-4" />
-                提交
-              </>
-            )}
-          </Button>
-        </CardContent>
-      </Card>
     </div>
   );
 }

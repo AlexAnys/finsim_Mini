@@ -3,14 +3,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
-  Clock,
   ChevronLeft,
   ChevronRight,
-  Loader2,
   CheckCircle,
   AlertCircle,
   BookOpen,
+  Check,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +19,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { RunnerTopbar } from "@/components/runner/runner-topbar";
+import { RunnerMetaProgress, RunnerMetaTimer } from "@/components/runner/runner-meta";
 
 // ---------- Types ----------
 
@@ -50,6 +51,8 @@ interface QuizRunnerProps {
   taskConfig: QuizTaskConfig;
   taskId: string;
   taskInstanceId: string;
+  taskName: string;
+  taskSubtitle?: string;
 }
 
 type AnswerValue = string | string[];
@@ -84,19 +87,16 @@ function shuffleArray<T>(arr: T[]): T[] {
   return shuffled;
 }
 
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
-
 // ---------- Component ----------
 
 export function QuizRunner({
   taskConfig,
   taskId,
   taskInstanceId,
+  taskName,
+  taskSubtitle,
 }: QuizRunnerProps) {
+  const router = useRouter();
   const {
     timeLimit,
     mode,
@@ -194,7 +194,6 @@ export function QuizRunner({
     if (Array.isArray(a)) return a.length > 0;
     return typeof a === "string" && a.trim().length > 0;
   }).length;
-  const progressPercent = (answeredCount / questions.length) * 100;
 
   // Answer handlers
   function setAnswer(questionId: string, value: AnswerValue) {
@@ -394,34 +393,41 @@ export function QuizRunner({
   const isConfirmed = confirmedQuestions.has(currentQuestion.id);
   const currentAnswer = answers[currentQuestion.id];
 
+  const totalPoints = questions.reduce((sum, q) => sum + q.points, 0);
+
   return (
     <div className="flex h-full flex-col gap-4">
       {/* Top bar */}
-      <Card className="py-3">
-        <CardContent className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Badge variant={mode === "practice" ? "secondary" : "default"}>
-              {mode === "practice" ? "练习模式" : "考试模式"}
-            </Badge>
-            <span className="text-muted-foreground text-sm">
-              进度：{answeredCount}/{questions.length} 题
-            </span>
-            <Progress value={progressPercent} className="w-32" />
-          </div>
-          {timeRemaining !== null && (
-            <div
-              className={`flex items-center gap-1.5 font-mono text-sm ${
-                timeRemaining < 60
-                  ? "font-semibold text-red-600"
-                  : "text-muted-foreground"
-              }`}
-            >
-              <Clock className="size-4" />
-              {formatTime(timeRemaining)}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <RunnerTopbar
+        onBack={() => router.back()}
+        title={taskName}
+        subtitle={
+          taskSubtitle ?? (mode === "practice" ? "测验 · 练习模式" : "测验 · 考试模式")
+        }
+        metaSlots={
+          <>
+            <RunnerMetaProgress
+              current={answeredCount}
+              total={questions.length}
+              totalPoints={totalPoints}
+            />
+            {timeRemaining !== null && (
+              <RunnerMetaTimer seconds={timeRemaining} />
+            )}
+          </>
+        }
+        actions={[
+          {
+            label: "提交答卷",
+            onClick: handleSubmit,
+            icon: Check,
+            variant: "primary",
+            loading: isSubmitting,
+            loadingLabel: "提交中...",
+            disabled: isSubmitting,
+          },
+        ]}
+      />
 
       {/* Main area */}
       <div className="flex flex-1 gap-4 overflow-hidden">
@@ -649,7 +655,7 @@ export function QuizRunner({
         </div>
       </div>
 
-      {/* Bottom navigation */}
+      {/* Bottom navigation (prev/next only — submit moved to topbar) */}
       <Card className="py-3">
         <CardContent className="flex items-center justify-between">
           <Button
@@ -659,20 +665,6 @@ export function QuizRunner({
           >
             <ChevronLeft className="size-4" />
             上一题
-          </Button>
-
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                提交中...
-              </>
-            ) : (
-              <>
-                <CheckCircle className="size-4" />
-                提交答卷
-              </>
-            )}
           </Button>
 
           <Button

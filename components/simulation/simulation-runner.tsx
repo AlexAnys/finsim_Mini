@@ -4,19 +4,19 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft,
   Send,
   Loader2,
-  RotateCcw,
-  StopCircle,
-  GraduationCap,
   User,
   Settings,
   BarChart3,
+  RotateCcw,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { RunnerTopbar } from "@/components/runner/runner-topbar";
+import { RunnerMetaPill } from "@/components/runner/runner-meta";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
@@ -466,45 +466,34 @@ export function SimulationRunner({
   return (
     <div className="flex h-screen flex-col">
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b bg-white px-6 shadow-sm" style={{ height: 56 }}>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.back()} className="shrink-0">
-            <ArrowLeft className="size-5" />
-          </Button>
-          <div className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white">
-            <GraduationCap className="size-5" />
-          </div>
-          <span className="text-lg font-bold">FinSim AI</span>
-          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${moodInfo.bg} ${moodInfo.text} shadow-sm`}>
-            客户情绪：{moodInfo.label}
-          </div>
-          {isPreview && <Badge variant="outline" className="border-orange-300 text-orange-600">预览模式</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleRedo}>
-            <RotateCcw className="mr-1 size-4" />
-            重来
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleFinishConversation}
-            disabled={isEvaluating || isSubmitting || messages.length < 2}
-          >
-            {isEvaluating || isSubmitting ? (
-              <>
-                <Loader2 className="mr-1 size-4 animate-spin" />
-                {isEvaluating ? "评估中..." : "提交中..."}
-              </>
-            ) : (
-              <>
-                <StopCircle className="mr-1 size-4" />
-                结束
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+      <RunnerTopbar
+        onBack={() => router.back()}
+        title={taskName}
+        subtitle={isPreview ? "模拟对话 · 预览模式" : "模拟对话"}
+        metaSlots={
+          <RunnerMetaPill>
+            <span className="text-white/60">客户情绪</span>
+            <span className="font-semibold text-white">{moodInfo.label}</span>
+          </RunnerMetaPill>
+        }
+        actions={[
+          {
+            label: "重来",
+            onClick: handleRedo,
+            icon: RotateCcw,
+            variant: "secondary",
+          },
+          {
+            label: "结束",
+            onClick: handleFinishConversation,
+            icon: Check,
+            variant: "primary",
+            disabled: messages.length < 2,
+            loading: isEvaluating || isSubmitting,
+            loadingLabel: isEvaluating ? "评估中..." : "提交中...",
+          },
+        ]}
+      />
 
       {/* 3-column body */}
       <div className="flex flex-1 overflow-hidden">

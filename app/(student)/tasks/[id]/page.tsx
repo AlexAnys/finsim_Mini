@@ -114,6 +114,8 @@ function renderRunner(instance: TaskInstanceDetail) {
       <QuizRunner
         taskId={task.id}
         taskInstanceId={instance.id}
+        taskName={instance.title || task.taskName}
+        taskSubtitle={`测验 · ${task.quizConfig.mode === "adaptive" ? "练习模式" : "考试模式"}`}
         taskConfig={{
           timeLimit: task.quizConfig.timeLimitMinutes,
           mode: task.quizConfig.mode === "adaptive" ? "practice" : "exam",
@@ -139,6 +141,8 @@ function renderRunner(instance: TaskInstanceDetail) {
       <SubjectiveRunner
         taskId={task.id}
         taskInstanceId={instance.id}
+        taskName={instance.title || task.taskName}
+        taskSubtitle="主观题"
         taskConfig={{
           prompt: task.subjectiveConfig.prompt,
           wordLimit: null,
