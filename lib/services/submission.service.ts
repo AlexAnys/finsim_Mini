@@ -154,6 +154,7 @@ export async function updateSubmissionGrade(
     score?: number;
     maxScore?: number;
     evaluation?: Record<string, unknown>;
+    conceptTags?: string[];
   }
 ) {
   return prisma.$transaction(async (tx) => {
@@ -167,23 +168,34 @@ export async function updateSubmissionGrade(
       },
     });
 
-    // 更新类型专属记录的 evaluation
-    if (data.evaluation) {
-      const evaluation = data.evaluation as unknown as import("@prisma/client").Prisma.InputJsonValue;
+    // 更新类型专属记录的 evaluation + conceptTags
+    const hasEval = data.evaluation !== undefined;
+    const hasTags = data.conceptTags !== undefined;
+    if (hasEval || hasTags) {
+      const updateData: {
+        evaluation?: import("@prisma/client").Prisma.InputJsonValue;
+        conceptTags?: string[];
+      } = {};
+      if (hasEval) {
+        updateData.evaluation = data.evaluation as unknown as import("@prisma/client").Prisma.InputJsonValue;
+      }
+      if (hasTags) {
+        updateData.conceptTags = data.conceptTags ?? [];
+      }
       if (submission.taskType === "simulation") {
         await tx.simulationSubmission.update({
           where: { submissionId },
-          data: { evaluation },
+          data: updateData,
         });
       } else if (submission.taskType === "quiz") {
         await tx.quizSubmission.update({
           where: { submissionId },
-          data: { evaluation },
+          data: updateData,
         });
       } else if (submission.taskType === "subjective") {
         await tx.subjectiveSubmission.update({
           where: { submissionId },
-          data: { evaluation },
+          data: updateData,
         });
       }
     }

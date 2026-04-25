@@ -88,6 +88,10 @@ export function handleServiceError(err: unknown) {
         );
       case "AI_PROVIDER_NOT_CONFIGURED":
         return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
+      case "NO_GRADED_SUBMISSIONS":
+        return error("NO_GRADED_SUBMISSIONS", "暂无已批改的提交，无法生成洞察", 400);
+      case "NO_CONCEPT_TAGS":
+        return error("NO_CONCEPT_TAGS", "已批改的提交均未生成概念标签，请等待新批改完成", 400);
       default:
         console.error("Service error:", err);
         return serverError();

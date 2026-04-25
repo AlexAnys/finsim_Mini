@@ -52,6 +52,7 @@ const FEATURE_TEMPERATURES: Record<AIFeature, number> = {
   subjectiveGrade: 0.3,
   taskDraft: 0.7,
   importParse: 0.4,
+  insights: 0.4,
 };
 
 // Feature -> 环境变量前缀
@@ -64,6 +65,7 @@ const FEATURE_ENV_MAP: Record<AIFeature, string> = {
   subjectiveGrade: "AI_SUBJECTIVE_GRADE",
   taskDraft: "AI_TASK_DRAFT",
   importParse: "AI_IMPORT",
+  insights: "AI_INSIGHTS",
 };
 
 function getProviderForFeature(feature: AIFeature): { provider: ProviderConfig; model: string } {
@@ -295,6 +297,7 @@ export async function evaluateSimulation(
       maxScore: z.number(),
       comment: z.string(),
     })),
+    conceptTags: z.array(z.string()).optional(),
   });
 
   const systemPrompt = `${data.evaluatorPersona || "你是一位资深的金融教育评估专家。"}
@@ -334,11 +337,14 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
   "feedback": "总体评语",
   "rubricBreakdown": [
     {"criterionId": "标准ID", "score": 得分, "maxScore": 满分, "comment": "评语"}
-  ]
+  ],
+  "conceptTags": ["核心概念1", "核心概念2", "核心概念3"]
 }
 
-注意: rubricBreakdown 必须包含恰好 ${data.rubric.length} 项，对应每个评分标准。
-criterionId 使用以下 ID: ${data.rubric.map((r) => r.id).join(", ")}`;
+注意:
+- rubricBreakdown 必须包含恰好 ${data.rubric.length} 项，对应每个评分标准。
+- criterionId 使用以下 ID: ${data.rubric.map((r) => r.id).join(", ")}
+- conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于后续班级薄弱点聚合。`;
 
   const result = await aiGenerateJSON(
     "evaluation",
@@ -366,5 +372,6 @@ criterionId 使用以下 ID: ${data.rubric.map((r) => r.id).join(", ")}`;
     maxScore,
     feedback: result.feedback,
     rubricBreakdown: breakdown,
+    conceptTags: Array.isArray(result.conceptTags) ? result.conceptTags.slice(0, 5) : [],
   };
 }

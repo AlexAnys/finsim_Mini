@@ -8,7 +8,6 @@ import {
   MessageSquare,
   Reply,
   Send,
-  Sparkles,
   BarChart3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +27,7 @@ import {
 import { OverviewTab } from "@/components/instance-detail/overview-tab";
 import { SubmissionsTab } from "@/components/instance-detail/submissions-tab";
 import { GradingDrawer } from "@/components/instance-detail/grading-drawer";
+import { InsightsTab } from "@/components/instance-detail/insights-tab";
 import {
   normalizeSubmission,
   type NormalizedSubmission,
@@ -671,20 +671,14 @@ export default function InstanceDetailPage() {
         )}
 
         {tab === "insights" && (
-          <div
-            id="tabpanel-insights"
-            role="tabpanel"
-            aria-labelledby="tab-insights"
-            className="rounded-xl border border-line bg-surface p-10 text-center"
-          >
-            <Sparkles className="mx-auto size-8 text-sim" />
-            <div className="mt-3 text-sm font-medium text-ink-2">
-              AI 洞察即将上线
-            </div>
-            <p className="mt-1 text-xs text-ink-4">
-              PR-5C 会带来共性问题 / 亮点 / 薄弱概念聚合
-            </p>
-          </div>
+          <InsightsTab
+            instanceId={instance.id}
+            onExplainConcept={(tag) => {
+              toast.message(`待办：生成 "${tag}" 讲解卡片`, {
+                description: "Phase 6 学习伙伴会接上",
+              });
+            }}
+          />
         )}
 
         {tab === "analytics" && (

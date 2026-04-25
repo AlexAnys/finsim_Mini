@@ -506,6 +506,7 @@ model SimulationSubmission {
   transcript   Json?
   assets       Json?
   evaluation   Json?
+  conceptTags  String[] @default([])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -523,6 +524,7 @@ model QuizSubmission {
   finishedAt      DateTime?
   durationSeconds Int?
   evaluation      Json?
+  conceptTags     String[] @default([])
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -538,6 +540,7 @@ model SubjectiveSubmission {
   textAnswer    String?  @db.Text
   extractedText String?  @db.Text
   evaluation    Json?
+  conceptTags   String[] @default([])
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -736,6 +739,8 @@ model AnalysisReport {
   studentCount   Int
   report         Json
   createdAt      DateTime @default(now())
+  commonIssues   Json?
+  aggregatedAt   DateTime?
 
   creator      User          @relation("ReportCreator", fields: [createdBy], references: [id])
   task         Task?         @relation("ReportTask", fields: [taskId], references: [id])

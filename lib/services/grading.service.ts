@@ -101,6 +101,7 @@ async function gradeSimulation(submission: SubmissionFull) {
     score: evaluation.totalScore,
     maxScore: evaluation.maxScore,
     evaluation: evaluation as unknown as Record<string, unknown>,
+    conceptTags: evaluation.conceptTags ?? [],
   });
 }
 
@@ -289,6 +290,7 @@ async function gradeSubjective(submission: SubmissionFull) {
       maxScore: z.number(),
       comment: z.string(),
     })),
+    conceptTags: z.array(z.string()).optional(),
   });
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -314,8 +316,9 @@ ${rubric.map((r: any) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
     submission.studentId,
     systemPrompt,
     `学生作答:\n${combinedText}\n\n请按评分标准逐项评估，返回 JSON:
-{"totalScore": 总分, "feedback": "总体评语", "rubricBreakdown": [{"criterionId": "ID", "score": 得分, "maxScore": 满分, "comment": "评语"}]}
-criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}`,
+{"totalScore": 总分, "feedback": "总体评语", "rubricBreakdown": [{"criterionId": "ID", "score": 得分, "maxScore": 满分, "comment": "评语"}], "conceptTags": ["概念1","概念2","概念3"]}
+criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}
+conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于班级薄弱点聚合。`,
     evaluationSchema
   );
 
@@ -330,6 +333,9 @@ criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}`,
     };
   });
   const totalScore = breakdown.reduce((sum: number, b: any) => sum + b.score, 0);
+  const conceptTags = Array.isArray(result.conceptTags)
+    ? result.conceptTags.slice(0, 5)
+    : [];
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   await updateSubmissionGrade(submission.id, {
@@ -342,6 +348,7 @@ criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}`,
       feedback: result.feedback,
       rubricBreakdown: breakdown,
     },
+    conceptTags,
   });
 }
 

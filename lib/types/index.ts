@@ -70,7 +70,8 @@ export type AIFeature =
   | "quizGrade"
   | "subjectiveGrade"
   | "taskDraft"
-  | "importParse";
+  | "importParse"
+  | "insights";
 
 // 评估结果
 export interface RubricBreakdown {
