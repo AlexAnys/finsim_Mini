@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { ImportProgressDialog } from "@/components/task-edit/import-progress-dialog";
 
 interface ScoringCriterion {
   id: string;
@@ -153,6 +154,9 @@ export default function TaskDetailPage() {
   const [saving, setSaving] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [importJobId, setImportJobId] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Edit form state
   const [editName, setEditName] = useState("");
@@ -272,7 +276,12 @@ export default function TaskDetailPage() {
     if (!file) return;
     e.target.value = "";
 
+    // Open dialog immediately with "uploading" state
+    setImportFileName(file.name);
+    setImportJobId(null);
+    setImportDialogOpen(true);
     setImporting(true);
+
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -284,52 +293,40 @@ export default function TaskDetailPage() {
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "导入失败");
+        toast.error(json.error?.message || "上传失败");
+        setImportDialogOpen(false);
         setImporting(false);
         return;
       }
 
-      const jobId = json.data.id;
-      toast.info("PDF 正在解析中，请稍候...");
-
-      // Poll for completion
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`/api/import-jobs/${jobId}`);
-          const statusJson = await statusRes.json();
-          if (!statusJson.success) {
-            clearInterval(pollInterval);
-            setImporting(false);
-            toast.error("查询导入状态失败");
-            return;
-          }
-          const job = statusJson.data;
-          if (job.status === "completed") {
-            clearInterval(pollInterval);
-            setImporting(false);
-            toast.success(`成功导入 ${job.totalQuestions} 道题目`);
-            fetchTask();
-          } else if (job.status === "failed") {
-            clearInterval(pollInterval);
-            setImporting(false);
-            toast.error(`导入失败: ${job.error || "未知错误"}`);
-          }
-        } catch {
-          clearInterval(pollInterval);
-          setImporting(false);
-          toast.error("查询导入状态失败");
-        }
-      }, 2000);
-
-      // Timeout after 60 seconds
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        setImporting(false);
-      }, 60000);
+      // Hand off to dialog — it will poll status until completion / failure
+      setImportJobId(json.data.id);
     } catch {
-      toast.error("导入失败，请重试");
+      toast.error("上传失败，请重试");
+      setImportDialogOpen(false);
       setImporting(false);
     }
+  }
+
+  function handleImportComplete(totalQuestions: number) {
+    toast.success(`成功导入 ${totalQuestions} 道题目`);
+    fetchTask();
+  }
+
+  function handleImportClose() {
+    setImportDialogOpen(false);
+    setImportJobId(null);
+    setImportFileName(null);
+    setImporting(false);
+  }
+
+  function handleImportRetry() {
+    setImportDialogOpen(false);
+    setImportJobId(null);
+    setImportFileName(null);
+    setImporting(false);
+    // Re-open file picker
+    setTimeout(() => importFileRef.current?.click(), 50);
   }
 
   if (loading) {
@@ -829,6 +826,16 @@ export default function TaskDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* PDF 导入进度对话框 */}
+      <ImportProgressDialog
+        open={importDialogOpen}
+        onClose={handleImportClose}
+        jobId={importJobId}
+        fileName={importFileName}
+        onComplete={handleImportComplete}
+        onRetry={handleImportRetry}
+      />
     </div>
   );
 }
