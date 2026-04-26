@@ -296,6 +296,9 @@ export default function InstanceDetailPage() {
     setDrawerOpen(true);
   }, []);
 
+  // PR-FIX-3 UX2: 批量批改"下一份"队列。教师选 A/C 不应跳到 B（之前行为是按全列表跳）。
+  const [bulkQueue, setBulkQueue] = useState<string[]>([]);
+
   const handleDrawerSaved = useCallback(
     (savedId: string) => {
       toast.success("评分已保存");
@@ -307,6 +310,22 @@ export default function InstanceDetailPage() {
 
   const handleDrawerNext = useCallback(
     (currentId: string) => {
+      // PR-FIX-3 UX2: 优先按 bulkQueue 走（教师选定的 selected ids 队列）；
+      // 队列耗尽（或非批量场景）才回退到全列表的 next ungraded。
+      if (bulkQueue.length > 0) {
+        const idx = bulkQueue.indexOf(currentId);
+        const nextId = idx >= 0 ? bulkQueue[idx + 1] : bulkQueue[0];
+        if (nextId) {
+          setActiveSubmissionId(nextId);
+          return;
+        }
+        // 队列结束 → 清队列 + 关 drawer
+        setBulkQueue([]);
+        toast.message("批量批改队列已完成");
+        setDrawerOpen(false);
+        return;
+      }
+      // 非批量场景：原行为（全列表下一未批改）
       const idx = normalizedRows.findIndex((r) => r.id === currentId);
       const nextRow = normalizedRows
         .slice(idx + 1)
@@ -318,16 +337,18 @@ export default function InstanceDetailPage() {
         setDrawerOpen(false);
       }
     },
-    [normalizedRows]
+    [normalizedRows, bulkQueue]
   );
 
   const handleBulkGrade = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return;
+      // PR-FIX-3 UX2: 用教师选定的 ids 顺序作为 queue（保留点选顺序）
+      setBulkQueue(ids);
       const first = ids[0];
       handleOpenGrading(first);
       toast.message(`已开始批改 ${ids.length} 份`, {
-        description: "保存后会跳到下一份",
+        description: "保存后会跳到队列中的下一份",
       });
     },
     [handleOpenGrading]

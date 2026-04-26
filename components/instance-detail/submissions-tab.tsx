@@ -187,21 +187,26 @@ export function SubmissionsTab({
     });
   }, []);
 
-  const allOnPageSelected =
-    visibleRows.length > 0 && visibleRows.every((r) => selected.has(r.id));
+  // PR-FIX-3 UX3: checkbox 显示"全选未批改" + checked 状态基于 eligible rows（非 graded）
+  // 之前 bug: every() 含 graded 行 → 永远 false（toggleSelectAll 又只选 ungraded） →
+  // checkbox 永远不显示"已勾选"状态，UX 不一致。
+  const eligibleRows = useMemo(
+    () => visibleRows.filter((r) => r.status !== "graded"),
+    [visibleRows],
+  );
+  const allEligibleSelected =
+    eligibleRows.length > 0 && eligibleRows.every((r) => selected.has(r.id));
   const toggleSelectAll = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allOnPageSelected) {
-        for (const r of visibleRows) next.delete(r.id);
+      if (allEligibleSelected) {
+        for (const r of eligibleRows) next.delete(r.id);
       } else {
-        for (const r of visibleRows) {
-          if (r.status !== "graded") next.add(r.id);
-        }
+        for (const r of eligibleRows) next.add(r.id);
       }
       return next;
     });
-  }, [allOnPageSelected, visibleRows]);
+  }, [allEligibleSelected, eligibleRows]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -304,9 +309,10 @@ export function SubmissionsTab({
             >
               <div className="flex items-center justify-center">
                 <Checkbox
-                  checked={allOnPageSelected}
+                  checked={allEligibleSelected}
                   onCheckedChange={toggleSelectAll}
-                  aria-label="全选当前页"
+                  aria-label="全选未批改"
+                  disabled={eligibleRows.length === 0}
                 />
               </div>
               <div>学生 / 用时</div>

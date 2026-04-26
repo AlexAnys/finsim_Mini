@@ -227,3 +227,109 @@ describe("PR-FIX-3 C5 · insights aggregate 不抛 NO_CONCEPT_TAGS", () => {
     ]);
   });
 });
+
+describe("PR-FIX-3 UX2 · 批量批改 next 限定在 selected ids 队列", () => {
+  // 模拟 page.tsx 的 handleDrawerNext bulkQueue 路径
+  function nextInQueue(currentId: string, queue: string[]): string | null {
+    const idx = queue.indexOf(currentId);
+    const nextId = idx >= 0 ? queue[idx + 1] : queue[0];
+    return nextId ?? null;
+  }
+
+  it("队列 [A, C, E]，当前 A → 下一份 C（跳过 B）", () => {
+    const queue = ["A", "C", "E"];
+    expect(nextInQueue("A", queue)).toBe("C");
+  });
+
+  it("队列 [A, C, E]，当前 C → 下一份 E", () => {
+    const queue = ["A", "C", "E"];
+    expect(nextInQueue("C", queue)).toBe("E");
+  });
+
+  it("队列 [A, C, E]，当前 E → null（队列结束）", () => {
+    const queue = ["A", "C", "E"];
+    expect(nextInQueue("E", queue)).toBeNull();
+  });
+
+  it("队列空 → 走原 fallback（用 indexOf=-1，nextId 取 queue[0]=undefined → null）", () => {
+    const queue: string[] = [];
+    expect(nextInQueue("X", queue)).toBeNull();
+  });
+
+  it("队列保留教师点选顺序（不重排）", () => {
+    const userPicked = ["E", "A", "C"]; // 用户先点 E 再 A 再 C
+    expect(nextInQueue("E", userPicked)).toBe("A");
+    expect(nextInQueue("A", userPicked)).toBe("C");
+  });
+});
+
+describe("PR-FIX-3 UX3 · 全选 checkbox checked 状态基于 eligible rows", () => {
+  type Row = { id: string; status: "submitted" | "graded" };
+
+  it("eligible rows 全选 → checked=true（即使存在 graded 行未选）", () => {
+    const visibleRows: Row[] = [
+      { id: "1", status: "submitted" },
+      { id: "2", status: "graded" }, // ineligible
+      { id: "3", status: "submitted" },
+    ];
+    const eligibleRows = visibleRows.filter((r) => r.status !== "graded");
+    const selected = new Set(["1", "3"]);
+    const allEligibleSelected =
+      eligibleRows.length > 0 && eligibleRows.every((r) => selected.has(r.id));
+    expect(allEligibleSelected).toBe(true);
+  });
+
+  it("eligible rows 部分选 → checked=false", () => {
+    const visibleRows: Row[] = [
+      { id: "1", status: "submitted" },
+      { id: "2", status: "submitted" },
+    ];
+    const eligibleRows = visibleRows.filter((r) => r.status !== "graded");
+    const selected = new Set(["1"]);
+    const allEligibleSelected =
+      eligibleRows.length > 0 && eligibleRows.every((r) => selected.has(r.id));
+    expect(allEligibleSelected).toBe(false);
+  });
+
+  it("无 eligible rows（全部 graded）→ checked=false 且 disabled", () => {
+    const visibleRows: Row[] = [
+      { id: "1", status: "graded" },
+      { id: "2", status: "graded" },
+    ];
+    const eligibleRows = visibleRows.filter((r) => r.status !== "graded");
+    const allEligibleSelected =
+      eligibleRows.length > 0 && eligibleRows.every(() => true);
+    expect(allEligibleSelected).toBe(false);
+    expect(eligibleRows.length === 0).toBe(true);
+  });
+
+  it("toggleSelectAll 只增删 eligible rows（永远不选 graded）", () => {
+    const visibleRows: Row[] = [
+      { id: "1", status: "submitted" },
+      { id: "2", status: "graded" },
+      { id: "3", status: "submitted" },
+    ];
+    const eligibleRows = visibleRows.filter((r) => r.status !== "graded");
+    const initial = new Set<string>();
+    // toggleSelectAll: allEligibleSelected=false → 加全部 eligible
+    const next = new Set(initial);
+    for (const r of eligibleRows) next.add(r.id);
+    expect(next.has("1")).toBe(true);
+    expect(next.has("2")).toBe(false); // graded 永不选
+    expect(next.has("3")).toBe(true);
+  });
+
+  it("第二次 toggle：allEligibleSelected=true → 删全部 eligible（保留无关 selection）", () => {
+    const visibleRows: Row[] = [
+      { id: "1", status: "submitted" },
+      { id: "2", status: "submitted" },
+    ];
+    const eligibleRows = visibleRows.filter((r) => r.status !== "graded");
+    const initial = new Set(["1", "2", "from-other-page"]);
+    const next = new Set(initial);
+    for (const r of eligibleRows) next.delete(r.id);
+    expect(next.has("1")).toBe(false);
+    expect(next.has("2")).toBe(false);
+    expect(next.has("from-other-page")).toBe(true); // 不影响其他选择
+  });
+});
