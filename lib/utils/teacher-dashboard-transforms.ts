@@ -770,6 +770,246 @@ export interface WeeklyTrendPoint {
   submissionCount: number;
 }
 
+// ============================================
+// B7 · 课程下班级表现对比
+// ============================================
+
+/**
+ * 课程下拉的可选项。复用 buildCourseFilterOptions 的输出形态，但保留独立类型避免耦合任务列表的 published 过滤。
+ */
+export interface PerformanceCourseOption {
+  id: string;
+  title: string;
+}
+
+/**
+ * 抽取性能图表的课程下拉选项。
+ * 与 buildCourseFilterOptions 不同：
+ * - 不限制 status=published（任意状态的课都能 filter，便于教师查看所有课）
+ * - 仅包含挂在 taskInstance.course 上、且具备 class 信息的课程（有班级数据才能比较）
+ */
+export function buildPerformanceCourseOptions(
+  taskInstances: RawTaskInstance[],
+): PerformanceCourseOption[] {
+  const seen = new Map<string, string>();
+  for (const ti of taskInstances) {
+    const courseId = ti.course?.id ? String(ti.course.id) : null;
+    const title = ti.course?.courseTitle;
+    const classId = ti.class?.id;
+    if (!courseId || !title || !classId) continue;
+    if (!seen.has(courseId)) seen.set(courseId, String(title));
+  }
+  return Array.from(seen.entries())
+    .map(([id, title]) => ({ id, title }))
+    .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
+}
+
+/**
+ * 单个班级在某课程下的聚合表现。
+ */
+export interface CourseClassPerformanceRow {
+  classId: string;
+  className: string;
+  /** 该班级在该课程下所有 instance 的 analytics.avgScore 平均（无则 null） */
+  avgScore: number | null;
+  /** 该班级在该课程下所有 instance 的 submission 总数 */
+  submitCount: number;
+  /** 班级人数（取该课程下任一 instance 的 class._count.students 最大值） */
+  studentCount: number;
+}
+
+/**
+ * 构建某课程下各班级的聚合表现。
+ * 数据源：taskInstances 已经在 dashboard.service.ts 包含 class.id/name/_count + analytics + _count.submissions。
+ *
+ * 用于 B7 班级对比：filter 选中具体课程时，每班一行。
+ */
+export function buildCourseClassPerformance(
+  taskInstances: RawTaskInstance[],
+  courseId: string,
+): CourseClassPerformanceRow[] {
+  if (!courseId) return [];
+  const acc = new Map<
+    string,
+    {
+      className: string;
+      scoreSum: number;
+      scoreCount: number;
+      submitCount: number;
+      studentMax: number;
+    }
+  >();
+
+  for (const ti of taskInstances) {
+    const ciid = ti.course?.id ? String(ti.course.id) : null;
+    if (ciid !== courseId) continue;
+    const classId = ti.class?.id ? String(ti.class.id) : null;
+    if (!classId) continue;
+    const className = ti.class?.name ?? "";
+    const studentCount = Number(ti.class?._count?.students ?? 0);
+    const subs = Number(ti._count?.submissions ?? 0);
+    const bucket = acc.get(classId) ?? {
+      className,
+      scoreSum: 0,
+      scoreCount: 0,
+      submitCount: 0,
+      studentMax: 0,
+    };
+    const avg = ti.analytics?.avgScore;
+    if (avg != null) {
+      const n = Number(avg);
+      if (Number.isFinite(n) && n > 0) {
+        bucket.scoreSum += n;
+        bucket.scoreCount += 1;
+      }
+    }
+    bucket.submitCount += subs;
+    if (studentCount > bucket.studentMax) bucket.studentMax = studentCount;
+    bucket.className = bucket.className || className;
+    acc.set(classId, bucket);
+  }
+
+  const rows: CourseClassPerformanceRow[] = [];
+  for (const [classId, b] of acc) {
+    rows.push({
+      classId,
+      className: b.className || "未命名班级",
+      avgScore:
+        b.scoreCount > 0
+          ? Math.round((b.scoreSum / b.scoreCount) * 10) / 10
+          : null,
+      submitCount: b.submitCount,
+      studentCount: b.studentMax,
+    });
+  }
+  // 排序：先有均分的（按均分降序），再无均分的（按提交量降序）
+  rows.sort((a, b) => {
+    if (a.avgScore == null && b.avgScore == null) {
+      return b.submitCount - a.submitCount;
+    }
+    if (a.avgScore == null) return 1;
+    if (b.avgScore == null) return -1;
+    return b.avgScore - a.avgScore;
+  });
+  return rows;
+}
+
+/**
+ * 某课程下、某班级的周趋势点。
+ */
+export interface CourseClassWeeklyTrendSeries {
+  classId: string;
+  className: string;
+  weeklyData: WeeklyTrendPoint[];
+}
+
+/**
+ * 构建某课程下各班级的周趋势对比。
+ *
+ * 数据流：
+ * 1. 从 taskInstances 建立 instanceId → { classId, className } 映射（限定该课程）
+ * 2. 按 (classId, week) 聚合 submissions
+ *
+ * 注意：submissions 上不直接挂 classId，依赖 taskInstanceId 反向查 taskInstances 索引。
+ */
+export function buildCourseClassWeeklyTrend(
+  taskInstances: RawTaskInstance[],
+  submissions: RawSubmission[],
+  courseId: string,
+  now: Date = new Date(),
+  windowWeeks: number = 8,
+): CourseClassWeeklyTrendSeries[] {
+  if (!courseId) return [];
+
+  // 1. instanceId → class 索引（限定该课程）
+  const classByInstance = new Map<
+    string,
+    { classId: string; className: string }
+  >();
+  const classMeta = new Map<string, string>(); // classId → className
+  for (const ti of taskInstances) {
+    const ciid = ti.course?.id ? String(ti.course.id) : null;
+    if (ciid !== courseId) continue;
+    const tiId = ti.id ? String(ti.id) : null;
+    const classId = ti.class?.id ? String(ti.class.id) : null;
+    if (!tiId || !classId) continue;
+    const className = ti.class?.name ?? "未命名班级";
+    classByInstance.set(tiId, { classId, className });
+    if (!classMeta.has(classId)) classMeta.set(classId, className);
+  }
+
+  if (classMeta.size === 0) return [];
+
+  // 2. 准备 8 周桶
+  const currentWeekStart = startOfWeek(now);
+  const weekStarts: Date[] = [];
+  for (let i = windowWeeks - 1; i >= 0; i--) {
+    const start = new Date(currentWeekStart);
+    start.setDate(start.getDate() - i * 7);
+    weekStarts.push(start);
+  }
+
+  // 3. 按 classId 初始化空桶
+  const seriesMap = new Map<
+    string,
+    { className: string; buckets: { scores: number[]; count: number }[] }
+  >();
+  for (const [classId, className] of classMeta) {
+    seriesMap.set(classId, {
+      className,
+      buckets: weekStarts.map(() => ({ scores: [], count: 0 })),
+    });
+  }
+
+  // 4. 分配 submissions 到 (classId, week) 桶
+  for (const s of submissions) {
+    const tiId = s.taskInstanceId ? String(s.taskInstanceId) : null;
+    if (!tiId) continue;
+    const meta = classByInstance.get(tiId);
+    if (!meta) continue;
+    const ts = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
+    if (!ts) continue;
+    const series = seriesMap.get(meta.classId);
+    if (!series) continue;
+    for (let i = 0; i < weekStarts.length; i++) {
+      const start = weekStarts[i].getTime();
+      const end = start + 7 * 24 * 3_600_000;
+      if (ts >= start && ts < end) {
+        series.buckets[i].count += 1;
+        if (s.status === "graded" && s.score != null && s.maxScore != null) {
+          const max = Number(s.maxScore);
+          if (max > 0) {
+            const norm = (Number(s.score) / max) * 100;
+            if (Number.isFinite(norm)) series.buckets[i].scores.push(norm);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // 5. 转换为 WeeklyTrendPoint 序列
+  const out: CourseClassWeeklyTrendSeries[] = [];
+  for (const [classId, { className, buckets }] of seriesMap) {
+    const weeklyData: WeeklyTrendPoint[] = buckets.map((b, i) => ({
+      weekLabel: `W${i + 1}`,
+      weekStart: weekStarts[i].toISOString(),
+      avgScore:
+        b.scores.length > 0
+          ? Math.round(
+              (b.scores.reduce((a, v) => a + v, 0) / b.scores.length) * 10,
+            ) / 10
+          : null,
+      submissionCount: b.count,
+    }));
+    out.push({ classId, className, weeklyData });
+  }
+
+  // 排序：班级名升序（稳定，便于颜色分配一致）
+  out.sort((a, b) => a.className.localeCompare(b.className, "zh-CN"));
+  return out;
+}
+
 export function buildWeeklyTrend(
   submissions: RawSubmission[],
   now: Date = new Date(),

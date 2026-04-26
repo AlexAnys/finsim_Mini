@@ -12,9 +12,12 @@ import { ActivityFeed } from "@/components/teacher-dashboard/activity-feed";
 import {
   buildActivityFeed,
   buildClassPerformance,
+  buildCourseClassPerformance,
+  buildCourseClassWeeklyTrend,
   buildCourseFilterOptions,
   buildDateLine,
   buildKpiSummary,
+  buildPerformanceCourseOptions,
   buildTaskTimelineItems,
   buildUpcomingSchedule,
   buildWeakInstances,
@@ -147,6 +150,36 @@ export default function TeacherDashboardPage() {
     [data],
   );
 
+  // B7 · 班级表现 filter（按课程对比班级）
+  const [performanceCourseId, setPerformanceCourseId] = useState<string | null>(
+    null,
+  );
+
+  const performanceCourseOptions = useMemo(
+    () => (data ? buildPerformanceCourseOptions(data.taskInstances) : []),
+    [data],
+  );
+
+  const courseClasses = useMemo(
+    () =>
+      data && performanceCourseId
+        ? buildCourseClassPerformance(data.taskInstances, performanceCourseId)
+        : [],
+    [data, performanceCourseId],
+  );
+
+  const courseClassWeekly = useMemo(
+    () =>
+      data && performanceCourseId
+        ? buildCourseClassWeeklyTrend(
+            data.taskInstances,
+            data.recentSubmissions,
+            performanceCourseId,
+          )
+        : [],
+    [data, performanceCourseId],
+  );
+
   const upcomingSlots = useMemo(
     () => (data ? buildUpcomingSchedule(data.scheduleSlots, 4) : []),
     [data],
@@ -222,6 +255,11 @@ export default function TeacherDashboardPage() {
             overallDelta={kpi.avgScoreDelta}
             classes={classPerf}
             weeklyTrend={weeklyTrend}
+            courseOptions={performanceCourseOptions}
+            courseClasses={courseClasses}
+            courseClassWeekly={courseClassWeekly}
+            selectedCourseId={performanceCourseId}
+            onCourseChange={setPerformanceCourseId}
           />
           <WeakInstances items={weakInstances} />
         </div>
