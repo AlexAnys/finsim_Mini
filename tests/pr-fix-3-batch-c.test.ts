@@ -163,7 +163,7 @@ describe("PR-FIX-3 C4 · grading.service quiz extractor 输出 conceptTags", () 
   });
 
   it("AI 失败 → 空数组（不阻塞批改主流程）", () => {
-    let conceptTags: string[] = [];
+    const conceptTags: string[] = [];
     try {
       throw new Error("AI provider down");
     } catch {

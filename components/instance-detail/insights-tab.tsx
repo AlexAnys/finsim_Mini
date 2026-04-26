@@ -170,7 +170,7 @@ export function InsightsTab({ instanceId, onExplainConcept }: InsightsTabProps) 
             还没有 AI 洞察
           </div>
           <p className="mt-1 text-[12px] text-ink-5">
-            等学生提交并完成 AI 批改后，点击"生成洞察"即可
+            等学生提交并完成 AI 批改后，点击&ldquo;生成洞察&rdquo;即可
           </p>
         </div>
       ) : (

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Harness 内 design mockup .jsx（仅供设计参考，不进 build）
+    ".harness/**",
   ]),
 ]);
 
