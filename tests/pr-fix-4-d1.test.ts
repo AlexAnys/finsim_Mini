@@ -1,0 +1,73 @@
+import { describe, it, expect } from "vitest";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+/**
+ * PR-FIX-4 D1 · 任务向导旧 5 档 [MOOD:] prompt 清理。
+ *
+ * 验证 spec L52 — `app/teacher/tasks/new/page.tsx` 与 `app/teacher/tasks/[id]/
+ * page.tsx` 的 systemPrompt 模板中已删除旧 5 档 `[MOOD: HAPPY|NEUTRAL|...]`
+ * 指令（PR-7B 已切到 8 档 JSON 协议，运行时由 ai.service.chatReply 注入）。
+ *
+ * 静态文件扫描即可证明 D1 已落（不需要真 AI E2E）。
+ */
+
+const here = fileURLToPath(import.meta.url);
+const projectRoot = path.dirname(path.dirname(here));
+
+function readFile(relPath: string): string {
+  return fs.readFileSync(path.join(projectRoot, relPath), "utf-8");
+}
+
+describe("PR-FIX-4 D1 · 旧 5 档 [MOOD:] 指令清理", () => {
+  it("app/teacher/tasks/new/page.tsx 不再包含 [MOOD: HAPPY|NEUTRAL|... 指令模板", () => {
+    const src = readFile("app/teacher/tasks/new/page.tsx");
+    // 模板字面量字符串中不应再出现这种 5 枚举的 [MOOD:] 列表
+    expect(src).not.toMatch(
+      /\[MOOD:\s*HAPPY\s*\|\s*NEUTRAL\s*\|\s*CONFUSED\s*\|\s*SKEPTICAL\s*\|\s*ANGRY\]/,
+    );
+    // 不应再出现"在每条回复末尾附加：[MOOD:" 的旧指令
+    expect(src).not.toMatch(/在每条回复末尾附加：\[MOOD:/);
+  });
+
+  it("app/teacher/tasks/[id]/page.tsx（编辑页）也已清理", () => {
+    const src = readFile("app/teacher/tasks/[id]/page.tsx");
+    expect(src).not.toMatch(
+      /\[MOOD:\s*HAPPY\s*\|\s*NEUTRAL\s*\|\s*CONFUSED\s*\|\s*SKEPTICAL\s*\|\s*ANGRY\]/,
+    );
+    expect(src).not.toMatch(/在每条回复末尾附加：\[MOOD:/);
+  });
+
+  it("two 教师向导文件 systemPrompt 仍生成（仅承载人设/对话风格/禁止行为）", () => {
+    const newSrc = readFile("app/teacher/tasks/new/page.tsx");
+    const editSrc = readFile("app/teacher/tasks/[id]/page.tsx");
+    // 两个文件都仍有 systemPrompt 生成 + 引用 promptParts.join + 包含 {scenario}
+    for (const src of [newSrc, editSrc]) {
+      expect(src).toContain("const systemPrompt = promptParts.length > 0");
+      expect(src).toContain("{scenario}");
+      // 仍包含基础人设引言
+      expect(src).toContain("你是一个金融理财场景中的模拟客户");
+    }
+  });
+
+  it("ai.service.ts 的 chatReply 输出格式仍是 8 档 JSON 协议（PR-7B）", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    // 8 档 JSON 协议关键标记仍在
+    expect(src).toContain("【输出格式 · 严格 JSON · PR-7B】");
+    expect(src).toContain("mood_label");
+    // 8 个中文标签仍在
+    for (const label of [
+      "平静",
+      "放松",
+      "兴奋",
+      "犹豫",
+      "怀疑",
+      "略焦虑",
+      "焦虑",
+      "失望",
+    ]) {
+      expect(src).toContain(label);
+    }
+  });
+});

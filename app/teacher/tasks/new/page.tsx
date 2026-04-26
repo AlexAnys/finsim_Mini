@@ -400,8 +400,12 @@ export default function CreateTaskPage() {
           form.simDialogueStyle.trim() ? `【对话风格】\n${form.simDialogueStyle.trim()}` : "",
           form.simConstraints.trim() ? `【禁止行为】\n${form.simConstraints.trim()}` : "",
         ].filter(Boolean);
+        // PR-FIX-4 D1: 清掉旧 5 档 [MOOD:] 指令（PR-7B 已切到 8 档 JSON 协议，运行时由
+        // ai.service.chatReply 在调用 AI 时注入正确的 8 档输出格式 — 见
+        // lib/services/ai.service.ts §"输出格式 · 严格 JSON · PR-7B"）。
+        // 教师向导的 systemPrompt 仅承载客户人设/对话风格/禁止行为，不再尝试规定 mood 标签。
         const systemPrompt = promptParts.length > 0
-          ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}\n\n【情绪标签】\n在每条回复末尾附加：[MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY]\n- HAPPY: 理财经理的建议让你觉得有道理、有帮助\n- NEUTRAL: 正常交流、信息确认\n- CONFUSED: 理财经理用了太多术语或解释不够清楚\n- SKEPTICAL: 理财经理的建议明显不符合你的实际情况\n- ANGRY: 仅在理财经理反复推销明显不适合的产品时才使用（极少出现）`
+          ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}`
           : undefined;
 
         body.simulationConfig = {
