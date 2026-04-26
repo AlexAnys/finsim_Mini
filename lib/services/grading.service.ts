@@ -197,12 +197,51 @@ async function gradeQuiz(submission: SubmissionFull) {
     quizBreakdown: breakdown,
   };
 
+  // PR-FIX-3 C4: quiz 也写 conceptTags（best-effort AI 提取，让 insights aggregate 能聚合 quiz 类）
+  // 失败不阻塞批改主流程（catch + 空数组）。
+  let conceptTags: string[] = [];
+  try {
+    conceptTags = await extractQuizConceptTags(submission.studentId, questions);
+  } catch (err) {
+    console.error("[grading] quiz conceptTags 提取失败（不阻塞）：", err);
+  }
+
   await updateSubmissionGrade(submission.id, {
     status: "graded",
     score: totalScore,
     maxScore,
     evaluation: evaluation as unknown as Record<string, unknown>,
+    conceptTags,
   });
+}
+
+// PR-FIX-3 C4: AI 从 quiz 题目 prompts 提取 3-5 个金融教学核心概念标签
+// （quiz 是确定性批改，没有 AI 评估输出可解析；为聚合统一性单独喂 prompts → tags）
+async function extractQuizConceptTags(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  questions: Array<{ prompt: string }>,
+): Promise<string[]> {
+  if (questions.length === 0) return [];
+  const schema = z.object({
+    conceptTags: z.array(z.string()).default([]),
+  });
+  const prompts = questions
+    .slice(0, 30)
+    .map((q, i) => `${i + 1}. ${q.prompt.slice(0, 200)}`)
+    .join("\n");
+  const out = await aiService.aiGenerateJSON(
+    "quizGrade",
+    userId,
+    `你是一位金融教育课程顾问。基于一组测验题目的 prompt，归纳本次测验涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等）。
+输出严格 JSON: {"conceptTags": ["概念1","概念2",...]}`,
+    `测验题目（共 ${questions.length} 题）:
+${prompts}
+
+请按上面 JSON 格式输出。`,
+    schema,
+  );
+  return Array.isArray(out.conceptTags) ? out.conceptTags.slice(0, 5) : [];
 }
 
 async function gradeShortAnswer(

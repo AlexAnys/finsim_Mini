@@ -192,8 +192,8 @@ export function SimulationRunner({
       })),
     }));
   });
-  const [allocationSubmitCount, setAllocationSubmitCount] = useState(0);
-
+  // PR-FIX-3 C2: allocationSubmitCount 改为从 snapshots.length 派生
+  // （之前刷新页面 setState(0) 重置但 snapshots 从 localStorage 恢复 → 可绕过 maxSubmissions 上限）。
   // PR-7C: per-student allocation snapshot history (persisted in localStorage,
   // submitted with the final Submission via assets.snapshots).
   const [snapshots, setSnapshots] = useState<AllocationSnapshot[]>(() => {
@@ -403,7 +403,7 @@ export function SimulationRunner({
       ...prev,
       { turn, ts: new Date().toISOString(), allocations: flat },
     ]);
-    setAllocationSubmitCount((c) => c + 1);
+    // PR-FIX-3 C2: 计数从 snapshots.length 派生，不再独立维护 state
     toast.success("已记录当前配比");
   }
 
@@ -552,7 +552,7 @@ export function SimulationRunner({
         })),
       })) ?? []
     );
-    setAllocationSubmitCount(0);
+    // PR-FIX-3 C2: setSnapshots([]) 间接重置计数（snapshots.length=0）
     setSnapshots([]);
     localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
   }
@@ -655,7 +655,7 @@ export function SimulationRunner({
         <SimRightPanel
           allocations={allocations}
           maxSubmissions={maxSubmissions}
-          submitCount={allocationSubmitCount}
+          submitCount={snapshots.length}
           snapshots={snapshots}
           disabled={!!evaluation}
           onChange={handleAllocationChange}

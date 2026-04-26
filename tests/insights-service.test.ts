@@ -84,7 +84,7 @@ describe("aggregateInsights", () => {
     );
   });
 
-  it("throws NO_CONCEPT_TAGS when graded submissions have no tags", async () => {
+  it("PR-FIX-3 C5: gracefully aggregates when no submission has conceptTags (empty weaknessConcepts, AI still runs)", async () => {
     mk(prisma.taskInstance.findUnique).mockResolvedValue({
       id: "ti1",
       taskId: "t1",
@@ -104,11 +104,17 @@ describe("aggregateInsights", () => {
         subjectiveSubmission: null,
       },
     ]);
-    await expect(aggregateInsights("ti1", "t1")).rejects.toThrow(
-      "NO_CONCEPT_TAGS"
-    );
-    // AI should not have been called
-    expect(mk(aiGenerateJSON)).not.toHaveBeenCalled();
+    mk(aiGenerateJSON).mockResolvedValue({ commonIssues: [], highlights: [] });
+    mk(prisma.analysisReport.upsert).mockResolvedValue({ id: "r-empty" });
+
+    const result = await aggregateInsights("ti1", "t1");
+
+    // 不抛 NO_CONCEPT_TAGS（C5 移除了 throw）
+    expect(result.commonIssues.weaknessConcepts).toEqual([]);
+    expect(result.studentCount).toBe(1);
+    expect(result.reportId).toBe("r-empty");
+    // PR-FIX-3 C5: AI 仍跑（commonIssues/highlights 仍要尝试聚合，即使 weaknessConcepts 空）
+    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(1);
   });
 
   it("aggregates: deterministic tag counts + AI for issues + cache write (create path)", async () => {

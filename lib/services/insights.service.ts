@@ -311,12 +311,9 @@ export async function aggregateInsights(
     });
   }
 
-  const totalTags = evaluations.reduce(
-    (sum, e) => sum + e.conceptTags.length,
-    0
-  );
-  if (totalTags === 0) throw new Error("NO_CONCEPT_TAGS");
-
+  // PR-FIX-3 C5: 不抛 NO_CONCEPT_TAGS（之前 quiz 不写 conceptTags 整批就 fail）。
+  // 改为：所有 submission 都无 conceptTags 时，weaknessConcepts 为空数组，
+  // 仍跑 AI 聚合 commonIssues/highlights。让聚合在 conceptTags 缺失场景仍可降级运行。
   // Concept count map (deterministic; no AI needed for this part)
   const tagCounts = new Map<string, Set<string>>();
   for (const e of evaluations) {

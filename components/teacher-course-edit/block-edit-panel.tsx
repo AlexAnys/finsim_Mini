@@ -130,6 +130,9 @@ export function BlockEditPanel({
         />
       ) : (
         <SectionOverview
+          // PR-FIX-3 C3: key={sectionId} 让切换小节时整个组件重 mount，自动 reset 编辑态
+          // （editingTitle / titleDraft / creatingSlot 等 useState 不会跨 section 串味）
+          key={section.sectionId}
           section={section}
           onSelectBlock={onSelectBlock}
           onCreateBlock={onCreateBlock}
