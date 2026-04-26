@@ -8,6 +8,27 @@ import { logAudit } from "./audit.service";
 // 统一批改入口
 // ============================================
 
+/**
+ * PR-SIM-1a D1: AI 批改完成时计算 releasedAt
+ *
+ * 行为：
+ * - releaseMode === "auto" + autoReleaseAt 已到期（<= NOW）→ releasedAt = NOW（立即公布）
+ * - releaseMode === "auto" + autoReleaseAt 未到 → releasedAt = null（等 cron 自动公布）
+ * - releaseMode === "auto" + autoReleaseAt 为 null → releasedAt = NOW（auto 但教师没设时点 = 立即公布）
+ * - releaseMode === "manual" → releasedAt = null（教师手动公布）
+ * - 没有 taskInstance（独立任务）→ releasedAt = null（manual 默认行为）
+ */
+export function computeReleasedAtForGrading(args: {
+  releaseMode: "auto" | "manual" | null | undefined;
+  autoReleaseAt: Date | null | undefined;
+  now?: Date;
+}): Date | null {
+  const now = args.now ?? new Date();
+  if (args.releaseMode !== "auto") return null;
+  if (!args.autoReleaseAt) return now;
+  return args.autoReleaseAt.getTime() <= now.getTime() ? now : null;
+}
+
 export async function gradeSubmission(submissionId: string) {
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
@@ -24,10 +45,19 @@ export async function gradeSubmission(submissionId: string) {
       simulationSubmission: true,
       quizSubmission: true,
       subjectiveSubmission: true,
+      taskInstance: {
+        select: { id: true, releaseMode: true, autoReleaseAt: true },
+      },
     },
   });
 
   if (!submission) throw new Error("SUBMISSION_NOT_FOUND");
+
+  // PR-SIM-1a D1: 提前算好 releasedAt（每个 grade* 函数会传给 updateSubmissionGrade）
+  const releasedAt = computeReleasedAtForGrading({
+    releaseMode: submission.taskInstance?.releaseMode ?? null,
+    autoReleaseAt: submission.taskInstance?.autoReleaseAt ?? null,
+  });
 
   // 更新状态为批改中
   await updateSubmissionGrade(submissionId, { status: "grading" });
@@ -35,13 +65,13 @@ export async function gradeSubmission(submissionId: string) {
   try {
     switch (submission.taskType) {
       case "simulation":
-        await gradeSimulation(submission);
+        await gradeSimulation(submission, releasedAt);
         break;
       case "quiz":
-        await gradeQuiz(submission);
+        await gradeQuiz(submission, releasedAt);
         break;
       case "subjective":
-        await gradeSubjective(submission);
+        await gradeSubjective(submission, releasedAt);
         break;
     }
 
@@ -70,7 +100,7 @@ export async function gradeSubmission(submissionId: string) {
 // 模拟对话批改
 // ============================================
 
-async function gradeSimulation(submission: SubmissionFull) {
+async function gradeSimulation(submission: SubmissionFull, releasedAt: Date | null) {
   if (!submission.simulationSubmission || !submission.task.simulationConfig) {
     throw new Error("MISSING_SIMULATION_DATA");
   }
@@ -102,6 +132,7 @@ async function gradeSimulation(submission: SubmissionFull) {
     maxScore: evaluation.maxScore,
     evaluation: evaluation as unknown as Record<string, unknown>,
     conceptTags: evaluation.conceptTags ?? [],
+    releasedAt,
   });
 }
 
@@ -109,7 +140,7 @@ async function gradeSimulation(submission: SubmissionFull) {
 // 测验批改
 // ============================================
 
-async function gradeQuiz(submission: SubmissionFull) {
+async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
   if (!submission.quizSubmission) {
     throw new Error("MISSING_QUIZ_DATA");
   }
@@ -212,6 +243,7 @@ async function gradeQuiz(submission: SubmissionFull) {
     maxScore,
     evaluation: evaluation as unknown as Record<string, unknown>,
     conceptTags,
+    releasedAt,
   });
 }
 
@@ -288,7 +320,7 @@ async function gradeShortAnswer(
 // 主观题批改
 // ============================================
 
-async function gradeSubjective(submission: SubmissionFull) {
+async function gradeSubjective(submission: SubmissionFull, releasedAt: Date | null) {
   if (!submission.subjectiveSubmission || !submission.task.subjectiveConfig) {
     throw new Error("MISSING_SUBJECTIVE_DATA");
   }
@@ -315,6 +347,7 @@ async function gradeSubjective(submission: SubmissionFull) {
           comment: "未提交",
         })),
       },
+      releasedAt,
     });
     /* eslint-enable @typescript-eslint/no-explicit-any */
     return;
@@ -388,6 +421,7 @@ conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（
       rubricBreakdown: breakdown,
     },
     conceptTags,
+    releasedAt,
   });
 }
 

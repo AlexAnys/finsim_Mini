@@ -67,6 +67,33 @@ export async function assertTaskInstanceReadableTeacherOnly(
   await assertTaskInstanceReadable(instanceId, user);
 }
 
+/**
+ * Assert teacher/admin can mutate a TaskInstance.
+ * - admin: bypass
+ * - student: rejected
+ * - teacher: createdBy === user.id 或通过 instance.courseId 走 assertCourseAccess（owner/collab）
+ *
+ * 用于 PR-SIM-1a D1 release / unrelease / set-release-mode 这类教师写端。
+ */
+export async function assertTaskInstanceWritable(
+  instanceId: string,
+  user: UserLike,
+): Promise<void> {
+  if (user.role === "admin") return;
+  if (user.role === "student") throw new Error("FORBIDDEN");
+  const inst = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, courseId: true, createdBy: true },
+  });
+  if (!inst) throw new Error("INSTANCE_NOT_FOUND");
+  if (inst.createdBy === user.id) return;
+  if (inst.courseId) {
+    await assertCourseAccess(inst.courseId, user.id, user.role);
+    return;
+  }
+  throw new Error("FORBIDDEN");
+}
+
 // ============================================
 // Task (template)
 // ============================================

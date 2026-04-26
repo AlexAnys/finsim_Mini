@@ -1,6 +1,70 @@
 import { prisma } from "@/lib/db/prisma";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
 
+// PR-SIM-1a D1: 防作弊·学生可见数据剥离辅助
+//
+// "已分析未公布"语义：grading 完成（status=graded）但教师/cron 还没设 releasedAt → 学生看到的对象需剥离
+// score / maxScore / evaluation / feedback / rubricBreakdown / conceptTags / scoreDist 等敏感字段。
+//
+// 派生 analysisStatus：
+// - status=submitted/grading && releasedAt=null  → "pending"
+// - status=graded && releasedAt=null             → "analyzed_unreleased"
+// - status=graded && releasedAt!=null            → "released"
+// - status=failed                                → "pending"（视为待重试，UI 处理）
+export type SubmissionAnalysisStatus = "pending" | "analyzed_unreleased" | "released";
+
+export function deriveAnalysisStatus(args: {
+  status: string;
+  releasedAt: Date | null | undefined;
+}): SubmissionAnalysisStatus {
+  if (args.status === "graded" && args.releasedAt) return "released";
+  if (args.status === "graded") return "analyzed_unreleased";
+  return "pending";
+}
+
+/**
+ * 把含 evaluation / score 的 submission 对象剥离敏感字段，得到学生可见版本。
+ * 输入对象保持不可变（返回新对象）。
+ *
+ * 剥离规则：
+ * - 顶层 score / maxScore → null
+ * - simulationSubmission / quizSubmission / subjectiveSubmission 的 evaluation / conceptTags → null/[]
+ * - 不动 transcript / answers / textAnswer / attachments（学生自己提交的内容仍可见）
+ * - 总是附 analysisStatus 字段
+ *
+ * 注：当 releasedAt 非 null 时，此函数仍返回原始数据（仅加 analysisStatus="released"），不剥离。
+ */
+export function stripSubmissionForStudent<T extends Record<string, unknown>>(submission: T): T & { analysisStatus: SubmissionAnalysisStatus } {
+  const status = String((submission as { status?: unknown }).status ?? "");
+  const releasedAt = (submission as { releasedAt?: Date | string | null }).releasedAt ?? null;
+  const analysisStatus = deriveAnalysisStatus({
+    status,
+    releasedAt: releasedAt ? new Date(releasedAt) : null,
+  });
+
+  if (analysisStatus === "released") {
+    return { ...(submission as object), analysisStatus } as T & { analysisStatus: SubmissionAnalysisStatus };
+  }
+
+  // pending / analyzed_unreleased: 剥离敏感字段
+  const stripped: Record<string, unknown> = { ...submission };
+  stripped.score = null;
+  stripped.maxScore = null;
+
+  for (const sub of ["simulationSubmission", "quizSubmission", "subjectiveSubmission"] as const) {
+    const detail = stripped[sub] as Record<string, unknown> | null | undefined;
+    if (detail && typeof detail === "object") {
+      stripped[sub] = {
+        ...detail,
+        evaluation: null,
+        conceptTags: [],
+      };
+    }
+  }
+
+  return { ...stripped, analysisStatus } as T & { analysisStatus: SubmissionAnalysisStatus };
+}
+
 export async function createSubmission(studentId: string, input: CreateSubmissionInput) {
   // 如果有 taskInstanceId，验证提交条件
   if (input.taskInstanceId) {
@@ -155,6 +219,13 @@ export async function updateSubmissionGrade(
     maxScore?: number;
     evaluation?: Record<string, unknown>;
     conceptTags?: string[];
+    /**
+     * PR-SIM-1a D1: 由调用方（grading.service / 教师手动批改）显式传入。
+     * - 显式 Date：写入对应时刻（auto 模式 immediate release / 教师手工公布）
+     * - null：显式撤回（unrelease）
+     * - undefined：保持现有 releasedAt 值不变（grading 中间态、grading.service 当前默认）
+     */
+    releasedAt?: Date | null;
   }
 ) {
   return prisma.$transaction(async (tx) => {
@@ -165,6 +236,7 @@ export async function updateSubmissionGrade(
         score: data.score,
         maxScore: data.maxScore,
         gradedAt: data.status === "graded" ? new Date() : undefined,
+        ...(data.releasedAt !== undefined && { releasedAt: data.releasedAt }),
       },
     });
 

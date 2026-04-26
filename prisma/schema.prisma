@@ -107,6 +107,11 @@ enum ImportJobStatus {
   failed
 }
 
+enum ReleaseMode {
+  manual
+  auto
+}
+
 // ============================================
 // 表 1: User（用户）
 // ============================================
@@ -443,6 +448,8 @@ model TaskInstance {
   status           TaskInstanceStatus @default(draft)
   attemptsAllowed  Int?
   taskSnapshot     Json?
+  releaseMode      ReleaseMode        @default(manual)
+  autoReleaseAt    DateTime?
   createdBy        String
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -480,6 +487,7 @@ model Submission {
   taskInstanceId String?
   submittedAt    DateTime         @default(now())
   gradedAt       DateTime?
+  releasedAt     DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 

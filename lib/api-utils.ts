@@ -71,6 +71,8 @@ export function handleServiceError(err: unknown) {
         return notFound("任务不存在");
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
+      case "SUBMISSION_NOT_GRADED":
+        return error("SUBMISSION_NOT_GRADED", "提交尚未完成评估，无法公布", 400);
       case "JOB_NOT_FOUND":
         return notFound("导入任务不存在");
       case "TASK_NOT_PUBLISHED":

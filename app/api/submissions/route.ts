@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
-import { createSubmission, getSubmissions } from "@/lib/services/submission.service";
+import {
+  createSubmission,
+  getSubmissions,
+  stripSubmissionForStudent,
+  deriveAnalysisStatus,
+} from "@/lib/services/submission.service";
 import { gradeSubmission } from "@/lib/services/grading.service";
 import { createSubmissionSchema } from "@/lib/validators/submission.schema";
 import {
@@ -104,7 +109,21 @@ export async function GET(request: NextRequest) {
       page,
       pageSize,
     });
-    return success(data);
+    // PR-SIM-1a D1: 学生看列表时也要剥离未公布的 score/evaluation/conceptTags
+    // 教师列表加 analysisStatus 字段供 UI 显示"已分析未公布"标签
+    const items = data.items.map((it) => {
+      if (user.role === "student") {
+        return stripSubmissionForStudent(it as unknown as Record<string, unknown>);
+      }
+      return {
+        ...it,
+        analysisStatus: deriveAnalysisStatus({
+          status: String(it.status),
+          releasedAt: it.releasedAt,
+        }),
+      };
+    });
+    return success({ ...data, items });
   } catch (err) {
     return handleServiceError(err);
   }
