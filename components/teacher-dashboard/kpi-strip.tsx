@@ -108,7 +108,7 @@ export function KpiStrip({ data }: { data: KpiStripData }) {
       : null;
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       <KpiCell
         label="在教班级"
         value={data.classCount}
@@ -129,29 +129,15 @@ export function KpiStrip({ data }: { data: KpiStripData }) {
         delta={deltaLabel}
       />
       <KpiCell
-        label="待批改"
+        label="需审核"
         value={data.pendingCount}
-        sub={data.pendingHint ?? (data.pendingCount > 0 ? "按时间排序" : "已全部批改")}
+        sub={data.pendingHint ?? (data.pendingCount > 0 ? "按时间排序" : "暂无待审核")}
         icon={Clock}
         tone="warn"
         urgent={data.pendingCount > 0}
       />
       <KpiCell
-        label="班级均分"
-        value={data.avgScore != null ? data.avgScore.toFixed(1) : "—"}
-        sub={
-          data.avgScoreDelta != null
-            ? `较上周 ${data.avgScoreDelta > 0 ? "+" : ""}${data.avgScoreDelta}`
-            : data.avgScore != null
-              ? "暂无对比"
-              : "暂无批改"
-        }
-        icon={TrendingUp}
-        tone="success"
-        trendUp={data.avgScoreDelta != null && data.avgScoreDelta > 0}
-      />
-      <KpiCell
-        label="待分析实例"
+        label="典型实例"
         value={data.weakInstanceCount}
         sub={
           data.weakInstanceCount > 0

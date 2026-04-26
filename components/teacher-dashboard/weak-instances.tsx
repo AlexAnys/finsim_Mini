@@ -16,7 +16,7 @@ export function WeakInstances({ items }: WeakInstancesProps) {
   return (
     <section>
       <header className="mb-2.5 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-ink-2">待分析实例</h2>
+        <h2 className="text-[15px] font-semibold text-ink-2">典型实例</h2>
         <span className="text-xs text-ink-4">按错误率排序 · 前 3</span>
       </header>
       {items.length === 0 ? (
