@@ -97,31 +97,33 @@ export default function LoginPage() {
                 "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
             }}
           >
-            F
+            灵
           </div>
           <div>
-            <div className="text-[15px] font-semibold">FinSim AI</div>
+            <div className="text-[15px] font-semibold">灵析 AI</div>
             <div className="mt-0.5 text-[10.5px] text-white/55">
-              面向金融教育的 AI 实训平台
+              AI 把课堂的隐性问题，变成可视的行动
             </div>
           </div>
         </div>
 
         <div className="relative">
           <h2 className="mb-4 text-4xl font-semibold leading-tight tracking-tight">
-            让每个学生都能在 AI 客户面前练上{" "}
-            <span style={{ color: "var(--fs-sim)" }}>100 次</span>。
+            看见每个学生
+            <br />
+            没说出口的{" "}
+            <span style={{ color: "var(--fs-sim)" }}>那道坎</span>。
           </h2>
           <p className="max-w-[480px] text-sm leading-relaxed text-white/75">
-            模拟对话 · 测验 · 报告作业三位一体。AI 在每一轮对话后给出学习路径建议，教师从批改中解放出来，专注讲评。
+            灵析在每节课后聚合学生的对话、答题、提交，把共性盲区、个体差异与知识断点，变成你立刻能采取的教学动作。
           </p>
         </div>
 
         <div className="relative grid grid-cols-3 gap-3.5">
           {[
-            { n: "82%", l: "学生完成率提升" },
-            { n: "4.3×", l: "教师批改效率" },
-            { n: "27 min", l: "平均对话时长" },
+            { n: "看见", l: "AI 聚合隐性卡点" },
+            { n: "因人", l: "个性化建议到学生" },
+            { n: "省时", l: "AI 先批 · 教师确认" },
           ].map((s) => (
             <div
               key={s.l}
@@ -148,12 +150,12 @@ export default function LoginPage() {
                   "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
               }}
             >
-              F
+              灵
             </div>
             <div>
-              <div className="text-base font-semibold text-ink">FinSim AI</div>
+              <div className="text-base font-semibold text-ink">灵析 AI</div>
               <div className="text-[11px] text-ink-4">
-                面向金融教育的 AI 实训平台
+                AI 把课堂的隐性问题，变成可视的行动
               </div>
             </div>
           </div>

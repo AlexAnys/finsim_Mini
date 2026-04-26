@@ -61,8 +61,8 @@ export function Wordmark({
             letterSpacing: "-0.02em",
           }}
         >
-          Fin
-          <span className={mono ? "text-white" : "text-brand"}>Sim</span>
+          灵
+          <span className={mono ? "text-white" : "text-brand"}>析</span>
         </div>
       )}
     </div>

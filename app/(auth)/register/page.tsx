@@ -185,32 +185,32 @@ export default function RegisterPage() {
                 "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
             }}
           >
-            F
+            灵
           </div>
           <div>
-            <div className="text-[15px] font-semibold">FinSim AI</div>
+            <div className="text-[15px] font-semibold">灵析 AI</div>
             <div className="mt-0.5 text-[10.5px] text-white/55">
-              面向金融教育的 AI 实训平台
+              AI 把课堂的隐性问题，变成可视的行动
             </div>
           </div>
         </div>
 
         <div className="relative">
           <h2 className="mb-4 text-4xl font-semibold leading-tight tracking-tight">
-            从第一份任务开始，
+            把每节课的隐性问题，
             <br />
-            <span style={{ color: "var(--fs-sim)" }}>边练边学</span>。
+            <span style={{ color: "var(--fs-sim)" }}>变成可视的行动</span>。
           </h2>
           <p className="max-w-[480px] text-sm leading-relaxed text-white/75">
-            创建账号后即可加入老师的课堂，做模拟、写报告、看 AI 给出的逐条建议。
+            无论你是教师还是学生，灵析都把对话、答题、提交背后的盲区与差异，转化成清晰的下一步。
           </p>
         </div>
 
         <div className="relative grid grid-cols-3 gap-3.5">
           {[
-            { n: "3 类", l: "任务模式" },
-            { n: "AI", l: "实时点评" },
-            { n: "中文", l: "全程界面" },
+            { n: "对话", l: "8 档情绪 · AI 客户" },
+            { n: "诊断", l: "薄弱概念聚合" },
+            { n: "中文", l: "全程本地化" },
           ].map((s) => (
             <div
               key={s.l}
@@ -236,12 +236,12 @@ export default function RegisterPage() {
                   "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
               }}
             >
-              F
+              灵
             </div>
             <div>
-              <div className="text-base font-semibold text-ink">FinSim AI</div>
+              <div className="text-base font-semibold text-ink">灵析 AI</div>
               <div className="text-[11px] text-ink-4">
-                面向金融教育的 AI 实训平台
+                AI 把课堂的隐性问题，变成可视的行动
               </div>
             </div>
           </div>
@@ -290,7 +290,7 @@ export default function RegisterPage() {
             创建账号
           </h1>
           <p className="mb-7 mt-1.5 text-[13px] leading-relaxed text-ink-4">
-            填写下面的信息加入 FinSim 平台。
+            填写下面的信息加入灵析。
           </p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">

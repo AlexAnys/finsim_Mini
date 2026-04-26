@@ -4,8 +4,8 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FinSim - 金融模拟教学平台",
-  description: "面向高校金融理财课程的智能教育平台",
+  title: "灵析 — AI 把课堂的隐性问题，变成可视的行动",
+  description: "AI 教学诊断系统 · 让老师看见每节课里看不见的学生盲区与差异",
 };
 
 export default function RootLayout({
