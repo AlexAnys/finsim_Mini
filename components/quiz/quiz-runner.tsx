@@ -390,6 +390,16 @@ export function QuizRunner({
 
   // ---------- Render: quiz in progress ----------
 
+  // 防御：questions 空 / currentIndex 越界时 currentQuestion 为 undefined
+  // （pre-existing bug：原直接 access .id 会 crash 被 ErrorBoundary 接住）
+  if (!currentQuestion) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-ink-4">
+        暂无题目可作答，请联系教师确认题库已配置。
+      </div>
+    );
+  }
+
   const isConfirmed = confirmedQuestions.has(currentQuestion.id);
   const currentAnswer = answers[currentQuestion.id];
 

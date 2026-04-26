@@ -96,7 +96,17 @@ export default function StudentDashboardPage() {
           setError(json.error?.message || "加载失败");
           return;
         }
-        setData(json.data);
+        // 防御：API 偶发返回不完整字段时仍保证 5 数组（避免下游 useMemo crash）
+        const raw = json.data ?? {};
+        setData({
+          courses: Array.isArray(raw.courses) ? raw.courses : [],
+          tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
+          recentSubmissions: Array.isArray(raw.recentSubmissions)
+            ? raw.recentSubmissions
+            : [],
+          announcements: Array.isArray(raw.announcements) ? raw.announcements : [],
+          scheduleSlots: Array.isArray(raw.scheduleSlots) ? raw.scheduleSlots : [],
+        });
       } catch {
         if (!aborted) setError("网络错误，请稍后重试");
       } finally {
