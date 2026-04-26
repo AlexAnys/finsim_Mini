@@ -110,10 +110,10 @@ describe("buildCourseMetrics", () => {
       makeTi("ti3", "c1", "published", 90, 38),
       makeTi("ti4", "c2", "published", 50, 20), // other course — excluded
     ];
-    const m = buildCourseMetrics("c1", tis, []);
+    const m = buildCourseMetrics({ id: "c1" }, tis, []);
     expect(m.taskCount).toBe(3);
     expect(m.publishedCount).toBe(2);
-    expect(m.studentCount).toBe(40); // max across c1 instances
+    expect(m.studentCount).toBe(40); // max across c1 instances (no course.classes provided)
     expect(m.avgScore).toBe(85);
   });
 
@@ -129,14 +129,41 @@ describe("buildCourseMetrics", () => {
       { taskInstanceId: "ti2", status: "graded" }, // excluded
       { taskInstanceId: "ti9", status: "submitted" }, // wrong course
     ];
-    const m = buildCourseMetrics("c1", tis, subs);
+    const m = buildCourseMetrics({ id: "c1" }, tis, subs);
     expect(m.pendingCount).toBe(2);
   });
 
   it("avgScore = null when no graded analytics", () => {
     const tis = [makeTi("ti1", "c1", "published", null, 40)];
-    const m = buildCourseMetrics("c1", tis, []);
+    const m = buildCourseMetrics({ id: "c1" }, tis, []);
     expect(m.avgScore).toBeNull();
+  });
+
+  it("studentCount uses CourseClass relations when provided (sum across linked classes)", () => {
+    // No task instances — fresh course with two linked classes.
+    const course = {
+      id: "c1",
+      classes: [
+        { class: { id: "A", _count: { students: 30 } } },
+        { class: { id: "B", _count: { students: 22 } } },
+      ],
+    };
+    const m = buildCourseMetrics(course, [], []);
+    expect(m.studentCount).toBe(52);
+    expect(m.taskCount).toBe(0);
+  });
+
+  it("studentCount falls back to course.class (legacy single-class) when no CourseClass list", () => {
+    const course = { id: "c1", class: { _count: { students: 17 } } };
+    const m = buildCourseMetrics(course, [], []);
+    expect(m.studentCount).toBe(17);
+  });
+
+  it("studentCount falls back to instance.class when course has neither classes nor class", () => {
+    const course = { id: "c1" };
+    const tis = [makeTi("ti1", "c1", "published", null, 40)];
+    const m = buildCourseMetrics(course, tis, []);
+    expect(m.studentCount).toBe(40);
   });
 });
 

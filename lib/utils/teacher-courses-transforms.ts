@@ -104,14 +104,22 @@ export interface CourseMetrics {
 
 /**
  * Aggregate per-course metrics from the dashboard data.
- * Uses max(class._count.students) on instances as the indicative student count
- * (matches the approach used in the teacher dashboard KPI strip).
+ *
+ * studentCount source-of-truth (in priority order):
+ *   1. Sum of all linked class._count.students from course.classes (CourseClass rows)
+ *   2. course.class._count.students (legacy single-class fallback)
+ *   3. max(class._count.students) across this course's task instances
+ *
+ * Without (1) and (2), a brand-new course with classes attached but zero task
+ * instances would show 0 students + "未关联班级" — which is wrong because the
+ * enrollment is already known from CourseClass relations.
  */
 export function buildCourseMetrics(
-  courseId: string,
+  course: RawCourse,
   taskInstances: RawTaskInstance[],
   submissions: RawSubmission[],
 ): CourseMetrics {
+  const courseId = String(course.id ?? "");
   const instancesForCourse = taskInstances.filter(
     (ti) => (ti.course?.id ?? ti.courseId) === courseId,
   );
@@ -119,10 +127,24 @@ export function buildCourseMetrics(
     instancesForCourse.map((ti) => String(ti.id)),
   );
 
+  // Prefer CourseClass relations (source-of-truth); fall back to legacy single
+  // primary class; finally fall back to the largest class observed on instances.
   let studentCount = 0;
-  for (const ti of instancesForCourse) {
-    const n = Number(ti.class?._count?.students ?? 0);
-    if (Number.isFinite(n) && n > studentCount) studentCount = n;
+  const ccList = Array.isArray(course.classes) ? course.classes : [];
+  if (ccList.length > 0) {
+    for (const cc of ccList) {
+      const n = Number(cc?.class?._count?.students ?? 0);
+      if (Number.isFinite(n)) studentCount += n;
+    }
+  } else if (course.class?._count?.students != null) {
+    const n = Number(course.class._count.students);
+    if (Number.isFinite(n)) studentCount = n;
+  }
+  if (studentCount === 0) {
+    for (const ti of instancesForCourse) {
+      const n = Number(ti.class?._count?.students ?? 0);
+      if (Number.isFinite(n) && n > studentCount) studentCount = n;
+    }
   }
 
   const scored = instancesForCourse

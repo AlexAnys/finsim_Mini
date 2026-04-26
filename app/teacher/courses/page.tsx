@@ -118,7 +118,7 @@ export default function TeacherCoursesPage() {
       description: c.description,
       classNames: buildClassNames(c),
       teachers: buildTeacherList(c),
-      metrics: buildCourseMetrics(c.id, tis, subs),
+      metrics: buildCourseMetrics(c, tis, subs),
       semesterStartIso: c.semesterStartDate ?? null,
     }));
   }, [courses, dashboard]);
