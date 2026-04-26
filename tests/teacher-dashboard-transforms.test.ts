@@ -4,6 +4,7 @@ import {
   buildAttentionItems,
   buildWeakInstances,
   buildTodaySchedule,
+  buildUpcomingSchedule,
   buildActivityFeed,
   buildClassPerformance,
   buildWeeklyTrend,
@@ -288,6 +289,210 @@ describe("buildTodaySchedule", () => {
       NOW,
     );
     expect(slots[0].inProgress).toBe(true);
+  });
+});
+
+describe("buildUpcomingSchedule", () => {
+  // Helper: anchor "now" at Sun 2026-04-26 09:00 local (week of teaching depends on
+  // semesterStart). Use a concrete date for stable assertions.
+  const NOW_UPCOMING = new Date(2026, 3, 26, 9, 0, 0); // Sun 4/26 09:00 local
+  const SEM_START = "2026-02-16T00:00:00.000Z"; // Mon 2/16
+
+  it("returns up to N upcoming slots ordered by date+startTime", () => {
+    const slots = buildUpcomingSchedule(
+      [
+        // Sun (today) 14:00-15:40 — should still be in the future at 9am
+        {
+          id: "s-sun",
+          dayOfWeek: 7,
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "all",
+          timeLabel: "14:00-15:40",
+          classroom: "A302",
+          course: {
+            id: "c1",
+            courseTitle: "理财基础",
+            class: { name: "金融2024A" },
+            semesterStartDate: SEM_START,
+          },
+        },
+        // Mon (next day) 08:00-09:40
+        {
+          id: "s-mon",
+          dayOfWeek: 1,
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "all",
+          timeLabel: "08:00-09:40",
+          classroom: "A301",
+          course: {
+            id: "c1",
+            courseTitle: "理财基础",
+            class: { name: "金融2024A" },
+            semesterStartDate: SEM_START,
+          },
+        },
+        // Wed 14:00-15:40
+        {
+          id: "s-wed",
+          dayOfWeek: 3,
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "all",
+          timeLabel: "14:00-15:40",
+          classroom: "B201",
+          course: {
+            id: "c2",
+            courseTitle: "投资学",
+            class: { name: "金融2024B" },
+            semesterStartDate: SEM_START,
+          },
+        },
+      ],
+      4,
+      NOW_UPCOMING,
+    );
+    expect(slots.length).toBe(3);
+    expect(slots[0].id).toBe("s-sun");
+    expect(slots[0].isToday).toBe(true);
+    expect(slots[0].dateLabel).toBe("4/26");
+    expect(slots[0].weekdayLabel).toBe("周日");
+    expect(slots[0].startTime).toBe("14:00");
+    expect(slots[0].className).toBe("金融2024A");
+    expect(slots[0].classroom).toBe("A302");
+
+    expect(slots[1].id).toBe("s-mon");
+    expect(slots[1].isToday).toBe(false);
+    expect(slots[1].dateLabel).toBe("4/27");
+    expect(slots[1].weekdayLabel).toBe("周一");
+    expect(slots[1].startTime).toBe("08:00");
+
+    expect(slots[2].id).toBe("s-wed");
+    expect(slots[2].dateLabel).toBe("4/29");
+    expect(slots[2].weekdayLabel).toBe("周三");
+  });
+
+  it("excludes today's slot when end time has already passed", () => {
+    const lateMorning = new Date(2026, 3, 26, 11, 0, 0); // Sun 11am
+    const slots = buildUpcomingSchedule(
+      [
+        // Past: 08:00-09:40 (already ended)
+        {
+          id: "past",
+          dayOfWeek: 7,
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "all",
+          timeLabel: "08:00-09:40",
+          course: {
+            id: "c1",
+            courseTitle: "C",
+            semesterStartDate: SEM_START,
+          },
+        },
+        // Future today: 14:00-15:40
+        {
+          id: "future",
+          dayOfWeek: 7,
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "all",
+          timeLabel: "14:00-15:40",
+          course: {
+            id: "c1",
+            courseTitle: "C",
+            semesterStartDate: SEM_START,
+          },
+        },
+      ],
+      4,
+      lateMorning,
+    );
+    // past slot should pick its NEXT-week occurrence (Sun 5/3), not today
+    const ids = slots.map((s) => s.id);
+    expect(ids).toContain("future");
+    const past = slots.find((s) => s.id === "past");
+    if (past) {
+      expect(past.date).not.toBe("2026-04-26");
+      expect(past.isToday).toBe(false);
+    }
+  });
+
+  it("respects weekType=odd / even", () => {
+    // 2026-04-26 is week 11 (Mon 2/16 = week 1) — odd
+    // weekType=even should skip until next even week
+    const slots = buildUpcomingSchedule(
+      [
+        {
+          id: "even-only",
+          dayOfWeek: 7, // Sunday
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "even",
+          timeLabel: "14:00-15:40",
+          course: {
+            id: "c1",
+            courseTitle: "C",
+            semesterStartDate: SEM_START,
+          },
+        },
+      ],
+      4,
+      NOW_UPCOMING,
+    );
+    if (slots.length > 0) {
+      // Whatever it picks must be a Sunday in even week
+      expect(slots[0].weekdayLabel).toBe("周日");
+      expect(slots[0].date).not.toBe("2026-04-26"); // 4/26 is odd week
+    }
+  });
+
+  it("falls back to course.classes[0].name when course.class is absent", () => {
+    const slots = buildUpcomingSchedule(
+      [
+        {
+          id: "s",
+          dayOfWeek: 1,
+          startWeek: 1,
+          endWeek: 16,
+          weekType: "all",
+          timeLabel: "08:00-09:40",
+          course: {
+            id: "c",
+            courseTitle: "C",
+            classes: [{ class: { id: "x" }, name: "金融2024C" }],
+            semesterStartDate: SEM_START,
+          },
+        },
+      ],
+      4,
+      NOW_UPCOMING,
+    );
+    expect(slots[0].className).toBe("金融2024C");
+  });
+
+  it("returns empty array when no slots in horizon", () => {
+    const slots = buildUpcomingSchedule([], 4, NOW_UPCOMING);
+    expect(slots).toEqual([]);
+  });
+
+  it("limits result count even with many candidates", () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({
+      id: `s${i}`,
+      dayOfWeek: ((i % 7) + 1) as number,
+      startWeek: 1,
+      endWeek: 16,
+      weekType: "all",
+      timeLabel: "10:00-11:40",
+      course: {
+        id: "c",
+        courseTitle: "C",
+        semesterStartDate: SEM_START,
+      },
+    }));
+    const slots = buildUpcomingSchedule(many, 4, NOW_UPCOMING);
+    expect(slots).toHaveLength(4);
   });
 });
 

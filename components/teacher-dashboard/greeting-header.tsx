@@ -1,5 +1,7 @@
 "use client";
 
+import { AiSuggestCallout } from "@/components/teacher-dashboard/ai-suggest-callout";
+
 interface GreetingHeaderProps {
   dateLine: string;
   todayClassCount: number;
@@ -27,6 +29,9 @@ export function TeacherGreetingHeader({
           <span className="mx-1.5 text-ink-5">·</span>
           本周新发布 <b className="text-ink">{publishedThisWeek} 项任务</b>
         </p>
+      </div>
+      <div className="flex shrink-0 items-center">
+        <AiSuggestCallout variant="header-chip" />
       </div>
     </div>
   );

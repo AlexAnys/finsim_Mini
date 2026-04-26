@@ -303,7 +303,8 @@ export function buildTodaySchedule(
         id: String(s.id),
         courseId: String(s.course?.id ?? s.courseId ?? ""),
         courseTitle: s.course?.courseTitle ?? "未知课程",
-        className: s.course?.classes?.[0]?.name ?? null,
+        className:
+          s.course?.class?.name ?? s.course?.classes?.[0]?.name ?? null,
         timeLabel: s.timeLabel ?? "",
         classroom: s.classroom ?? null,
         inProgress,
@@ -320,6 +321,147 @@ function computeInProgress(timeLabel: unknown, nowMin: number): boolean {
   const startMin = Number(sh) * 60 + Number(sm);
   const endMin = Number(eh) * 60 + Number(em);
   return nowMin >= startMin && nowMin < endMin;
+}
+
+// ============================================
+// Upcoming schedule (B4 · 近期课表 — 未来 N 节课，含今天 + 之后)
+// ============================================
+
+export interface TeacherUpcomingSlot {
+  id: string;
+  courseId: string;
+  courseTitle: string;
+  className: string | null;
+  timeLabel: string; // 完整时段（08:00-09:40）
+  startTime: string; // 起始时间（08:00）— 用于卡片显示
+  classroom: string | null;
+  /** ISO date string (yyyy-MM-dd) of the actual class occurrence */
+  date: string;
+  /** Display label like "4/26"  */
+  dateLabel: string;
+  /** "周一" / "周日" */
+  weekdayLabel: string;
+  /** True when this slot is happening today (and may be in progress) */
+  isToday: boolean;
+  /** True when slot is currently within timeLabel window */
+  inProgress: boolean;
+}
+
+const WEEKDAY_LABELS_FULL = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+/**
+ * 构建未来 N 节课的列表（含今天 + 之后日期，按时间升序）。
+ *
+ * 算法：
+ * 1. 对每条 slot 在未来 14 天内查找下一次发生（dayOfWeek + week-active 条件 + 时间未过）。
+ * 2. 候选条目按 (date asc, slot start time asc) 排序。
+ * 3. 取前 count 条返回。
+ *
+ * 与 buildTodaySchedule 不同：本函数返回多日数据 + 包含 date/weekday 字段。
+ */
+export function buildUpcomingSchedule(
+  scheduleSlots: RawScheduleSlot[],
+  count: number = 4,
+  now: Date = new Date(),
+): TeacherUpcomingSlot[] {
+  const candidates: TeacherUpcomingSlot[] = [];
+  const HORIZON_DAYS = 14;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  for (const slot of scheduleSlots) {
+    const semesterRaw = slot.course?.semesterStartDate;
+    const semesterStart = semesterRaw ? new Date(semesterRaw) : null;
+    const startWeek = Number(slot.startWeek ?? 1);
+    const endWeek = Number(slot.endWeek ?? 20);
+    const weekType = (slot.weekType ?? "all") as "all" | "odd" | "even";
+    const slotDayOfWeek = Number(slot.dayOfWeek ?? 0);
+    if (slotDayOfWeek < 1 || slotDayOfWeek > 7) continue;
+
+    const startTime = parseStartTime(slot.timeLabel);
+
+    for (let dayOffset = 0; dayOffset < HORIZON_DAYS; dayOffset++) {
+      const candidateDate = new Date(now);
+      candidateDate.setHours(0, 0, 0, 0);
+      candidateDate.setDate(candidateDate.getDate() + dayOffset);
+
+      const candDayOfWeek = candidateDate.getDay() === 0 ? 7 : candidateDate.getDay();
+      if (candDayOfWeek !== slotDayOfWeek) continue;
+
+      // 计算该日期是第几教学周
+      let weekNumber = 0;
+      if (semesterStart) {
+        const diffMs = candidateDate.getTime() - semesterStart.getTime();
+        if (diffMs < 0) continue;
+        weekNumber = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
+      }
+
+      // 学期内 + week 范围 + weekType 约束（无 semesterStart 的不约束 fallback 接受当天）
+      if (semesterStart) {
+        if (weekNumber < startWeek || weekNumber > endWeek) continue;
+        if (weekType === "odd" && weekNumber % 2 !== 1) continue;
+        if (weekType === "even" && weekNumber % 2 !== 0) continue;
+      }
+
+      // 今天的时段如果起始时间已过，跳过（避免显示已结束的课）
+      if (dayOffset === 0 && startTime != null && startTime < nowMin) {
+        const endTime = parseEndTime(slot.timeLabel);
+        if (endTime == null || endTime <= nowMin) continue;
+      }
+
+      const dateIso = candidateDate.toISOString().slice(0, 10);
+      const dateLabel = `${candidateDate.getMonth() + 1}/${candidateDate.getDate()}`;
+      const weekdayLabel = WEEKDAY_LABELS_FULL[candidateDate.getDay()];
+      const isToday = dayOffset === 0;
+      const inProgress = isToday ? computeInProgress(slot.timeLabel, nowMin) : false;
+      const startTimeLabel = formatTime(startTime);
+
+      candidates.push({
+        id: String(slot.id),
+        courseId: String(slot.course?.id ?? slot.courseId ?? ""),
+        courseTitle: slot.course?.courseTitle ?? "未知课程",
+        className:
+          slot.course?.class?.name ?? slot.course?.classes?.[0]?.name ?? null,
+        timeLabel: slot.timeLabel ?? "",
+        startTime: startTimeLabel,
+        classroom: slot.classroom ?? null,
+        date: dateIso,
+        dateLabel,
+        weekdayLabel,
+        isToday,
+        inProgress,
+      });
+      break; // each slot contributes only its next occurrence
+    }
+  }
+
+  candidates.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.startTime.localeCompare(b.startTime);
+  });
+  return candidates.slice(0, count);
+}
+
+function parseStartTime(timeLabel: unknown): number | null {
+  if (typeof timeLabel !== "string") return null;
+  const match = timeLabel.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const [, h, m] = match;
+  return Number(h) * 60 + Number(m);
+}
+
+function parseEndTime(timeLabel: unknown): number | null {
+  if (typeof timeLabel !== "string") return null;
+  const match = timeLabel.match(/(\d{1,2}):(\d{2})[^\d]+(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const [, , , eh, em] = match;
+  return Number(eh) * 60 + Number(em);
+}
+
+function formatTime(min: number | null): string {
+  if (min == null) return "";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 // ============================================

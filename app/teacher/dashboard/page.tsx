@@ -9,22 +9,18 @@ import { PerformanceChart } from "@/components/teacher-dashboard/performance-cha
 import { WeakInstances } from "@/components/teacher-dashboard/weak-instances";
 import { TodaySchedule } from "@/components/teacher-dashboard/today-schedule";
 import { ActivityFeed } from "@/components/teacher-dashboard/activity-feed";
-import { AiSuggestCallout } from "@/components/teacher-dashboard/ai-suggest-callout";
 import {
   buildActivityFeed,
   buildAttentionItems,
   buildClassPerformance,
   buildDateLine,
   buildKpiSummary,
-  buildTodaySchedule,
+  buildUpcomingSchedule,
   buildWeakInstances,
   buildWeeklyTrend,
   startOfWeek,
 } from "@/lib/utils/teacher-dashboard-transforms";
-import {
-  getCurrentWeekNumber,
-  isSlotActiveForWeek,
-} from "@/lib/utils/schedule-dates";
+import { getCurrentWeekNumber } from "@/lib/utils/schedule-dates";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface DashboardData {
@@ -42,8 +38,6 @@ interface DashboardData {
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
-
-const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 function currentWeekLabel(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -140,25 +134,10 @@ export default function TeacherDashboardPage() {
     [data],
   );
 
-  const todaySlots = useMemo(() => {
-    if (!data) return [];
-    return buildTodaySchedule(data.scheduleSlots, (slot) => {
-      const semesterStart = slot.course?.semesterStartDate
-        ? new Date(slot.course.semesterStartDate)
-        : null;
-      const weekNumber = semesterStart
-        ? getCurrentWeekNumber(semesterStart)
-        : 0;
-      const weekType = (slot.weekType || "all") as "all" | "odd" | "even";
-      if (weekNumber <= 0) return true;
-      return isSlotActiveForWeek(
-        weekNumber,
-        Number(slot.startWeek ?? 1),
-        Number(slot.endWeek ?? 20),
-        weekType,
-      );
-    });
-  }, [data]);
+  const upcomingSlots = useMemo(
+    () => (data ? buildUpcomingSchedule(data.scheduleSlots, 4) : []),
+    [data],
+  );
 
   const activityItems = useMemo(
     () => (data ? buildActivityFeed(data.recentSubmissions, 4) : []),
@@ -200,19 +179,17 @@ export default function TeacherDashboardPage() {
   if (!data) return null;
 
   const now = new Date();
-  const jsDay = now.getDay();
-  const todayIdx = jsDay === 0 ? 6 : jsDay - 1;
-  const todayLabel = WEEKDAY_LABELS[todayIdx];
   const weekLabel = currentWeekLabel(data.scheduleSlots, now);
   const dateLine = weekLabel
     ? `${buildDateLine(now)} · ${weekLabel}`
     : buildDateLine(now);
+  const todayClassCount = upcomingSlots.filter((s) => s.isToday).length;
 
   return (
     <div className="mx-auto max-w-[1320px] space-y-6">
       <TeacherGreetingHeader
         dateLine={dateLine}
-        todayClassCount={todaySlots.length}
+        todayClassCount={todayClassCount}
         pendingGradeCount={kpi.pendingCount}
         publishedThisWeek={publishedThisWeek}
       />
@@ -232,9 +209,8 @@ export default function TeacherDashboardPage() {
         </div>
 
         <div className="flex flex-col gap-5">
-          <TodaySchedule slots={todaySlots} dayLabel={todayLabel} />
+          <TodaySchedule slots={upcomingSlots} />
           <ActivityFeed items={activityItems} />
-          <AiSuggestCallout />
         </div>
       </div>
     </div>

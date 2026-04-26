@@ -57,7 +57,17 @@ export async function getTeacherDashboard(teacherId: string) {
     // 课表时段
     prisma.scheduleSlot.findMany({
       where: { course: teacherCourseFilter(teacherId) },
-      include: { course: { select: { courseTitle: true, classId: true, semesterStartDate: true } } },
+      include: {
+        course: {
+          select: {
+            id: true,
+            courseTitle: true,
+            classId: true,
+            semesterStartDate: true,
+            class: { select: { name: true } },
+          },
+        },
+      },
       orderBy: [{ dayOfWeek: "asc" }, { slotIndex: "asc" }],
     }),
   ]);
