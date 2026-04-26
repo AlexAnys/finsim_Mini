@@ -71,3 +71,46 @@ describe("PR-FIX-4 D1 · 旧 5 档 [MOOD:] 指令清理", () => {
     }
   });
 });
+
+describe("PR-FIX-4 D1 · stripLegacyMoodBlock service-layer strip（兼容老任务模板）", () => {
+  it("整段【情绪标签】+ 5 档 [MOOD:] 列表 → 全清", async () => {
+    const { stripLegacyMoodBlock } = await import("@/lib/services/task.service");
+    const old = "你是模拟客户。\n\n{scenario}\n\n【核心人设】温和\n\n【情绪标签】\n在每条回复末尾附加：[MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY]\n- HAPPY: 觉得有道理\n- NEUTRAL: 正常交流\n- CONFUSED: 太多术语\n- SKEPTICAL: 不符合实际\n- ANGRY: 反复推销不适合的产品";
+    const cleaned = stripLegacyMoodBlock(old);
+    expect(cleaned).not.toContain("【情绪标签】");
+    expect(cleaned).not.toContain("[MOOD:");
+    expect(cleaned).not.toContain("ANGRY");
+    expect(cleaned).toContain("【核心人设】温和");
+    expect(cleaned).toContain("{scenario}");
+  });
+
+  it("仅含 [MOOD: HAPPY|NEUTRAL|...] 列表残片（无【情绪标签】块）→ 兜底清", async () => {
+    const { stripLegacyMoodBlock } = await import("@/lib/services/task.service");
+    const old = "客户人设。 [MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY] 结尾正常。";
+    const cleaned = stripLegacyMoodBlock(old);
+    expect(cleaned).not.toContain("[MOOD:");
+    expect(cleaned).toContain("客户人设");
+    expect(cleaned).toContain("结尾正常");
+  });
+
+  it("已清干净的 prompt（PR-FIX-4 之后新建）byte-EQ 透传", async () => {
+    const { stripLegacyMoodBlock } = await import("@/lib/services/task.service");
+    const clean = "你是模拟客户。\n\n{scenario}\n\n【核心人设】温和";
+    const result = stripLegacyMoodBlock(clean);
+    expect(result).toBe(clean);
+  });
+
+  it("空 / undefined / null → 透传不抛", async () => {
+    const { stripLegacyMoodBlock } = await import("@/lib/services/task.service");
+    expect(stripLegacyMoodBlock(undefined)).toBeUndefined();
+    expect(stripLegacyMoodBlock(null)).toBeUndefined();
+    expect(stripLegacyMoodBlock("")).toBeUndefined();
+  });
+
+  it("strip 后只剩空白 → 返回 undefined（教师 systemPrompt 当无）", async () => {
+    const { stripLegacyMoodBlock } = await import("@/lib/services/task.service");
+    const onlyMood = "\n\n【情绪标签】\n在每条回复末尾附加：[MOOD: HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY]\n- HAPPY: 好\n- NEUTRAL: 中\n- CONFUSED: 困\n- SKEPTICAL: 疑\n- ANGRY: 怒";
+    const cleaned = stripLegacyMoodBlock(onlyMood);
+    expect(cleaned).toBeUndefined();
+  });
+});

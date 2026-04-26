@@ -17,23 +17,31 @@ import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validators/task.sch
  * lib/services/ai.service.ts evaluation prompt 仍兼容处理）。
  */
 export function stripLegacyMoodBlock(prompt: string | null | undefined): string | undefined {
-  if (!prompt) return prompt ?? undefined;
-  // 整段【情绪标签】块（含末尾说明 5 档语义）
-  let cleaned = prompt.replace(
-    /\s*【情绪标签】[\s\S]*?(?:失望|ANGRY|DISAPPOINTED)[^\n]*?$/m,
+  if (!prompt) return undefined;
+  let cleaned = prompt;
+  // 1) 整段【情绪标签】块：从【情绪标签】开始，吃到下一个【块】之前，或字符串末尾。
+  //    这样 5 档 [MOOD:] 列表 + 5 行 - HAPPY/.../- ANGRY 全清。
+  cleaned = cleaned.replace(
+    /\s*【情绪标签】[\s\S]*?(?=\n\s*【|$)/g,
     "",
   );
-  // 兜底：落单的 [MOOD: HAPPY|NEUTRAL|... ] 列表
+  // 2) 兜底：落单的 [MOOD: HAPPY|NEUTRAL|... ] 列表残片（无【情绪标签】块）
   cleaned = cleaned.replace(
     /\s*\[MOOD:\s*HAPPY\s*\|[^\]]*\]\s*/g,
-    "",
+    " ",
   );
-  // 末尾"在每条回复末尾附加"句残片
+  // 3) 末尾"在每条回复末尾附加"残句
   cleaned = cleaned.replace(
     /\s*在每条回复末尾附加[：:][^\n]*\n?/g,
     "",
   );
-  return cleaned.trim() === "" ? undefined : cleaned.trimEnd();
+  // 4) "- HAPPY:" / "- NEUTRAL:" / "- CONFUSED:" / "- SKEPTICAL:" / "- ANGRY:" 5 档残行（如果【情绪标签】块没把它们包含进来的兜底）
+  cleaned = cleaned.replace(
+    /\n\s*-\s*(?:HAPPY|NEUTRAL|CONFUSED|SKEPTICAL|ANGRY)[：:][^\n]*/g,
+    "",
+  );
+  cleaned = cleaned.trim();
+  return cleaned === "" ? undefined : cleaned;
 }
 
 /**
