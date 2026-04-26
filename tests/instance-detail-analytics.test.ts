@@ -24,6 +24,8 @@ function row(overrides: Partial<NormalizedSubmission>): NormalizedSubmission {
     taskType: "quiz",
     evaluation: null,
     attachments: [],
+    releasedAt: null,
+    analysisStatus: "analyzed_unreleased",
     ...overrides,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useCallback } from "react";
-import { Search, Download, Sparkles, AlertCircle } from "lucide-react";
+import { Search, Download, Sparkles, AlertCircle, Send } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,6 +12,7 @@ import {
   sortSubmissions,
   statusCounts,
   type NormalizedSubmission,
+  type SubmissionAnalysisStatus,
   type SubmissionFilterKey,
   type SubmissionSortKey,
 } from "./submissions-utils";
@@ -19,14 +20,34 @@ import {
 const VIRTUALIZE_THRESHOLD = 50;
 const ROW_HEIGHT = 64;
 const TABLE_GRID_COLS =
-  "grid-cols-[40px_minmax(180px,1.6fr)_100px_80px_80px_120px_120px_120px]";
-const TABLE_MIN_WIDTH = "min-w-[820px]";
+  "grid-cols-[40px_minmax(180px,1.6fr)_100px_120px_80px_80px_120px_120px_180px]";
+const TABLE_MIN_WIDTH = "min-w-[940px]";
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
   submitted: { label: "待批改", cls: "bg-paper-alt text-ink-3" },
   grading: { label: "批改中", cls: "bg-warn-soft text-warn" },
   graded: { label: "已出分", cls: "bg-success-soft text-success-deep" },
   failed: { label: "批改失败", cls: "bg-danger-soft text-danger" },
+};
+
+// PR-SIM-1b · D1 公布状态徽标
+const analysisStatusBadge: Record<
+  SubmissionAnalysisStatus,
+  { label: string; cls: string; tip?: string }
+> = {
+  pending: {
+    label: "等待分析",
+    cls: "bg-paper-alt text-ink-4",
+    tip: "AI 分析尚未完成，无法公布",
+  },
+  analyzed_unreleased: {
+    label: "已分析·未公布",
+    cls: "bg-warn-soft text-warn",
+  },
+  released: {
+    label: "已公布",
+    cls: "bg-success-soft text-success-deep",
+  },
 };
 
 const filterTabs: Array<{ key: SubmissionFilterKey; label: string }> = [
@@ -49,6 +70,8 @@ interface SubmissionRowProps {
   selected: boolean;
   onToggleSelect: (id: string) => void;
   onOpenGrading: (id: string) => void;
+  onRelease: (id: string, release: boolean) => void;
+  releasingId: string | null;
   height?: number;
 }
 
@@ -57,9 +80,12 @@ function SubmissionRow({
   selected,
   onToggleSelect,
   onOpenGrading,
+  onRelease,
+  releasingId,
   height,
 }: SubmissionRowProps) {
   const status = statusBadge[row.status] || statusBadge.submitted;
+  const analysis = analysisStatusBadge[row.analysisStatus];
   const diff = scoreDiff(row.score, row.aiScore);
   const submittedAt = new Date(row.submittedAt).toLocaleString("zh-CN", {
     month: "2-digit",
@@ -67,6 +93,8 @@ function SubmissionRow({
     hour: "2-digit",
     minute: "2-digit",
   });
+  const isThisRowReleasing = releasingId === row.id;
+
   return (
     <div
       style={{ height: height ? `${height}px` : undefined }}
@@ -101,6 +129,14 @@ function SubmissionRow({
           className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${status.cls}`}
         >
           {status.label}
+        </span>
+      </div>
+      <div>
+        <span
+          className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${analysis.cls}`}
+          title={analysis.tip}
+        >
+          {analysis.label}
         </span>
       </div>
       <div className="text-right tabular-nums">
@@ -147,6 +183,33 @@ function SubmissionRow({
         >
           {row.status === "graded" ? "复评" : "批改"}
         </Button>
+        {row.analysisStatus === "analyzed_unreleased" && (
+          <Button
+            size="xs"
+            onClick={() => onRelease(row.id, true)}
+            disabled={isThisRowReleasing}
+          >
+            公布
+          </Button>
+        )}
+        {row.analysisStatus === "released" && (
+          <button
+            type="button"
+            onClick={() => onRelease(row.id, false)}
+            disabled={isThisRowReleasing}
+            className="text-[11.5px] text-ink-4 hover:text-danger disabled:opacity-50"
+          >
+            撤回公布
+          </button>
+        )}
+        {row.analysisStatus === "pending" && (
+          <span
+            className="text-[11px] text-ink-5"
+            title="等待 AI 分析完成"
+          >
+            —
+          </span>
+        )}
       </div>
     </div>
   );
@@ -158,6 +221,11 @@ export interface SubmissionsTabProps {
   onOpenGrading: (submissionId: string) => void;
   onExport: () => void;
   onBulkGrade?: (ids: string[]) => void;
+  // PR-SIM-1b · D1
+  onRelease?: (submissionId: string, released: boolean) => Promise<void> | void;
+  onBatchRelease?: (ids: string[]) => Promise<void> | void;
+  releasingId?: string | null;
+  bulkReleasing?: boolean;
 }
 
 export function SubmissionsTab({
@@ -166,6 +234,10 @@ export function SubmissionsTab({
   onOpenGrading,
   onExport,
   onBulkGrade,
+  onRelease,
+  onBatchRelease,
+  releasingId = null,
+  bulkReleasing = false,
 }: SubmissionsTabProps) {
   const [filter, setFilter] = useState<SubmissionFilterKey>("all");
   const [sort, setSort] = useState<SubmissionSortKey>("time-desc");
@@ -222,6 +294,31 @@ export function SubmissionsTab({
     if (!onBulkGrade || selected.size === 0) return;
     onBulkGrade(Array.from(selected));
   };
+
+  // PR-SIM-1b · D1 选中行中"已分析未公布"的子集才能公布（service 也会再 filter，UI 提前算节省 round-trip）
+  const releasableSelectedIds = useMemo(() => {
+    if (selected.size === 0) return [] as string[];
+    const ids: string[] = [];
+    for (const r of visibleRows) {
+      if (selected.has(r.id) && r.analysisStatus === "analyzed_unreleased") {
+        ids.push(r.id);
+      }
+    }
+    return ids;
+  }, [selected, visibleRows]);
+
+  const handleBatchReleaseClick = () => {
+    if (!onBatchRelease || releasableSelectedIds.length === 0) return;
+    onBatchRelease(releasableSelectedIds);
+  };
+
+  const handleRowRelease = useCallback(
+    (id: string, release: boolean) => {
+      if (!onRelease) return;
+      void onRelease(id, release);
+    },
+    [onRelease]
+  );
 
   return (
     <div
@@ -297,6 +394,20 @@ export function SubmissionsTab({
             批量批改 {selected.size > 0 ? `(${selected.size})` : ""}
           </Button>
         )}
+        {onBatchRelease && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={releasableSelectedIds.length === 0 || bulkReleasing}
+            onClick={handleBatchReleaseClick}
+          >
+            <Send className="size-3" />
+            批量公布{" "}
+            {releasableSelectedIds.length > 0
+              ? `(${releasableSelectedIds.length})`
+              : ""}
+          </Button>
+        )}
       </div>
 
       {/* Table */}
@@ -317,6 +428,7 @@ export function SubmissionsTab({
               </div>
               <div>学生 / 用时</div>
               <div>状态</div>
+              <div>分析</div>
               <div className="text-right">教师分</div>
               <div className="text-right">AI 初判</div>
               <div>分差</div>
@@ -365,6 +477,8 @@ export function SubmissionsTab({
                           selected={selected.has(row.id)}
                           onToggleSelect={toggleSelect}
                           onOpenGrading={onOpenGrading}
+                          onRelease={handleRowRelease}
+                          releasingId={releasingId}
                           height={ROW_HEIGHT}
                         />
                       </div>
@@ -382,6 +496,8 @@ export function SubmissionsTab({
                     selected={selected.has(row.id)}
                     onToggleSelect={toggleSelect}
                     onOpenGrading={onOpenGrading}
+                    onRelease={handleRowRelease}
+                    releasingId={releasingId}
                   />
                 ))}
               </div>

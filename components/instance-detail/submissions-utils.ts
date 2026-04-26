@@ -2,6 +2,12 @@ export type SubmissionStatus = "submitted" | "grading" | "graded" | "failed";
 export type SubmissionFilterKey = "all" | "submitted" | "grading" | "graded";
 export type SubmissionSortKey = "score-desc" | "score-asc" | "time-desc" | "time-asc" | "name";
 
+// PR-SIM-1b · D1 教师视角的"分析状态"标签（来源 lib/services/submission.service.ts 派生函数）
+// pending = AI 还没分析完 / 失败
+// analyzed_unreleased = AI 已出分但教师还没公布给学生
+// released = 学生已可见
+export type SubmissionAnalysisStatus = "pending" | "analyzed_unreleased" | "released";
+
 export interface RubricBreakdownEntry {
   criterionId: string;
   score: number;
@@ -31,6 +37,9 @@ export interface NormalizedSubmission {
   taskType: "simulation" | "quiz" | "subjective" | string;
   evaluation: SubmissionEvaluation | null;
   attachments?: Array<{ id: string; fileName: string; filePath: string; fileSize: number; contentType: string }>;
+  // PR-SIM-1b · D1 后端透传 / 派生
+  releasedAt: string | null;
+  analysisStatus: SubmissionAnalysisStatus;
 }
 
 interface RawSubmission {
@@ -50,6 +59,21 @@ interface RawSubmission {
     evaluation?: unknown;
     attachments?: Array<{ id: string; fileName: string; filePath: string; fileSize: number; contentType: string }>;
   } | null;
+  releasedAt?: string | null;
+  analysisStatus?: SubmissionAnalysisStatus;
+}
+
+/**
+ * PR-SIM-1b · D1 客户端兜底派生（后端 GET /submissions 已附 analysisStatus，
+ * 这里仅作 fallback；规则与 lib/services/submission.service.ts deriveAnalysisStatus 同步）
+ */
+export function deriveAnalysisStatus(args: {
+  status: string;
+  releasedAt: string | Date | null | undefined;
+}): SubmissionAnalysisStatus {
+  if (args.status === "graded" && args.releasedAt) return "released";
+  if (args.status === "graded") return "analyzed_unreleased";
+  return "pending";
 }
 
 function pickEvaluation(s: RawSubmission): SubmissionEvaluation | null {
@@ -62,6 +86,9 @@ function pickEvaluation(s: RawSubmission): SubmissionEvaluation | null {
 
 export function normalizeSubmission(s: RawSubmission): NormalizedSubmission {
   const evaluation = pickEvaluation(s);
+  const releasedAt = s.releasedAt ?? null;
+  const analysisStatus =
+    s.analysisStatus ?? deriveAnalysisStatus({ status: s.status, releasedAt });
   return {
     id: s.id,
     studentId: s.student.id,
@@ -76,6 +103,8 @@ export function normalizeSubmission(s: RawSubmission): NormalizedSubmission {
     taskType: (s.taskType ?? s.task?.taskType ?? "") as NormalizedSubmission["taskType"],
     evaluation,
     attachments: s.subjectiveSubmission?.attachments,
+    releasedAt,
+    analysisStatus,
   };
 }
 

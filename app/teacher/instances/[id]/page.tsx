@@ -29,6 +29,10 @@ import { GradingDrawer } from "@/components/instance-detail/grading-drawer";
 import { InsightsTab } from "@/components/instance-detail/insights-tab";
 import { AnalyticsTab } from "@/components/instance-detail/analytics-tab";
 import {
+  ReleaseConfigCard,
+  type ReleaseMode,
+} from "@/components/instance-detail/release-config-card";
+import {
   normalizeSubmission,
   type NormalizedSubmission,
 } from "@/components/instance-detail/submissions-utils";
@@ -45,6 +49,9 @@ interface InstanceDetail {
   attemptsAllowed: number | null;
   createdAt: string;
   slot?: string | null;
+  // PR-SIM-1b · D1 公布模式（top-level scalar，schema 已就位）
+  releaseMode?: ReleaseMode | null;
+  autoReleaseAt?: string | null;
   task: {
     id: string;
     taskName: string;
@@ -117,6 +124,11 @@ export default function InstanceDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [tab, setTab] = useState<InstanceTabKey>("overview");
 
+  // PR-SIM-1b · D1 公布相关 UI state
+  const [releaseConfigSaving, setReleaseConfigSaving] = useState(false);
+  const [releasingSubmissionId, setReleasingSubmissionId] = useState<string | null>(null);
+  const [bulkReleasing, setBulkReleasing] = useState(false);
+
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
@@ -181,6 +193,105 @@ export default function InstanceDetailPage() {
       // silent
     }
   }, [instanceId]);
+
+  // PR-SIM-1b · D1 PATCH release-config
+  const handleSaveReleaseConfig = useCallback(
+    async (next: { releaseMode: ReleaseMode; autoReleaseAt: string | null }) => {
+      setReleaseConfigSaving(true);
+      try {
+        const res = await fetch(
+          `/api/lms/task-instances/${instanceId}/release-config`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(next),
+          }
+        );
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "保存失败");
+          return;
+        }
+        toast.success("公布设置已保存");
+        setInstance((prev) =>
+          prev
+            ? {
+                ...prev,
+                releaseMode: next.releaseMode,
+                autoReleaseAt: next.autoReleaseAt,
+              }
+            : prev
+        );
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      } finally {
+        setReleaseConfigSaving(false);
+      }
+    },
+    [instanceId]
+  );
+
+  // PR-SIM-1b · D1 单条公布 / 撤回
+  const handleReleaseSubmission = useCallback(
+    async (submissionId: string, released: boolean) => {
+      setReleasingSubmissionId(submissionId);
+      try {
+        const res = await fetch(`/api/submissions/${submissionId}/release`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ released }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "操作失败");
+          return;
+        }
+        toast.success(released ? "已公布" : "已撤回公布");
+        await refreshSubmissions();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      } finally {
+        setReleasingSubmissionId(null);
+      }
+    },
+    [refreshSubmissions]
+  );
+
+  // PR-SIM-1b · D1 批量公布
+  const handleBatchRelease = useCallback(
+    async (submissionIds: string[]) => {
+      if (submissionIds.length === 0) return;
+      setBulkReleasing(true);
+      try {
+        const res = await fetch("/api/submissions/batch-release", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ submissionIds, released: true }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "批量公布失败");
+          return;
+        }
+        const releasedCount = json.data?.released ?? 0;
+        const skippedCount = json.data?.skipped ?? 0;
+        if (skippedCount > 0) {
+          toast.success(
+            `已公布 ${releasedCount} 份 / 跳过 ${skippedCount} 份`,
+            { description: "跳过的提交未达「已分析」状态" }
+          );
+        } else {
+          toast.success(`已公布 ${releasedCount} 份`);
+        }
+        await refreshSubmissions();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      } finally {
+        setBulkReleasing(false);
+      }
+    },
+    [refreshSubmissions]
+  );
 
   const fetchPosts = useCallback(async () => {
     setPostsLoading(true);
@@ -482,6 +593,16 @@ export default function InstanceDetailPage() {
         onStartGrading={handleStartGrading}
       />
 
+      <div className="bg-surface px-6 pt-4 pb-2 md:px-10">
+        <ReleaseConfigCard
+          releaseMode={(instance.releaseMode ?? "manual") as ReleaseMode}
+          autoReleaseAt={instance.autoReleaseAt ?? null}
+          defaultAutoReleaseAt={instance.dueAt}
+          saving={releaseConfigSaving}
+          onSave={handleSaveReleaseConfig}
+        />
+      </div>
+
       <div className="bg-surface px-6 md:px-10">
         <InstanceTabsNav
           value={tab}
@@ -517,6 +638,10 @@ export default function InstanceDetailPage() {
               onOpenGrading={handleOpenGrading}
               onExport={exportGrades}
               onBulkGrade={handleBulkGrade}
+              onRelease={handleReleaseSubmission}
+              onBatchRelease={handleBatchRelease}
+              releasingId={releasingSubmissionId}
+              bulkReleasing={bulkReleasing}
             />
 
             {/* 讨论区（保留入口） */}

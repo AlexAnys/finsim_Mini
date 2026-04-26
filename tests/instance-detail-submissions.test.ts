@@ -24,6 +24,8 @@ function makeRow(overrides: Partial<NormalizedSubmission> = {}): NormalizedSubmi
     taskType: "simulation",
     evaluation: null,
     attachments: [],
+    releasedAt: null,
+    analysisStatus: "analyzed_unreleased",
     ...overrides,
   };
 }
