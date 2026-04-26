@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { assertCourseAccess } from "@/lib/auth/course-access";
 import { createChapter } from "@/lib/services/course.service";
 import { created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -21,9 +22,13 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
+    const { user } = result.session;
+    // PR-FIX-1 A4: 防教师向他人课程插入章节
+    await assertCourseAccess(parsed.data.courseId, user.id, user.role);
+
     const chapter = await createChapter({
       ...parsed.data,
-      createdBy: result.session.user.id,
+      createdBy: user.id,
     });
     return created(chapter);
   } catch (err) {

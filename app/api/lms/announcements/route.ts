@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { assertCourseAccess, assertCourseAccessForStudent } from "@/lib/auth/course-access";
 import { createAnnouncement, getAnnouncements } from "@/lib/services/announcement.service";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -22,9 +23,13 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
+    const { user } = result.session;
+    // PR-FIX-1 A6: 防教师向他人课程发公告
+    await assertCourseAccess(parsed.data.courseId, user.id, user.role);
+
     const announcement = await createAnnouncement({
       ...parsed.data,
-      createdBy: result.session.user.id,
+      createdBy: user.id,
     });
     return created(announcement);
   } catch (err) {
@@ -48,12 +53,23 @@ export async function GET(request: NextRequest) {
     } = { courseId };
     const { user } = result.session;
 
-    if (user.role === "student" && user.classId) {
-      filters.classId = user.classId;
+    if (user.role === "student") {
+      // PR-FIX-1 A6: 学生侧若传 courseId 必须验证有班级访问权
+      if (courseId) {
+        await assertCourseAccessForStudent(courseId, user.classId ?? "");
+      }
+      if (user.classId) {
+        filters.classId = user.classId;
+      }
       filters.status = "published";
-    } else if (user.role === "teacher" && !courseId) {
-      // 老师侧：没指定 courseId 时，只看自己 creator 或 CourseTeacher 的课公告
-      filters.teacherId = user.id;
+    } else if (user.role === "teacher") {
+      if (courseId) {
+        // PR-FIX-1 A6: 老师传 courseId 必须 owner / collab，否则 403
+        await assertCourseAccess(courseId, user.id, user.role);
+      } else {
+        // 老师侧：没指定 courseId 时，只看自己 creator 或 CourseTeacher 的课公告
+        filters.teacherId = user.id;
+      }
     }
     // admin 不加 teacherId 过滤，仍可看全部（保留管理员全局视角）
 

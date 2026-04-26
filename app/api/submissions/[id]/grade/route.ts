@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertSubmissionReadable } from "@/lib/auth/resource-access";
 import { updateSubmissionGrade } from "@/lib/services/submission.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -34,6 +35,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       status: "graded",
       score: parsed.data.score,
       maxScore: parsed.data.maxScore,
+    });
+    // PR-FIX-1 UX5: 手工批改强制 audit（合规追责）
+    await logAuditForced({
+      action: "submission.grade",
+      actorId: user.id,
+      targetId: id,
+      targetType: "submission",
+      metadata: {
+        score: parsed.data.score,
+        maxScore: parsed.data.maxScore,
+      },
     });
     return success(updated);
   } catch (err) {

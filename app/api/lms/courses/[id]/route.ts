@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseReadable } from "@/lib/auth/course-access";
 import { getCourseWithStructure } from "@/lib/services/course.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
@@ -54,6 +55,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
 
     const updated = await prisma.course.update({ where: { id }, data: updateData });
+    // PR-FIX-1 UX5: 安全敏感写入强制 audit（不依赖 ENABLE_AUDIT_LOGS）
+    await logAuditForced({
+      action: "course.update",
+      actorId: result.session.user.id,
+      targetId: id,
+      targetType: "course",
+      metadata: { fields: Object.keys(updateData) },
+    });
     return success(updated);
   } catch (err) {
     return handleServiceError(err);

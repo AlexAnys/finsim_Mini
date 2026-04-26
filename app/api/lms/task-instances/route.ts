@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { createTaskInstance, getTaskInstances } from "@/lib/services/task-instance.service";
 import { createTaskInstanceSchema } from "@/lib/validators/task.schema";
+import {
+  assertTaskReadable,
+} from "@/lib/auth/resource-access";
+import { assertCourseAccess } from "@/lib/auth/course-access";
+import { prisma } from "@/lib/db/prisma";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -15,7 +20,33 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
-    const instance = await createTaskInstance(result.session.user.id, parsed.data);
+    const { user } = result.session;
+    const data = parsed.data;
+
+    // PR-FIX-1 A1: 防教师反向读他人 task / 写他人 course / 跨班挂载
+    await assertTaskReadable(data.taskId, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
+    if (data.courseId) {
+      await assertCourseAccess(data.courseId, user.id, user.role);
+      // 验证 classId 属于该课程（主班或 CourseClass）
+      const cls = await prisma.course.findUnique({
+        where: { id: data.courseId },
+        select: {
+          classId: true,
+          classes: { select: { classId: true } },
+        },
+      });
+      if (!cls) throw new Error("COURSE_NOT_FOUND");
+      const ok =
+        cls.classId === data.classId ||
+        cls.classes.some((cc) => cc.classId === data.classId);
+      if (!ok) throw new Error("CLASS_COURSE_MISMATCH");
+    }
+
+    const instance = await createTaskInstance(user.id, data);
     return created(instance);
   } catch (err) {
     return handleServiceError(err);

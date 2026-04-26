@@ -7,6 +7,7 @@ import {
   assertTaskInstanceReadable,
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
+import { prisma } from "@/lib/db/prisma";
 import { success, created, validationError, handleServiceError, error } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -20,7 +21,30 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
-    const submission = await createSubmission(result.session.user.id, parsed.data);
+    const data = parsed.data;
+    const { user } = result.session;
+
+    // PR-FIX-1 A2: 学生提交必须指定 taskInstanceId（防对未分配 task 提交）
+    if (!data.taskInstanceId) {
+      throw new Error("TASK_INSTANCE_REQUIRED");
+    }
+    // 守护：assertTaskInstanceReadable 会校验 student.classId === instance.classId + status==="published"
+    await assertTaskInstanceReadable(data.taskInstanceId, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
+
+    // 服务端从 instance 派生权威 taskId/taskType（不信任客户端）
+    const inst = await prisma.taskInstance.findUnique({
+      where: { id: data.taskInstanceId },
+      select: { taskId: true, taskType: true },
+    });
+    if (!inst) throw new Error("TASK_INSTANCE_NOT_FOUND");
+    if (inst.taskId !== data.taskId) throw new Error("FORBIDDEN");
+    if (inst.taskType !== data.taskType) throw new Error("FORBIDDEN");
+
+    const submission = await createSubmission(user.id, data);
 
     // 异步触发 AI 批改
     gradeSubmission(submission.id).catch(console.error);

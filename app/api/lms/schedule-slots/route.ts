@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { assertCourseAccess, assertCourseAccessForStudent } from "@/lib/auth/course-access";
 import { createScheduleSlot, getScheduleSlots } from "@/lib/services/schedule.service";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -26,9 +27,13 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
+    const { user } = result.session;
+    // PR-FIX-1 A7: 防教师向他人课程写课表
+    await assertCourseAccess(parsed.data.courseId, user.id, user.role);
+
     const slot = await createScheduleSlot({
       ...parsed.data,
-      createdBy: result.session.user.id,
+      createdBy: user.id,
     });
     return created(slot);
   } catch (err) {
@@ -46,9 +51,22 @@ export async function GET(request: NextRequest) {
   try {
     const filters: { courseId?: string; classId?: string; teacherId?: string } = { courseId };
     const { user } = result.session;
-    if (user.role === "student" && user.classId) {
-      filters.classId = user.classId;
-    } else if ((user.role === "teacher" || user.role === "admin") && !courseId) {
+    if (user.role === "student") {
+      if (courseId) {
+        // PR-FIX-1 A7: 学生侧若传 courseId 必须验证班级访问权
+        await assertCourseAccessForStudent(courseId, user.classId ?? "");
+      }
+      if (user.classId) {
+        filters.classId = user.classId;
+      }
+    } else if (user.role === "teacher") {
+      if (courseId) {
+        // PR-FIX-1 A7: 老师传 courseId 必须 owner / collab，否则 403
+        await assertCourseAccess(courseId, user.id, user.role);
+      } else {
+        filters.teacherId = user.id;
+      }
+    } else if (user.role === "admin" && !courseId) {
       filters.teacherId = user.id;
     }
 

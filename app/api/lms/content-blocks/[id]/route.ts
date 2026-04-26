@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertContentBlockWritable } from "@/lib/auth/resource-access";
 import { updateContentBlock, deleteContentBlock } from "@/lib/services/course.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -38,6 +39,18 @@ export async function PATCH(
         | undefined,
       order: parsed.data.order,
     });
+    // PR-FIX-1 UX5: 安全敏感写入强制 audit
+    await logAuditForced({
+      action: "contentBlock.update",
+      actorId: user.id,
+      targetId: id,
+      targetType: "contentBlock",
+      metadata: {
+        fields: Object.keys(parsed.data).filter(
+          (k) => parsed.data[k as keyof typeof parsed.data] !== undefined,
+        ),
+      },
+    });
     return success(block);
   } catch (err) {
     return handleServiceError(err);
@@ -57,6 +70,13 @@ export async function DELETE(
     await assertContentBlockWritable(id, user);
 
     await deleteContentBlock(id);
+    // PR-FIX-1 UX5: 安全敏感删除强制 audit
+    await logAuditForced({
+      action: "contentBlock.delete",
+      actorId: user.id,
+      targetId: id,
+      targetType: "contentBlock",
+    });
     return success({ id });
   } catch (err) {
     return handleServiceError(err);

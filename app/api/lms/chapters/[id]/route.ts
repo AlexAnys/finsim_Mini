@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertChapterWritable } from "@/lib/auth/resource-access";
 import { updateChapter, deleteChapter } from "@/lib/services/course.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -33,6 +34,14 @@ export async function PATCH(
     await assertChapterWritable(id, user);
 
     const chapter = await updateChapter(id, parsed.data);
+    // PR-FIX-1 UX5: 安全敏感写入强制 audit
+    await logAuditForced({
+      action: "chapter.update",
+      actorId: user.id,
+      targetId: id,
+      targetType: "chapter",
+      metadata: { fields: Object.keys(parsed.data) },
+    });
     return success(chapter);
   } catch (err) {
     return handleServiceError(err);
@@ -52,6 +61,13 @@ export async function DELETE(
     await assertChapterWritable(id, user);
 
     await deleteChapter(id);
+    // PR-FIX-1 UX5: 安全敏感删除强制 audit
+    await logAuditForced({
+      action: "chapter.delete",
+      actorId: user.id,
+      targetId: id,
+      targetType: "chapter",
+    });
     return success({ id });
   } catch (err) {
     return handleServiceError(err);

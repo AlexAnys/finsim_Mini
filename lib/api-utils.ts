@@ -92,6 +92,18 @@ export function handleServiceError(err: unknown) {
         return error("NO_GRADED_SUBMISSIONS", "暂无已批改的提交，无法生成洞察", 400);
       case "NO_CONCEPT_TAGS":
         return error("NO_CONCEPT_TAGS", "已批改的提交均未生成概念标签，请等待新批改完成", 400);
+      case "CLASS_COURSE_MISMATCH":
+        return error("CLASS_COURSE_MISMATCH", "班级不属于该课程", 400);
+      case "CHAPTER_COURSE_MISMATCH":
+        return error("CHAPTER_COURSE_MISMATCH", "章节不属于该课程", 400);
+      case "TASK_INSTANCE_REQUIRED":
+        return error("TASK_INSTANCE_REQUIRED", "必须提供任务实例 ID", 400);
+      case "AGGREGATE_TOO_FREQUENT":
+        return error("AGGREGATE_TOO_FREQUENT", "聚合操作过于频繁，请稍后再试", 429);
+      case "AGGREGATE_IN_PROGRESS":
+        return error("AGGREGATE_IN_PROGRESS", "聚合任务正在进行，请稍后再试", 429);
+      case "INPUT_TOO_LARGE":
+        return error("INPUT_TOO_LARGE", "输入内容超出长度限制", 400);
       default:
         console.error("Service error:", err);
         return serverError();

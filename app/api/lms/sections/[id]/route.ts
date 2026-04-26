@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertSectionWritable } from "@/lib/auth/resource-access";
 import { updateSection, deleteSection } from "@/lib/services/course.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -33,6 +34,14 @@ export async function PATCH(
     await assertSectionWritable(id, user);
 
     const section = await updateSection(id, parsed.data);
+    // PR-FIX-1 UX5: 安全敏感写入强制 audit
+    await logAuditForced({
+      action: "section.update",
+      actorId: user.id,
+      targetId: id,
+      targetType: "section",
+      metadata: { fields: Object.keys(parsed.data) },
+    });
     return success(section);
   } catch (err) {
     return handleServiceError(err);
@@ -52,6 +61,13 @@ export async function DELETE(
     await assertSectionWritable(id, user);
 
     await deleteSection(id);
+    // PR-FIX-1 UX5: 安全敏感删除强制 audit
+    await logAuditForced({
+      action: "section.delete",
+      actorId: user.id,
+      targetId: id,
+      targetType: "section",
+    });
     return success({ id });
   } catch (err) {
     return handleServiceError(err);
