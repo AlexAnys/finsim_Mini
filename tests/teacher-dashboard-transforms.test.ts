@@ -679,16 +679,16 @@ describe("buildUpcomingSchedule", () => {
   });
 
   it("respects weekType=odd / even", () => {
-    // 2026-04-26 is week 11 (Mon 2/16 = week 1) — odd
-    // weekType=even should skip until next even week
+    // 2026-04-26 is week 10 (Mon 2/16 = week 1, then count weeks) — EVEN week
+    // weekType="odd" should skip 4/26 and pick next odd-week Sunday (5/3 = week 11)
     const slots = buildUpcomingSchedule(
       [
         {
-          id: "even-only",
+          id: "odd-only",
           dayOfWeek: 7, // Sunday
           startWeek: 1,
           endWeek: 16,
-          weekType: "even",
+          weekType: "odd",
           timeLabel: "14:00-15:40",
           course: {
             id: "c1",
@@ -701,9 +701,9 @@ describe("buildUpcomingSchedule", () => {
       NOW_UPCOMING,
     );
     if (slots.length > 0) {
-      // Whatever it picks must be a Sunday in even week
+      // Whatever it picks must be a Sunday in odd week (skips 4/26 which is even)
       expect(slots[0].weekdayLabel).toBe("周日");
-      expect(slots[0].date).not.toBe("2026-04-26"); // 4/26 is odd week
+      expect(slots[0].date).not.toBe("2026-04-26"); // 4/26 is even week
     }
   });
 
