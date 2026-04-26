@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   buildKpiSummary,
   buildAttentionItems,
+  buildCourseFilterOptions,
+  buildTaskTimelineItems,
   buildWeakInstances,
   buildTodaySchedule,
   buildUpcomingSchedule,
@@ -9,6 +11,8 @@ import {
   buildClassPerformance,
   buildWeeklyTrend,
   startOfWeek,
+  TASK_SLOT_POSITION_LABEL,
+  TASK_TIMELINE_GROUP_LABEL,
 } from "@/lib/utils/teacher-dashboard-transforms";
 
 const NOW = new Date("2026-04-23T10:00:00Z"); // Thursday
@@ -198,6 +202,261 @@ describe("buildAttentionItems", () => {
       NOW,
     );
     expect(items[0].urgent).toBe(true);
+  });
+});
+
+// ============================================
+// PR-DASH-1c · Task timeline (B5/B6)
+// ============================================
+
+describe("buildCourseFilterOptions", () => {
+  it("returns unique courses from published instances, sorted alphabetically", () => {
+    const opts = buildCourseFilterOptions([
+      {
+        status: "published",
+        course: { id: "c2", courseTitle: "投资学" },
+      },
+      {
+        status: "published",
+        course: { id: "c1", courseTitle: "金融基础" },
+      },
+      {
+        status: "published",
+        course: { id: "c2", courseTitle: "投资学" }, // dup
+      },
+      {
+        status: "draft",
+        course: { id: "c3", courseTitle: "草稿课程" }, // excluded — draft
+      },
+    ]);
+    expect(opts).toHaveLength(2);
+    expect(opts[0].id).toBe("c1");
+    expect(opts[1].id).toBe("c2");
+  });
+
+  it("skips instances missing course relation", () => {
+    const opts = buildCourseFilterOptions([
+      { status: "published", course: null },
+      { status: "published" },
+    ]);
+    expect(opts).toEqual([]);
+  });
+});
+
+describe("buildTaskTimelineItems", () => {
+  const baseSlot = {
+    status: "published" as const,
+    task: { taskType: "quiz" as const, taskName: "T" },
+    class: { id: "cl1", name: "班 A", _count: { students: 30 } },
+    course: { id: "c1", courseTitle: "金融基础" },
+    chapter: { title: "第一章 时间价值" },
+    section: { title: "复利计算" },
+    slot: "in" as const,
+    title: "T",
+    _count: { submissions: 12 },
+    analytics: { avgScore: 82.4 },
+  };
+
+  it("groups by overdue / today / thisWeek / nextWeek / later", () => {
+    // NOW = 2026-04-23 Thursday UTC. Mon = 4/20, Sun = 4/26, next Sun = 5/3
+    const items = buildTaskTimelineItems(
+      [
+        { ...baseSlot, id: "OVD", dueAt: new Date("2026-04-20T08:00:00Z") },
+        { ...baseSlot, id: "TODAY", dueAt: new Date(NOW.getTime() + 3_600_000 * 4) },
+        {
+          ...baseSlot,
+          id: "WEEK",
+          dueAt: new Date("2026-04-25T10:00:00Z"), // Sat
+        },
+        {
+          ...baseSlot,
+          id: "NEXT",
+          dueAt: new Date("2026-04-30T10:00:00Z"), // next Thu
+        },
+        {
+          ...baseSlot,
+          id: "LATER",
+          dueAt: new Date("2026-05-15T10:00:00Z"),
+        },
+      ],
+      {},
+      NOW,
+    );
+    const byId = Object.fromEntries(items.map((i) => [i.id, i.group]));
+    expect(byId.OVD).toBe("overdue");
+    expect(byId.TODAY).toBe("today");
+    expect(byId.WEEK).toBe("thisWeek");
+    expect(byId.NEXT).toBe("nextWeek");
+    expect(byId.LATER).toBe("later");
+    // Sort: overdue first, later last
+    expect(items[0].id).toBe("OVD");
+    expect(items[items.length - 1].id).toBe("LATER");
+  });
+
+  it("filters by courseId", () => {
+    const items = buildTaskTimelineItems(
+      [
+        {
+          ...baseSlot,
+          id: "A",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          course: { id: "c1", courseTitle: "金融基础" },
+        },
+        {
+          ...baseSlot,
+          id: "B",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          course: { id: "c2", courseTitle: "投资学" },
+        },
+      ],
+      { courseId: "c1" },
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("A");
+  });
+
+  it("filters by taskType from task.taskType OR top-level fallback", () => {
+    const items = buildTaskTimelineItems(
+      [
+        {
+          ...baseSlot,
+          id: "Q",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          task: { taskType: "quiz", taskName: "Q" },
+        },
+        {
+          ...baseSlot,
+          id: "S",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          task: { taskType: "simulation", taskName: "S" },
+        },
+        {
+          ...baseSlot,
+          id: "B",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          task: { taskName: "B" }, // missing taskType
+          taskType: "subjective",
+        },
+      ],
+      { taskType: "subjective" },
+      NOW,
+    );
+    expect(items.map((i) => i.id)).toEqual(["B"]);
+  });
+
+  it("excludes draft instances always", () => {
+    const items = buildTaskTimelineItems(
+      [
+        {
+          ...baseSlot,
+          id: "D",
+          status: "draft",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+        },
+        {
+          ...baseSlot,
+          id: "P",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+        },
+      ],
+      {},
+      NOW,
+    );
+    expect(items.map((i) => i.id)).toEqual(["P"]);
+  });
+
+  it("computes completionRate, avgScore, chapter/section/slot, hrefInstance", () => {
+    const items = buildTaskTimelineItems(
+      [
+        {
+          ...baseSlot,
+          id: "X1",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+        },
+      ],
+      {},
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+    const item = items[0];
+    expect(item.completionRate).toBe(40); // 12/30
+    expect(item.avgScore).toBe(82.4);
+    expect(item.chapterTitle).toBe("第一章 时间价值");
+    expect(item.sectionTitle).toBe("复利计算");
+    expect(item.slot).toBe("in");
+    expect(item.hrefInstance).toBe("/teacher/instances/X1");
+  });
+
+  it("avgScore = null when analytics missing or avgScore is 0", () => {
+    const items = buildTaskTimelineItems(
+      [
+        {
+          ...baseSlot,
+          id: "NO-AN",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          analytics: null,
+        },
+        {
+          ...baseSlot,
+          id: "ZERO",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          analytics: { avgScore: 0 },
+        },
+      ],
+      {},
+      NOW,
+    );
+    expect(items.find((i) => i.id === "NO-AN")?.avgScore).toBeNull();
+    expect(items.find((i) => i.id === "ZERO")?.avgScore).toBeNull();
+  });
+
+  it("slot defaults to null for invalid values", () => {
+    const items = buildTaskTimelineItems(
+      [
+        {
+          ...baseSlot,
+          id: "BAD",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          slot: "junk",
+        },
+        {
+          ...baseSlot,
+          id: "MISSING",
+          dueAt: new Date(NOW.getTime() + 3_600_000 * 24),
+          slot: null,
+        },
+      ],
+      {},
+      NOW,
+    );
+    expect(items.find((i) => i.id === "BAD")?.slot).toBeNull();
+    expect(items.find((i) => i.id === "MISSING")?.slot).toBeNull();
+  });
+
+  it("does NOT cap to 4 items (unlike buildAttentionItems)", () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      ...baseSlot,
+      id: `T${i}`,
+      dueAt: new Date(NOW.getTime() + 3_600_000 * (i + 1)),
+    }));
+    const items = buildTaskTimelineItems(many, {}, NOW);
+    expect(items.length).toBe(8);
+  });
+});
+
+describe("Task timeline label maps", () => {
+  it("TASK_TIMELINE_GROUP_LABEL covers all 5 groups in Chinese", () => {
+    expect(TASK_TIMELINE_GROUP_LABEL.overdue).toBe("已过期");
+    expect(TASK_TIMELINE_GROUP_LABEL.today).toBe("今天");
+    expect(TASK_TIMELINE_GROUP_LABEL.thisWeek).toBe("本周");
+    expect(TASK_TIMELINE_GROUP_LABEL.nextWeek).toBe("下周");
+    expect(TASK_TIMELINE_GROUP_LABEL.later).toBe("之后");
+  });
+  it("TASK_SLOT_POSITION_LABEL covers pre / in / post in Chinese", () => {
+    expect(TASK_SLOT_POSITION_LABEL.pre).toBe("课前");
+    expect(TASK_SLOT_POSITION_LABEL.in).toBe("课中");
+    expect(TASK_SLOT_POSITION_LABEL.post).toBe("课后");
   });
 });
 

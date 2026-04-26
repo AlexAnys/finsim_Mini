@@ -225,6 +225,215 @@ function urgencyScore(ti: RawTaskInstance, now: Date): number {
 }
 
 // ============================================
+// Task timeline (B5 · 任务列表 — 时间线 + filter，替代 4 条上限的 attention list)
+// ============================================
+
+export type TaskTimelineGroup = "overdue" | "today" | "thisWeek" | "nextWeek" | "later";
+export type TaskSlotPosition = "pre" | "in" | "post";
+
+export interface TaskTimelineItem {
+  id: string;
+  taskType: TeacherTaskType;
+  title: string;
+  courseId: string | null;
+  courseTitle: string;
+  classId: string | null;
+  className: string | null;
+  dueAt: string | null;
+  submissionCount: number;
+  classSize: number;
+  /** 完成度 0-100（基于 classSize / submissionCount） */
+  completionRate: number;
+  /** 平均分（来自 analytics.avgScore），未批改时为 null */
+  avgScore: number | null;
+  /** 章节标题 */
+  chapterTitle: string | null;
+  /** 小节标题 */
+  sectionTitle: string | null;
+  /** 课前/课中/课后 */
+  slot: TaskSlotPosition | null;
+  isOverdue: boolean;
+  urgent: boolean;
+  group: TaskTimelineGroup;
+  hrefInstance: string;
+}
+
+export interface TaskTimelineFilters {
+  /** courseId 精确匹配；undefined / null = 不过滤 */
+  courseId?: string | null;
+  /** 任务类型精确匹配；undefined = 不过滤 */
+  taskType?: TeacherTaskType | null;
+}
+
+export interface CourseFilterOption {
+  id: string;
+  title: string;
+}
+
+/**
+ * 抽取课程下拉选项（去重 + 排序）。
+ * 数据源：当前 publishe 的 taskInstance 上挂的 course 信息。
+ */
+export function buildCourseFilterOptions(
+  taskInstances: RawTaskInstance[],
+): CourseFilterOption[] {
+  const seen = new Map<string, string>();
+  for (const ti of taskInstances) {
+    if (ti.status !== "published") continue;
+    const id = ti.course?.id ? String(ti.course.id) : null;
+    const title = ti.course?.courseTitle;
+    if (!id || !title) continue;
+    if (!seen.has(id)) seen.set(id, String(title));
+  }
+  return Array.from(seen.entries())
+    .map(([id, title]) => ({ id, title }))
+    .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
+}
+
+/**
+ * 构建任务时间线列表。
+ *
+ * 行为：
+ * - 仅包含 `status=published` 的实例。
+ * - 过滤 filters.courseId / filters.taskType（任一为空 = 不过滤）。
+ * - 按 dueAt 升序（已过期排在前，便于教师优先处理）。
+ * - 加 group 字段（overdue / today / thisWeek / nextWeek / later），UI 用于软分组分隔条。
+ * - 不限制条数（B5 spec 要求滚动列表 + 包含未来 7 天）。
+ */
+export function buildTaskTimelineItems(
+  taskInstances: RawTaskInstance[],
+  filters: TaskTimelineFilters = {},
+  now: Date = new Date(),
+): TaskTimelineItem[] {
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart);
+  todayEnd.setDate(todayEnd.getDate() + 1);
+
+  const weekEnd = new Date(todayStart);
+  // 本周末 = 本周日 23:59:59.999
+  const dayOfWeekMon0 = (todayStart.getDay() + 6) % 7; // Mon=0..Sun=6
+  weekEnd.setDate(weekEnd.getDate() + (6 - dayOfWeekMon0) + 1); // 下周一 00:00
+  const nextWeekEnd = new Date(weekEnd);
+  nextWeekEnd.setDate(nextWeekEnd.getDate() + 7); // 下下周一 00:00
+
+  const filtered = taskInstances.filter((ti) => {
+    if (ti.status !== "published") return false;
+    if (filters.courseId) {
+      const ciid = ti.course?.id ? String(ti.course.id) : null;
+      if (ciid !== filters.courseId) return false;
+    }
+    if (filters.taskType) {
+      const tt = (ti.task?.taskType ?? ti.taskType ?? null) as
+        | TeacherTaskType
+        | null;
+      if (tt !== filters.taskType) return false;
+    }
+    return true;
+  });
+
+  const items = filtered.map((ti) => {
+    const dueAt = ti.dueAt ? new Date(ti.dueAt) : null;
+    const isOverdue = dueAt ? dueAt.getTime() < now.getTime() : false;
+    const hoursLeft = dueAt
+      ? (dueAt.getTime() - now.getTime()) / 3_600_000
+      : Infinity;
+    const urgent = isOverdue || (hoursLeft >= 0 && hoursLeft <= 24);
+    const submissionCount = Number(ti._count?.submissions ?? 0);
+    const classSize = Number(ti.class?._count?.students ?? 0);
+    const completionRate =
+      classSize > 0
+        ? Math.min(100, Math.round((submissionCount / classSize) * 100))
+        : 0;
+    const rawAvg = ti.analytics?.avgScore;
+    let avgScore: number | null = null;
+    if (rawAvg != null) {
+      const n = Number(rawAvg);
+      if (Number.isFinite(n) && n > 0) {
+        avgScore = Math.round(n * 10) / 10;
+      }
+    }
+
+    let group: TaskTimelineGroup = "later";
+    if (!dueAt) {
+      group = "later";
+    } else if (isOverdue) {
+      group = "overdue";
+    } else if (dueAt.getTime() < todayEnd.getTime()) {
+      group = "today";
+    } else if (dueAt.getTime() < weekEnd.getTime()) {
+      group = "thisWeek";
+    } else if (dueAt.getTime() < nextWeekEnd.getTime()) {
+      group = "nextWeek";
+    } else {
+      group = "later";
+    }
+
+    const rawSlot = ti.slot;
+    const slot: TaskSlotPosition | null =
+      rawSlot === "pre" || rawSlot === "in" || rawSlot === "post"
+        ? rawSlot
+        : null;
+
+    return {
+      id: String(ti.id),
+      taskType: (ti.task?.taskType ??
+        ti.taskType ??
+        "subjective") as TeacherTaskType,
+      title: ti.title ?? ti.task?.taskName ?? "未命名任务",
+      courseId: ti.course?.id ?? null,
+      courseTitle: ti.course?.courseTitle ?? "",
+      classId: ti.class?.id ?? null,
+      className: ti.class?.name ?? null,
+      dueAt: ti.dueAt ? new Date(ti.dueAt).toISOString() : null,
+      submissionCount,
+      classSize,
+      completionRate,
+      avgScore,
+      chapterTitle: ti.chapter?.title ?? null,
+      sectionTitle: ti.section?.title ?? null,
+      slot,
+      isOverdue,
+      urgent,
+      group,
+      hrefInstance: `/teacher/instances/${ti.id}`,
+    } satisfies TaskTimelineItem;
+  });
+
+  // 排序：已过期 → 今天 → 本周 → 下周 → 之后；同组内按 dueAt 升序（无 dueAt 排末尾）
+  const groupOrder: Record<TaskTimelineGroup, number> = {
+    overdue: 0,
+    today: 1,
+    thisWeek: 2,
+    nextWeek: 3,
+    later: 4,
+  };
+  items.sort((a, b) => {
+    const g = groupOrder[a.group] - groupOrder[b.group];
+    if (g !== 0) return g;
+    const ad = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
+    const bd = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
+    return ad - bd;
+  });
+
+  return items;
+}
+
+export const TASK_TIMELINE_GROUP_LABEL: Record<TaskTimelineGroup, string> = {
+  overdue: "已过期",
+  today: "今天",
+  thisWeek: "本周",
+  nextWeek: "下周",
+  later: "之后",
+};
+
+export const TASK_SLOT_POSITION_LABEL: Record<TaskSlotPosition, string> = {
+  pre: "课前",
+  in: "课中",
+  post: "课后",
+};
+
+// ============================================
 // Weak instances (降级 from 薄弱概念)
 // ============================================
 

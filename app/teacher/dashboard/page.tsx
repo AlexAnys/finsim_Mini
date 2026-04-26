@@ -11,14 +11,16 @@ import { TodaySchedule } from "@/components/teacher-dashboard/today-schedule";
 import { ActivityFeed } from "@/components/teacher-dashboard/activity-feed";
 import {
   buildActivityFeed,
-  buildAttentionItems,
   buildClassPerformance,
+  buildCourseFilterOptions,
   buildDateLine,
   buildKpiSummary,
+  buildTaskTimelineItems,
   buildUpcomingSchedule,
   buildWeakInstances,
   buildWeeklyTrend,
   startOfWeek,
+  type TaskTimelineFilters,
 } from "@/lib/utils/teacher-dashboard-transforms";
 import { getCurrentWeekNumber } from "@/lib/utils/schedule-dates";
 
@@ -114,9 +116,20 @@ export default function TeacherDashboardPage() {
     };
   }, [data]);
 
-  const attentionItems = useMemo(
-    () => (data ? buildAttentionItems(data.taskInstances) : []),
+  const [taskFilters, setTaskFilters] = useState<TaskTimelineFilters>({
+    courseId: null,
+    taskType: null,
+  });
+
+  const courseFilterOptions = useMemo(
+    () => (data ? buildCourseFilterOptions(data.taskInstances) : []),
     [data],
+  );
+
+  const taskTimelineItems = useMemo(
+    () =>
+      data ? buildTaskTimelineItems(data.taskInstances, taskFilters) : [],
+    [data, taskFilters],
   );
 
   const weakInstances = useMemo(
@@ -198,7 +211,12 @@ export default function TeacherDashboardPage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
-          <AttentionList items={attentionItems} />
+          <AttentionList
+            items={taskTimelineItems}
+            courseOptions={courseFilterOptions}
+            filters={taskFilters}
+            onFiltersChange={setTaskFilters}
+          />
           <PerformanceChart
             overallAvg={kpi.avgScore}
             overallDelta={kpi.avgScoreDelta}
