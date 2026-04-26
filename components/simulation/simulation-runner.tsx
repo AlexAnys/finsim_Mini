@@ -1081,7 +1081,7 @@ function SimMsg({ m }: { m: TranscriptMessage }) {
             }}
           >
             <span aria-hidden>●</span>
-            <span>情绪 {moodInfo.label}</span>
+            <span>{moodInfo.label}</span>
           </div>
         )}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { toast } from "sonner";
 import {
   Bot,
@@ -24,6 +25,70 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const STUDY_BUDDY_POS_KEY = "finsim_studybuddy_pos";
+const STUDY_BUDDY_DEFAULT_OFFSET = 80;
+
+interface StudyBuddyPosition {
+  x: number;
+  y: number;
+}
+
+interface StudyBuddyDragState {
+  offsetX: number;
+  offsetY: number;
+  startX: number;
+  startY: number;
+  width: number;
+  height: number;
+  suppressClick: boolean;
+}
+
+function getDefaultStudyBuddyPosition(): StudyBuddyPosition {
+  if (typeof window === "undefined") {
+    return { x: 0, y: 0 };
+  }
+
+  return {
+    x: Math.max(0, window.innerWidth - STUDY_BUDDY_DEFAULT_OFFSET),
+    y: Math.max(0, window.innerHeight - STUDY_BUDDY_DEFAULT_OFFSET),
+  };
+}
+
+function clampStudyBuddyPosition(
+  position: StudyBuddyPosition,
+  width: number,
+  height: number
+): StudyBuddyPosition {
+  if (typeof window === "undefined") {
+    return position;
+  }
+
+  return {
+    x: Math.max(0, Math.min(position.x, window.innerWidth - width)),
+    y: Math.max(0, Math.min(position.y, window.innerHeight - height)),
+  };
+}
+
+function readStudyBuddyPosition(): StudyBuddyPosition | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(STUDY_BUDDY_POS_KEY);
+    if (!stored) return null;
+
+    const parsed = JSON.parse(stored) as Partial<StudyBuddyPosition>;
+    if (Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
+      return { x: parsed.x as number, y: parsed.y as number };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 interface StudyBuddyPost {
   id: string;
@@ -61,6 +126,136 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
   const [followUpInput, setFollowUpInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<StudyBuddyDragState | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const [position, setPosition] = useState<StudyBuddyPosition | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    const initialPosition = readStudyBuddyPosition() ?? getDefaultStudyBuddyPosition();
+    const element = buttonRef.current;
+    const width = element?.offsetWidth ?? STUDY_BUDDY_DEFAULT_OFFSET;
+    const height = element?.offsetHeight ?? STUDY_BUDDY_DEFAULT_OFFSET;
+
+    setPosition(clampStudyBuddyPosition(initialPosition, width, height));
+  }, []);
+
+  useEffect(() => {
+    if (!position) return;
+
+    try {
+      window.localStorage.setItem(STUDY_BUDDY_POS_KEY, JSON.stringify(position));
+    } catch {
+      // localStorage may be unavailable in private browsing modes.
+    }
+  }, [position]);
+
+  useEffect(() => {
+    if (!position) return;
+
+    const element = open ? panelRef.current : buttonRef.current;
+    if (!element) return;
+
+    const rect = element.getBoundingClientRect();
+    const clamped = clampStudyBuddyPosition(position, rect.width, rect.height);
+    if (clamped.x !== position.x || clamped.y !== position.y) {
+      setPosition(clamped);
+    }
+  }, [open, position]);
+
+  useEffect(() => {
+    function handleResize() {
+      const element = open ? panelRef.current : buttonRef.current;
+      if (!element) return;
+
+      const rect = element.getBoundingClientRect();
+      setPosition((current) =>
+        current ? clampStudyBuddyPosition(current, rect.width, rect.height) : current
+      );
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [open]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    function handleMouseMove(event: MouseEvent) {
+      const dragState = dragStateRef.current;
+      if (!dragState) return;
+
+      if (
+        dragState.suppressClick &&
+        (Math.abs(event.clientX - dragState.startX) > 3 ||
+          Math.abs(event.clientY - dragState.startY) > 3)
+      ) {
+        suppressNextClickRef.current = true;
+      }
+
+      setPosition(
+        clampStudyBuddyPosition(
+          {
+            x: event.clientX - dragState.offsetX,
+            y: event.clientY - dragState.offsetY,
+          },
+          dragState.width,
+          dragState.height
+        )
+      );
+    }
+
+    function handleMouseUp() {
+      dragStateRef.current = null;
+      setIsDragging(false);
+    }
+
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = "move";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging]);
+
+  function handleDragStart(
+    event: ReactMouseEvent<HTMLElement>,
+    element: HTMLElement | null,
+    options: { ignoreInteractive?: boolean; suppressClick?: boolean } = {}
+  ) {
+    if (event.button !== 0 || !element) return;
+
+    const target = event.target as HTMLElement;
+    if (
+      options.ignoreInteractive &&
+      target.closest("button, input, textarea, select, a, [role='button']")
+    ) {
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    dragStateRef.current = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      startX: event.clientX,
+      startY: event.clientY,
+      width: rect.width,
+      height: rect.height,
+      suppressClick: Boolean(options.suppressClick),
+    };
+    setPosition({ x: rect.left, y: rect.top });
+    setIsDragging(true);
+    event.preventDefault();
+  }
+
+  const floatingStyle = position
+    ? { left: position.x, top: position.y }
+    : { right: 24, bottom: 24 };
 
   async function fetchPosts() {
     setLoadingPosts(true);
@@ -188,8 +383,19 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-transform hover:scale-105 hover:bg-blue-700"
+        ref={buttonRef}
+        onMouseDown={(event) =>
+          handleDragStart(event, buttonRef.current, { suppressClick: true })
+        }
+        onClick={() => {
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
+          setOpen(true);
+        }}
+        className="fixed z-50 flex size-14 cursor-move items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-transform hover:scale-105 hover:bg-blue-700"
+        style={floatingStyle}
       >
         <Bot className="size-6" />
       </button>
@@ -197,9 +403,16 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    <div
+      ref={panelRef}
+      className="fixed z-50"
+      style={floatingStyle}
+      onMouseDown={(event) =>
+        handleDragStart(event, panelRef.current, { ignoreInteractive: true })
+      }
+    >
       <Card className="w-[340px] shadow-2xl">
-        <CardHeader className="pb-2">
+        <CardHeader className="cursor-move pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
               <Bot className="size-4" />
