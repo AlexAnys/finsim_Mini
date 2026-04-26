@@ -234,13 +234,37 @@ const MOOD_LABEL_TO_KEY: Record<string, string> = {
 
 const VALID_MOOD_KEYS = new Set(Object.values(MOOD_LABEL_TO_KEY));
 
+// PR-FIX-2 B2: mood_label 必须是 8 个合法中文标签之一（zod 严格校验）
+const VALID_MOOD_LABELS = [
+  "平静",
+  "放松",
+  "兴奋",
+  "犹豫",
+  "怀疑",
+  "略焦虑",
+  "焦虑",
+  "失望",
+] as const;
+
 const chatReplySchema = z.object({
   reply: z.string().min(1),
   mood_score: z.number().min(0).max(1),
-  mood_label: z.string(),
+  mood_label: z.enum(VALID_MOOD_LABELS),
   student_perf: z.number().min(0).max(1),
   deviated_dimensions: z.array(z.string()).default([]),
 });
+
+// PR-FIX-2 B2: NEUTRAL 兜底时同步重写 label 字段（保持 key/label 一致）
+const KEY_TO_LABEL: Record<string, string> = {
+  HAPPY: "平静",
+  RELAXED: "放松",
+  EXCITED: "兴奋",
+  NEUTRAL: "犹豫",
+  SKEPTICAL: "怀疑",
+  CONFUSED: "略焦虑",
+  ANGRY: "焦虑",
+  DISAPPOINTED: "失望",
+};
 
 export interface ChatReplyResult {
   reply: string;
@@ -258,11 +282,13 @@ export interface ChatReplyResult {
 export async function chatReply(
   userId: string,
   data: {
-    transcript: Array<{ role: string; text: string }>;
+    /** PR-FIX-2 B1: optional hint 字段允许服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段） */
+    transcript: Array<{ role: string; text: string; hint?: string }>;
     scenario: string;
     openingLine?: string;
     systemPrompt?: string;
-    /** PR-7B: turn index of the most recent hint (so service can enforce ">=3 turns since last hint") */
+    /** PR-7B: turn index of the most recent hint.
+     *  PR-FIX-2 B1: 服务端会自行推导，客户端值仅用于校验/选最大（防客户端漏报刷 token）。 */
     lastHintTurn?: number;
     /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
     objectives?: string[];
@@ -361,11 +387,35 @@ ${objectivesBlock}
 
   const candidateKey = MOOD_LABEL_TO_KEY[parsed.mood_label];
   const moodKey = candidateKey && VALID_MOOD_KEYS.has(candidateKey) ? candidateKey : "NEUTRAL";
+  // PR-FIX-2 B2: 当降级到 NEUTRAL 时同步重写 label 为"犹豫"，保持 key/label 一致
+  const moodLabel = moodKey === "NEUTRAL" && parsed.mood_label !== "犹豫"
+    ? KEY_TO_LABEL[moodKey]
+    : parsed.mood_label;
 
-  const lastHintTurn = data.lastHintTurn;
+  // PR-FIX-2 B1: 服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段）。
+  // 走 transcript 找最近一条带 hint 的 ai 消息，并以"截止该 ai 消息为止的 student-turn 计数"作为 lastHintTurn。
+  // 与客户端值取较大者（保守，节流更严，防客户端漏报刷 token）。最终 clamp 到 [0, currentTurn]。
+  let serverDerivedLastHintTurn: number | undefined;
+  {
+    let runningStudentTurns = 0;
+    for (const m of data.transcript) {
+      if (m.role === "student") runningStudentTurns++;
+      if (m.role === "ai" && typeof m.hint === "string" && m.hint.length > 0) {
+        serverDerivedLastHintTurn = runningStudentTurns;
+      }
+    }
+  }
+  const clientLastHintTurn =
+    typeof data.lastHintTurn === "number"
+      ? Math.max(0, Math.min(data.lastHintTurn, currentTurn))
+      : undefined;
+  const effectiveLastHintTurn =
+    serverDerivedLastHintTurn !== undefined && clientLastHintTurn !== undefined
+      ? Math.max(serverDerivedLastHintTurn, clientLastHintTurn)
+      : (serverDerivedLastHintTurn ?? clientLastHintTurn);
   const turnsSinceHint =
-    typeof lastHintTurn === "number"
-      ? currentTurn - lastHintTurn
+    typeof effectiveLastHintTurn === "number"
+      ? currentTurn - effectiveLastHintTurn
       : currentTurn >= 3
         ? 3
         : 0;
@@ -385,7 +435,7 @@ ${objectivesBlock}
 
   return {
     reply: parsed.reply,
-    mood: { score: parsed.mood_score, key: moodKey, label: parsed.mood_label },
+    mood: { score: parsed.mood_score, key: moodKey, label: moodLabel },
     hint,
     studentPerf: parsed.student_perf,
     deviatedDimensions: parsed.deviated_dimensions,

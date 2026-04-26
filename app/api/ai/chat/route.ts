@@ -19,6 +19,8 @@ const chatSchema = z.object({
       z.object({
         role: z.string(),
         text: z.string().max(MAX_TRANSCRIPT_TEXT_CHARS, "单条消息超长"),
+        // PR-FIX-2 B1: 服务端从 transcript 推导 lastHintTurn，需要可选 hint 字段
+        hint: z.string().max(MAX_TRANSCRIPT_TEXT_CHARS).optional(),
       })
     )
     .max(MAX_TRANSCRIPT_ENTRIES, "对话历史超长"),
@@ -29,7 +31,8 @@ const chatSchema = z.object({
     .max(MAX_SYSTEM_PROMPT_CHARS, "系统提示超长")
     .optional(),
   /** PR-7B: caller (frontend) tracks the turn index of the last hint emitted.
-   *  Service uses it to enforce "≥3 turns since last hint" for B3. */
+   *  Service uses it to enforce "≥3 turns since last hint" for B3.
+   *  PR-FIX-2 B1: 服务端会用 transcript 自行推导，客户端值仅作为校验参考，不可信赖。 */
   lastHintTurn: z.number().int().nonnegative().optional(),
   /** PR-7B: rubric criterion names used to grade student_perf + name deviated_dimensions */
   objectives: z.array(z.string()).max(20).optional(),

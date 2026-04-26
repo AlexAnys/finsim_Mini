@@ -734,7 +734,7 @@ model TaskInstanceAnalytics {
 model AnalysisReport {
   id             String   @id @default(uuid())
   taskId         String?
-  taskInstanceId String?
+  taskInstanceId String?  @unique
   createdBy      String
   studentCount   Int
   report         Json
@@ -749,7 +749,6 @@ model AnalysisReport {
 
   @@index([createdBy])
   @@index([taskId])
-  @@index([taskInstanceId])
 }
 
 // ============================================

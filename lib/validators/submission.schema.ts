@@ -29,12 +29,15 @@ export const allocationSnapshotSchema = z.object({
   /** ISO timestamp */
   ts: z.string(),
   /** 当前快照下的配比（来自所有 sections 拍平后的 [{label, value}]） */
-  allocations: z.array(
-    z.object({
-      label: z.string(),
-      value: z.number().min(0).max(100),
-    })
-  ),
+  // PR-FIX-2 B5: 单 snapshot allocations 上限 20 项（防客户端塞过大数组）
+  allocations: z
+    .array(
+      z.object({
+        label: z.string(),
+        value: z.number().min(0).max(100),
+      }),
+    )
+    .max(20),
 });
 
 // 资产配置（PR-7C：sections 必填；snapshots 可选）
@@ -46,7 +49,8 @@ export const assetAllocationSchema = z.object({
       value: z.number().min(0).max(100),
     })),
   })),
-  snapshots: z.array(allocationSnapshotSchema).optional(),
+  // PR-FIX-2 B5: snapshots 数组上限 20 项（防客户端塞过大数组刷 AI token）
+  snapshots: z.array(allocationSnapshotSchema).max(20).optional(),
 });
 
 // 评分标准分项结果

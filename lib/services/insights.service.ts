@@ -79,21 +79,26 @@ export interface AggregateInsightsResult {
   allocationSnapshotsCount?: number;
 }
 
+// PR-FIX-2 B3: arrays 加 .default([]) 防 AI 输出 missing field 时 zod 解析失败
 const aggregateSchema = z.object({
-  commonIssues: z.array(
-    z.object({
-      title: z.string(),
-      description: z.string(),
-      studentCount: z.number(),
-    })
-  ),
-  highlights: z.array(
-    z.object({
-      submissionId: z.string(),
-      studentName: z.string(),
-      quote: z.string(),
-    })
-  ),
+  commonIssues: z
+    .array(
+      z.object({
+        title: z.string(),
+        description: z.string(),
+        studentCount: z.number(),
+      }),
+    )
+    .default([]),
+  highlights: z
+    .array(
+      z.object({
+        submissionId: z.string(),
+        studentName: z.string(),
+        quote: z.string(),
+      }),
+    )
+    .default([]),
 });
 
 /**
@@ -108,9 +113,9 @@ export async function getCachedInsights(
   // createdBy is kept as audit metadata (last trigger) but is not part of the lookup
   // key — otherwise teacher B would re-trigger AI aggregation already done by teacher A
   // for the same submissions, wasting tokens and producing inconsistent timestamps.
-  const report = await prisma.analysisReport.findFirst({
+  // PR-FIX-2 B6: 使用 findUnique（schema 加了 @unique([taskInstanceId])，单 row per instance）
+  const report = await prisma.analysisReport.findUnique({
     where: { taskInstanceId: instanceId },
-    orderBy: { createdAt: "desc" },
   });
   if (!report || !report.commonIssues || !report.aggregatedAt) return null;
 
@@ -358,13 +363,20 @@ ${corpus}
   ]
 }`;
 
-  const ai = await aiGenerateJSON(
-    "insights",
-    teacherId,
-    systemPrompt,
-    userPrompt,
-    aggregateSchema
-  );
+  // PR-FIX-2 B3: AI 失败时仍保存 weaknessConcepts + 空 issues/highlights（降级路径，不丢历史 conceptTags 信息）
+  let ai: { commonIssues: Array<{ title: string; description: string; studentCount: number }>; highlights: Array<{ submissionId: string; studentName: string; quote: string }> };
+  try {
+    ai = await aiGenerateJSON(
+      "insights",
+      teacherId,
+      systemPrompt,
+      userPrompt,
+      aggregateSchema
+    );
+  } catch (err) {
+    console.error("[insights] AI 聚合失败，降级写空 issues/highlights：", err);
+    ai = { commonIssues: [], highlights: [] };
+  }
 
   const aggregated: AggregatedInsights = {
     commonIssues: ai.commonIssues.slice(0, 5),
@@ -384,41 +396,32 @@ ${corpus}
       ? (moodTimeline as unknown as import("@prisma/client").Prisma.InputJsonValue)
       : Prisma.DbNull;
 
-  // Persist (upsert by instanceId: ONE row per instance, shared across all
-  // teachers/admins. createdBy reflects the most recent trigger for audit only.)
-  const existing = await prisma.analysisReport.findFirst({
-    where: { taskInstanceId: instanceId },
-    orderBy: { createdAt: "desc" },
-  });
+  // PR-FIX-2 B6: 使用 prisma.analysisReport.upsert 替代 findFirst+if-else create/update。
+  // schema 加 @unique([taskInstanceId])，one-row-per-instance 由 DB 保证（防并发重复 cache）。
+  // createdBy 反映最新触发者（仅 audit 用，不参与查询 key）。
   const aggregatedAt = new Date();
-  let saved;
-  if (existing) {
-    saved = await prisma.analysisReport.update({
-      where: { id: existing.id },
-      data: {
-        createdBy: teacherId,
-        studentCount: evaluations.length,
-        commonIssues: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        aggregatedAt,
-        report: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        moodTimeline: moodTimelineJson,
-      },
-    });
-  } else {
-    saved = await prisma.analysisReport.create({
-      data: {
-        taskInstanceId: instanceId,
-        taskId: instance.taskId,
-        createdBy: teacherId,
-        studentCount: evaluations.length,
-        report: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        commonIssues:
-          aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
-        aggregatedAt,
-        moodTimeline: moodTimelineJson,
-      },
-    });
-  }
+  const saved = await prisma.analysisReport.upsert({
+    where: { taskInstanceId: instanceId },
+    create: {
+      taskInstanceId: instanceId,
+      taskId: instance.taskId,
+      createdBy: teacherId,
+      studentCount: evaluations.length,
+      report: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      commonIssues:
+        aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      aggregatedAt,
+      moodTimeline: moodTimelineJson,
+    },
+    update: {
+      createdBy: teacherId,
+      studentCount: evaluations.length,
+      commonIssues: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      aggregatedAt,
+      report: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      moodTimeline: moodTimelineJson,
+    },
+  });
 
   return {
     commonIssues: aggregated,

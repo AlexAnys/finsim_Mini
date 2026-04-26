@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { evaluateSimulation } from "@/lib/services/ai.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
+import { assetAllocationSchema } from "@/lib/validators/submission.schema";
 import { z } from "zod";
 
 const evaluateSchema = z.object({
@@ -17,12 +18,8 @@ const evaluateSchema = z.object({
     description: z.string().optional(),
     maxPoints: z.number(),
   })),
-  assets: z.object({
-    sections: z.array(z.object({
-      label: z.string(),
-      items: z.array(z.object({ label: z.string(), value: z.number() })),
-    })),
-  }).optional(),
+  // PR-FIX-2 B4: 复用 assetAllocationSchema（含 snapshots），原 inline schema 缺 snapshots 导致 zod strip
+  assets: assetAllocationSchema.optional(),
 });
 
 export async function POST(request: NextRequest) {

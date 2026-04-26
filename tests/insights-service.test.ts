@@ -4,7 +4,13 @@ vi.mock("@/lib/db/prisma", () => ({
   prisma: {
     taskInstance: { findUnique: vi.fn() },
     submission: { findMany: vi.fn() },
-    analysisReport: { findFirst: vi.fn(), update: vi.fn(), create: vi.fn() },
+    analysisReport: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      create: vi.fn(),
+      upsert: vi.fn(),
+    },
   },
 }));
 
@@ -25,13 +31,13 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("getCachedInsights", () => {
   it("returns null when no AnalysisReport exists", async () => {
-    mk(prisma.analysisReport.findFirst).mockResolvedValue(null);
+    mk(prisma.analysisReport.findUnique).mockResolvedValue(null);
     const result = await getCachedInsights("ti1", "teacher1");
     expect(result).toBeNull();
   });
 
   it("returns null when report exists but has no commonIssues yet", async () => {
-    mk(prisma.analysisReport.findFirst).mockResolvedValue({
+    mk(prisma.analysisReport.findUnique).mockResolvedValue({
       id: "r1",
       commonIssues: null,
       aggregatedAt: null,
@@ -43,7 +49,7 @@ describe("getCachedInsights", () => {
 
   it("returns parsed cache when report has aggregated data", async () => {
     const aggregatedAt = new Date("2026-04-25T10:00:00Z");
-    mk(prisma.analysisReport.findFirst).mockResolvedValue({
+    mk(prisma.analysisReport.findUnique).mockResolvedValue({
       id: "r1",
       commonIssues: { commonIssues: [], highlights: [], weaknessConcepts: [] },
       aggregatedAt,
@@ -155,8 +161,7 @@ describe("aggregateInsights", () => {
         { submissionId: "s1", studentName: "甲", quote: "好答" },
       ],
     });
-    mk(prisma.analysisReport.findFirst).mockResolvedValue(null);
-    mk(prisma.analysisReport.create).mockResolvedValue({ id: "r-new" });
+    mk(prisma.analysisReport.upsert).mockResolvedValue({ id: "r-new" });
 
     const result = await aggregateInsights("ti1", "teacher1");
 
@@ -178,8 +183,9 @@ describe("aggregateInsights", () => {
       expect.stringContaining("学生反馈片段"),
       expect.anything()
     );
-    // Verify create was called (no existing report)
-    expect(mk(prisma.analysisReport.create)).toHaveBeenCalledTimes(1);
+    // PR-FIX-2 B6: 现在用 upsert 替代 findFirst+create/update
+    expect(mk(prisma.analysisReport.upsert)).toHaveBeenCalledTimes(1);
+    expect(mk(prisma.analysisReport.create)).not.toHaveBeenCalled();
     expect(mk(prisma.analysisReport.update)).not.toHaveBeenCalled();
   });
 
@@ -207,14 +213,15 @@ describe("aggregateInsights", () => {
       commonIssues: [],
       highlights: [],
     });
-    mk(prisma.analysisReport.findFirst).mockResolvedValue({ id: "r-existing" });
-    mk(prisma.analysisReport.update).mockResolvedValue({ id: "r-existing" });
+    mk(prisma.analysisReport.upsert).mockResolvedValue({ id: "r-existing" });
 
     const result = await aggregateInsights("ti1", "teacher1");
 
     expect(result.reportId).toBe("r-existing");
-    expect(mk(prisma.analysisReport.update)).toHaveBeenCalledTimes(1);
+    // PR-FIX-2 B6: upsert 一次，DB 决定 insert vs update（取决于 unique constraint hit）
+    expect(mk(prisma.analysisReport.upsert)).toHaveBeenCalledTimes(1);
     expect(mk(prisma.analysisReport.create)).not.toHaveBeenCalled();
+    expect(mk(prisma.analysisReport.update)).not.toHaveBeenCalled();
   });
 
   it("counts concept tags from quiz/subjective sources too", async () => {
@@ -246,8 +253,7 @@ describe("aggregateInsights", () => {
       },
     ]);
     mk(aiGenerateJSON).mockResolvedValue({ commonIssues: [], highlights: [] });
-    mk(prisma.analysisReport.findFirst).mockResolvedValue(null);
-    mk(prisma.analysisReport.create).mockResolvedValue({ id: "r1" });
+    mk(prisma.analysisReport.upsert).mockResolvedValue({ id: "r1" });
 
     const result = await aggregateInsights("ti1", "t1");
     expect(result.commonIssues.weaknessConcepts).toContainEqual({
