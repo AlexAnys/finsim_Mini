@@ -2,6 +2,54 @@ import { prisma } from "@/lib/db/prisma";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validators/task.schema";
 
 // ============================================
+// PR-FIX-4 D1: 兼容旧 5 档 [MOOD:] 模板
+// ============================================
+
+/**
+ * 剥除 systemPrompt 中残留的旧 5 档 [MOOD:] 指令块
+ * （PR-7B 已切到 8 档 JSON 协议，运行时由 ai.service.chatReply 注入）。
+ *
+ * 匹配模式：
+ * - 整段 `\n\n【情绪标签】\n在每条回复末尾附加：[MOOD: ...]\n- HAPPY: ... - ANGRY: ...`
+ * - 落单的 `[MOOD: HAPPY|NEUTRAL|...]` 列表残片
+ *
+ * 不动 transcript 里的 [MOOD:] tag（那是 evaluation 阶段的 legacy data，
+ * lib/services/ai.service.ts evaluation prompt 仍兼容处理）。
+ */
+export function stripLegacyMoodBlock(prompt: string | null | undefined): string | undefined {
+  if (!prompt) return prompt ?? undefined;
+  // 整段【情绪标签】块（含末尾说明 5 档语义）
+  let cleaned = prompt.replace(
+    /\s*【情绪标签】[\s\S]*?(?:失望|ANGRY|DISAPPOINTED)[^\n]*?$/m,
+    "",
+  );
+  // 兜底：落单的 [MOOD: HAPPY|NEUTRAL|... ] 列表
+  cleaned = cleaned.replace(
+    /\s*\[MOOD:\s*HAPPY\s*\|[^\]]*\]\s*/g,
+    "",
+  );
+  // 末尾"在每条回复末尾附加"句残片
+  cleaned = cleaned.replace(
+    /\s*在每条回复末尾附加[：:][^\n]*\n?/g,
+    "",
+  );
+  return cleaned.trim() === "" ? undefined : cleaned.trimEnd();
+}
+
+/**
+ * 对 simulationConfig 输入做 D1 兼容处理：仅 strip systemPrompt 字段，
+ * 其他字段 byte-EQ 透传。教师编辑保存（update）/ 新建（create）入口都走这个函数。
+ */
+function sanitizeSimulationConfig<
+  T extends { systemPrompt?: string | null } | undefined,
+>(config: T): T {
+  if (!config) return config;
+  const cleaned = stripLegacyMoodBlock(config.systemPrompt);
+  if (cleaned === config.systemPrompt) return config;
+  return { ...config, systemPrompt: cleaned };
+}
+
+// ============================================
 // 任务定义 CRUD
 // ============================================
 
@@ -23,8 +71,9 @@ export async function createTask(creatorId: string, input: CreateTaskInput) {
 
     // 2. 创建类型专属配置
     if (input.taskType === "simulation" && input.simulationConfig) {
+      const safeConfig = sanitizeSimulationConfig(input.simulationConfig);
       await tx.simulationConfig.create({
-        data: { taskId: task.id, ...input.simulationConfig },
+        data: { taskId: task.id, ...safeConfig },
       });
     }
     if (input.taskType === "quiz" && input.quizConfig) {
@@ -154,10 +203,11 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
 
     // 更新类型专属配置
     if (input.simulationConfig && existing.taskType === "simulation") {
+      const safeConfig = sanitizeSimulationConfig(input.simulationConfig);
       await tx.simulationConfig.upsert({
         where: { taskId },
-        create: { taskId, ...input.simulationConfig },
-        update: input.simulationConfig,
+        create: { taskId, ...safeConfig },
+        update: safeConfig,
       });
     }
     if (input.quizConfig && existing.taskType === "quiz") {
