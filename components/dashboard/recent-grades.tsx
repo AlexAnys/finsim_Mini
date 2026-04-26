@@ -5,6 +5,7 @@ import { MessageSquare, HelpCircle, FileText } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { SubmissionAnalysisStatus } from "@/components/instance-detail/submissions-utils";
 
 export interface RecentGradeItem {
   id: string;
@@ -14,6 +15,8 @@ export interface RecentGradeItem {
   score: number;
   maxScore: number;
   href?: string;
+  // PR-SIM-1c · D1 防作弊：未公布的不渲染分数，改 chip
+  analysisStatus?: SubmissionAnalysisStatus;
 }
 
 interface RecentGradesProps {
@@ -76,6 +79,7 @@ export function RecentGrades({ items }: RecentGradesProps) {
             const cfg = TYPE_CONFIG[r.taskType];
             const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
             const Icon = cfg?.icon;
+            const isReleased = !r.analysisStatus || r.analysisStatus === "released";
             const body = (
               <div
                 className={cn(
@@ -105,18 +109,38 @@ export function RecentGrades({ items }: RecentGradesProps) {
                 <div className="fs-num hidden w-16 shrink-0 text-right text-[11.5px] text-ink-4 md:block">
                   {formatDate(r.date)}
                 </div>
-                <div className="flex w-[140px] shrink-0 items-center gap-2.5">
-                  <div className="h-1 flex-1 overflow-hidden rounded-sm bg-line-2">
-                    <div
-                      className={cn("h-full rounded-sm", barColor(pct))}
-                      style={{ width: `${pct}%` }}
-                    />
+                {isReleased ? (
+                  <div className="flex w-[140px] shrink-0 items-center gap-2.5">
+                    <div className="h-1 flex-1 overflow-hidden rounded-sm bg-line-2">
+                      <div
+                        className={cn("h-full rounded-sm", barColor(pct))}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="fs-num w-[50px] text-right text-[13px] font-semibold">
+                      <span className="text-ink">{r.score}</span>
+                      <span className="text-ink-5">/{r.maxScore}</span>
+                    </div>
                   </div>
-                  <div className="fs-num w-[50px] text-right text-[13px] font-semibold">
-                    <span className="text-ink">{r.score}</span>
-                    <span className="text-ink-5">/{r.maxScore}</span>
+                ) : (
+                  <div className="flex w-[140px] shrink-0 justify-end">
+                    {r.analysisStatus === "pending" ? (
+                      <Badge
+                        variant="outline"
+                        className="bg-muted text-muted-foreground border-line-2"
+                      >
+                        等待 AI 分析
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="bg-ochre/10 text-ochre border-ochre/20"
+                      >
+                        已分析 · 等待教师公布
+                      </Badge>
+                    )}
                   </div>
-                </div>
+                )}
               </div>
             );
             return r.href ? (

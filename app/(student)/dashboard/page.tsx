@@ -22,6 +22,10 @@ import {
   type RecentGradeItem,
 } from "@/components/dashboard/recent-grades";
 import {
+  deriveAnalysisStatus,
+  type SubmissionAnalysisStatus,
+} from "@/components/instance-detail/submissions-utils";
+import {
   CourseProgressSidebar,
   type CourseProgressItem,
 } from "@/components/dashboard/course-progress-sidebar";
@@ -217,14 +221,24 @@ export default function StudentDashboardPage() {
     for (const t of data.tasks) {
       tasksById.set(t.id, t);
     }
+    // PR-SIM-1c · D1 防作弊：保留 submitted/grading/graded（不仅 graded+score!=null），
+    // 让 RecentGrades 卡片基于 analysisStatus chip 渲染未公布的状态
     return data.recentSubmissions
-      .filter((s) => s.status === "graded" && s.score != null)
+      .filter(
+        (s) => s.status === "submitted" || s.status === "grading" || s.status === "graded",
+      )
       .slice(0, 3)
       .map((s) => {
         const parent = s.taskInstanceId
           ? (tasksById.get(s.taskInstanceId) as Record<string, unknown> | undefined)
           : undefined;
         const taskObj = parent?.task as Record<string, unknown> | undefined;
+        const analysisStatus: SubmissionAnalysisStatus =
+          (s.analysisStatus as SubmissionAnalysisStatus | undefined) ??
+          deriveAnalysisStatus({
+            status: String(s.status),
+            releasedAt: (s.releasedAt ?? null) as string | null,
+          });
         return {
           id: String(s.id),
           taskName:
@@ -237,6 +251,7 @@ export default function StudentDashboardPage() {
           score: Number(s.score) || 0,
           maxScore: Number(s.maxScore) || 100,
           href: s.taskInstanceId ? `/tasks/${s.taskInstanceId}` : undefined,
+          analysisStatus,
         };
       });
   }, [data]);
@@ -308,25 +323,32 @@ export default function StudentDashboardPage() {
     weekStart.setDate(weekStart.getDate() - dayOfWeek);
     const weekStartMs = weekStart.getTime();
 
-    const recentGradedSubs = data.recentSubmissions.filter(
-      (s) => s.status === "graded" && s.score != null,
-    );
+    // PR-SIM-1c · D1 防作弊：avgScore 仅基于"已公布"提交，未公布的不算入 KPI
+    const releasedSubs = data.recentSubmissions.filter((s) => {
+      const status =
+        (s.analysisStatus as SubmissionAnalysisStatus | undefined) ??
+        deriveAnalysisStatus({
+          status: String(s.status),
+          releasedAt: (s.releasedAt ?? null) as string | null,
+        });
+      return status === "released" && s.score != null;
+    });
     const completedThisWeek = data.recentSubmissions.filter((s) => {
       const ts = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
       return ts >= weekStartMs;
     }).length;
 
     const avgScore =
-      recentGradedSubs.length > 0
+      releasedSubs.length > 0
         ? Math.round(
-            (recentGradedSubs.reduce((acc, s) => {
+            (releasedSubs.reduce((acc, s) => {
               const norm =
                 Number(s.maxScore) > 0
                   ? (Number(s.score) / Number(s.maxScore)) * 100
                   : Number(s.score);
               return acc + norm;
             }, 0) /
-              recentGradedSubs.length) *
+              releasedSubs.length) *
               10,
           ) / 10
         : null;
@@ -335,7 +357,7 @@ export default function StudentDashboardPage() {
       pending,
       completedThisWeek,
       avgScore,
-      graded: recentGradedSubs.length,
+      graded: releasedSubs.length,
     };
   }, [data]);
 
@@ -420,7 +442,7 @@ export default function StudentDashboardPage() {
         <KpiStatCard
           label="平均得分"
           value={kpi.avgScore != null ? kpi.avgScore.toFixed(1) : "—"}
-          sub={kpi.graded > 0 ? `基于 ${kpi.graded} 次批改` : "暂无批改数据"}
+          sub={kpi.graded > 0 ? `基于 ${kpi.graded} 次公布成绩` : "暂无公布成绩"}
           icon={TrendingUp}
           accent="success"
           trendUp={kpi.avgScore != null && kpi.avgScore >= 80}

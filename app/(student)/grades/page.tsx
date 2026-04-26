@@ -24,6 +24,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  deriveAnalysisStatus,
+  type SubmissionAnalysisStatus,
+} from "@/components/instance-detail/submissions-utils";
 
 interface Submission {
   id: string;
@@ -36,6 +40,9 @@ interface Submission {
   evaluation: Record<string, unknown> | null;
   submittedAt: string;
   gradedAt: string | null;
+  // PR-SIM-1c · D1 防作弊：后端 GET /api/submissions 已透传；客户端 fallback 派生
+  releasedAt?: string | null;
+  analysisStatus?: SubmissionAnalysisStatus;
   task: {
     id: string;
     taskName: string;
@@ -184,13 +191,24 @@ export default function StudentGradesPage() {
     );
   }
 
+  // 客户端兜底派生：后端没透传时以 status + releasedAt 计算
+  function getAnalysisStatus(s: Submission): SubmissionAnalysisStatus {
+    return (
+      s.analysisStatus ??
+      deriveAnalysisStatus({ status: s.status, releasedAt: s.releasedAt ?? null })
+    );
+  }
+
   const filteredSubmissions = activeTab === "all"
     ? submissions
     : submissions.filter((s) => s.taskType === activeTab);
 
-  const gradedSubmissions = submissions.filter((s) => s.status === "graded" && s.score !== null);
-  const avgScore = gradedSubmissions.length > 0
-    ? Math.round(gradedSubmissions.reduce((sum, s) => sum + ((s.score! / (s.maxScore || 1)) * 100), 0) / gradedSubmissions.length)
+  // PR-SIM-1c · D1：仅"已公布"提交计入平均分（未公布的 score 已被后端剥离）
+  const releasedSubmissions = submissions.filter(
+    (s) => getAnalysisStatus(s) === "released" && s.score !== null,
+  );
+  const avgScore = releasedSubmissions.length > 0
+    ? Math.round(releasedSubmissions.reduce((sum, s) => sum + ((s.score! / (s.maxScore || 1)) * 100), 0) / releasedSubmissions.length)
     : 0;
 
   return (
@@ -216,8 +234,8 @@ export default function StudentGradesPage() {
           <CardContent className="pt-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">已批改</p>
-                <p className="text-2xl font-bold mt-1">{gradedSubmissions.length}</p>
+                <p className="text-sm text-muted-foreground">已公布</p>
+                <p className="text-2xl font-bold mt-1">{releasedSubmissions.length}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                 <Trophy className="h-5 w-5 text-primary" />
@@ -230,7 +248,7 @@ export default function StudentGradesPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">平均分</p>
-                <p className="text-2xl font-bold mt-1">{avgScore}%</p>
+                <p className="text-2xl font-bold mt-1">{releasedSubmissions.length > 0 ? `${avgScore}%` : "—"}</p>
               </div>
               <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                 <Trophy className="h-5 w-5 text-primary" />
@@ -272,6 +290,8 @@ export default function StudentGradesPage() {
                     {filteredSubmissions.map((sub) => {
                       const Icon = taskTypeIcons[sub.taskType] || FileText;
                       const statusCfg = statusLabels[sub.status] || statusLabels.submitted;
+                      const analysis = getAnalysisStatus(sub);
+                      const isReleased = analysis === "released";
                       return (
                         <TableRow key={sub.id}>
                           <TableCell className="font-medium">
@@ -290,16 +310,32 @@ export default function StudentGradesPage() {
                             <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
                           </TableCell>
                           <TableCell>
-                            {sub.status === "graded" && sub.score !== null ? (
+                            {analysis === "pending" && (
+                              <Badge
+                                variant="outline"
+                                className="bg-muted text-muted-foreground border-line-2"
+                              >
+                                等待 AI 分析
+                              </Badge>
+                            )}
+                            {analysis === "analyzed_unreleased" && (
+                              <Badge
+                                variant="outline"
+                                className="bg-ochre/10 text-ochre border-ochre/20"
+                              >
+                                已分析 · 等待教师公布
+                              </Badge>
+                            )}
+                            {isReleased && sub.score !== null ? (
                               <span className="font-mono font-medium">
                                 {sub.score}/{sub.maxScore}
                               </span>
-                            ) : (
+                            ) : isReleased ? (
                               <span className="text-muted-foreground">-</span>
-                            )}
+                            ) : null}
                           </TableCell>
                           <TableCell>
-                            {sub.status === "graded" && sub.evaluation && (
+                            {isReleased && sub.evaluation && (
                               <Dialog>
                                 <DialogTrigger asChild>
                                   <Button size="sm" variant="outline">详情</Button>
