@@ -68,14 +68,14 @@ describe("PR-FIX-1 UX4 · chat student-role systemPrompt rejection", () => {
   });
 
   it("teacher passing systemPrompt → allowed (向导预览)", () => {
-    const role = "teacher";
+    const role: string = "teacher";
     const systemPromptProvided = "preview mode prompt";
     const shouldReject = systemPromptProvided !== undefined && role === "student";
     expect(shouldReject).toBe(false);
   });
 
   it("admin passing systemPrompt → allowed", () => {
-    const role = "admin";
+    const role: string = "admin";
     const systemPromptProvided = "...";
     const shouldReject = systemPromptProvided !== undefined && role === "student";
     expect(shouldReject).toBe(false);
