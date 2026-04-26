@@ -104,8 +104,12 @@ export async function getCachedInsights(
   instanceId: string,
   teacherId: string
 ): Promise<AggregateInsightsResult | null> {
+  // Cache is shared across all teachers/admins authorized to view this instance.
+  // createdBy is kept as audit metadata (last trigger) but is not part of the lookup
+  // key — otherwise teacher B would re-trigger AI aggregation already done by teacher A
+  // for the same submissions, wasting tokens and producing inconsistent timestamps.
   const report = await prisma.analysisReport.findFirst({
-    where: { taskInstanceId: instanceId, createdBy: teacherId },
+    where: { taskInstanceId: instanceId },
     orderBy: { createdAt: "desc" },
   });
   if (!report || !report.commonIssues || !report.aggregatedAt) return null;
@@ -380,9 +384,11 @@ ${corpus}
       ? (moodTimeline as unknown as import("@prisma/client").Prisma.InputJsonValue)
       : Prisma.DbNull;
 
-  // Persist (upsert by instanceId+teacher: keep one row per teacher per instance)
+  // Persist (upsert by instanceId: ONE row per instance, shared across all
+  // teachers/admins. createdBy reflects the most recent trigger for audit only.)
   const existing = await prisma.analysisReport.findFirst({
-    where: { taskInstanceId: instanceId, createdBy: teacherId },
+    where: { taskInstanceId: instanceId },
+    orderBy: { createdAt: "desc" },
   });
   const aggregatedAt = new Date();
   let saved;
@@ -390,6 +396,7 @@ ${corpus}
     saved = await prisma.analysisReport.update({
       where: { id: existing.id },
       data: {
+        createdBy: teacherId,
         studentCount: evaluations.length,
         commonIssues: aggregated as unknown as import("@prisma/client").Prisma.InputJsonValue,
         aggregatedAt,
