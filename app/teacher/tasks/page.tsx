@@ -141,10 +141,10 @@ export default function TeacherTasksPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">任务管理</h1>
-        <Button asChild>
-          <Link href="/teacher/tasks/new">
+        <Button asChild variant="outline">
+          <Link href="/teacher/courses">
             <Plus className="size-4 mr-2" />
-            创建任务
+            前往课程添加任务
           </Link>
         </Button>
       </div>

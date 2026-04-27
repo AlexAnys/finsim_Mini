@@ -1,43 +1,46 @@
 "use client";
 
+/**
+ * PR-COURSE-1+2 · 教师课程编辑器（联合 PR）
+ *
+ * 重做范围：
+ *
+ * **C1 · 块编辑面板（5.2.1）** — 走方向 A：删除原右侧 BlockEditPanel 整列，
+ *   把内容块管理 + 小节标题编辑 inline 化到课程结构中（点击小节名 inline 重命名；
+ *   点击内容块行 inline 展开编辑器；同时只展开一个块）。结果：左 TOC + 中间结构
+ *   两列布局，TOC 仅作为跳转锚点；编辑全部在结构里。
+ *
+ * **C2 · 任务向导整合（5.2.2）** — 删除 `/teacher/tasks/new` 整个路由，把 4 步
+ *   向导整合到课程编辑器内部 modal（`TaskWizardModal`）。每个 slot 单元格右上角
+ *   有 "+ 任务" 按钮触发；wizard 完成后自动 POST tasks → tasks-instances → publish
+ *   流，回调 fetchCourse 刷新视图。
+ *
+ * 拆文件：
+ * - `components/teacher-course-edit/inline-section-row.tsx` — 单小节行（含 3 slot）
+ * - `components/teacher-course-edit/chapter-section-list.tsx` — 章节列表（含折叠）
+ * - `components/teacher-course-edit/task-wizard-modal.tsx` — wizard modal 容器
+ * - 既有 EditorHero / TocSidebar 不变（仍复用）
+ * - 既有 BlockEditPanel 文件保留但不再被引用（见 build 报告 — 留作他途参考；如要
+ *   彻底删请单独 PR 跑一遍 grep，避免本 PR 二次扩 scope）
+ */
+
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import {
   BookOpen,
   Loader2,
   AlertCircle,
-  ChevronRight,
-  ChevronDown,
-  Plus,
-  Users,
-  FileText,
-  MessageSquare,
-  HelpCircle,
-  Trash2,
   CalendarDays,
   Pencil,
   Check,
   X,
-  Upload,
-  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -53,32 +56,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
 import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
 import { EditorHero } from "@/components/teacher-course-edit/editor-hero";
 import { TocSidebar } from "@/components/teacher-course-edit/toc-sidebar";
+import { ChapterSectionList } from "@/components/teacher-course-edit/chapter-section-list";
 import {
-  BlockEditPanel,
-  type EditableSectionContext,
-} from "@/components/teacher-course-edit/block-edit-panel";
-import { computeReorderSwap } from "@/lib/utils/block-reorder";
+  TaskWizardModal,
+  type WizardModalContext,
+} from "@/components/teacher-course-edit/task-wizard-modal";
 import {
   buildTocTree,
   buildCourseCounts,
   semesterDateDisplay,
+  type BlockType,
+  type SlotType,
 } from "@/lib/utils/course-editor-transforms";
-import { cn } from "@/lib/utils";
 
-interface TaskInstance {
+// ---------- API types ----------
+
+interface ApiTaskInstance {
   id: string;
   title: string;
   description: string | null;
@@ -89,7 +87,7 @@ interface TaskInstance {
   createdAt: string;
 }
 
-interface ContentBlock {
+interface ApiContentBlock {
   id: string;
   blockType: string;
   slot: string;
@@ -97,19 +95,19 @@ interface ContentBlock {
   data: Record<string, unknown> | null;
 }
 
-interface Section {
+interface ApiSection {
   id: string;
   title: string;
   order: number;
-  contentBlocks: ContentBlock[];
-  taskInstances: TaskInstance[];
+  contentBlocks: ApiContentBlock[];
+  taskInstances: ApiTaskInstance[];
 }
 
-interface Chapter {
+interface ApiChapter {
   id: string;
   title: string;
   order: number;
-  sections: Section[];
+  sections: ApiSection[];
 }
 
 interface CourseDetail {
@@ -119,92 +117,8 @@ interface CourseDetail {
   description: string | null;
   semesterStartDate: string | null;
   class: { id: string; name: string };
-  chapters: Chapter[];
+  chapters: ApiChapter[];
 }
-
-interface TaskDef {
-  id: string;
-  taskName: string;
-  taskType: string;
-  scoringCriteria?: Array<{ id: string; name: string; maxPoints: number }>;
-}
-
-type SlotType = "pre" | "in" | "post";
-
-const slotLabels: Record<SlotType, string> = {
-  pre: "课前",
-  in: "课中",
-  post: "课后",
-};
-
-const slots: SlotType[] = ["pre", "in", "post"];
-
-const statusColors: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  published: "bg-green-100 text-green-700",
-  closed: "bg-yellow-100 text-yellow-700",
-  archived: "bg-red-100 text-red-700",
-};
-
-const statusLabels: Record<string, string> = {
-  draft: "草稿",
-  published: "已发布",
-  closed: "已关闭",
-  archived: "已归档",
-};
-
-const taskTypeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  simulation: MessageSquare,
-  quiz: HelpCircle,
-  subjective: FileText,
-};
-
-const taskTypeLabels: Record<string, string> = {
-  simulation: "模拟对话",
-  quiz: "测验",
-  subjective: "主观题",
-};
-
-// ---------- Inline task creation types ----------
-
-interface ScoringCriterion {
-  name: string;
-  maxPoints: number;
-  description: string;
-}
-
-interface AllocationItem {
-  label: string;
-}
-
-interface AllocationSection {
-  label: string;
-  items: AllocationItem[];
-}
-
-type QuizQuestionType = "single_choice" | "multiple_choice" | "true_false" | "short_answer";
-
-interface QuizOption {
-  id: string;
-  text: string;
-}
-
-interface QuizQuestion {
-  type: QuizQuestionType;
-  stem: string;
-  options: QuizOption[];
-  correctOptionIds: string[];
-  correctAnswer: string;
-  points: number;
-  explanation: string;
-}
-
-const quizQuestionTypeLabels: Record<QuizQuestionType, string> = {
-  single_choice: "单选题",
-  multiple_choice: "多选题",
-  true_false: "判断题",
-  short_answer: "简答题",
-};
 
 export default function TeacherCourseDetailPage() {
   const params = useParams();
@@ -214,101 +128,66 @@ export default function TeacherCourseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Semester start date editing
+  // ---------- Hero auxiliary state ----------
+
   const [editingSemesterDate, setEditingSemesterDate] = useState(false);
   const [editSemesterDate, setEditSemesterDate] = useState("");
   const [savingSemesterDate, setSavingSemesterDate] = useState(false);
 
-  // Chapter dialog
+  // ---------- Chapter / Section dialogs ----------
+
   const [chapterDialogOpen, setChapterDialogOpen] = useState(false);
   const [chapterTitle, setChapterTitle] = useState("");
   const [creatingChapter, setCreatingChapter] = useState(false);
 
-  // Section dialog
   const [sectionDialogOpen, setSectionDialogOpen] = useState(false);
   const [sectionTitle, setSectionTitle] = useState("");
   const [sectionChapterId, setSectionChapterId] = useState("");
   const [creatingSection, setCreatingSection] = useState(false);
 
-  // Add content sheet (replaces old dialog)
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [addDialogContext, setAddDialogContext] = useState<{
-    chapterId: string;
-    sectionId: string;
-    slot: SlotType;
-  } | null>(null);
+  // ---------- Edit course / class / teacher dialogs ----------
 
-  // Template tab state
-  const [availableTasks, setAvailableTasks] = useState<TaskDef[]>([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [addTitle, setAddTitle] = useState("");
-  const [addDescription, setAddDescription] = useState("");
-  const [addDueAt, setAddDueAt] = useState("");
-  const [taskPreview, setTaskPreview] = useState<{
-    id: string;
-    taskType: string;
-    requirements?: string;
-    scoringCriteria?: Array<{ id: string; name: string; maxPoints: number }>;
-    questions?: Array<unknown>;
-  } | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [submittingContent, setSubmittingContent] = useState(false);
-
-  // Announcement tab state
-  const [announcementTitle, setAnnouncementTitle] = useState("");
-  const [announcementBody, setAnnouncementBody] = useState("");
-
-  // Inline task creation state (Tab 1: 新建任务)
-  const [newTaskType, setNewTaskType] = useState<"simulation" | "quiz" | "subjective">("simulation");
-  const [newTaskName, setNewTaskName] = useState("");
-  const [newScenario, setNewScenario] = useState("");
-  const [newOpeningLine, setNewOpeningLine] = useState("");
-  const [newRequirements, setNewRequirements] = useState("");
-  const [newScoringCriteria, setNewScoringCriteria] = useState<ScoringCriterion[]>([
-    { name: "", maxPoints: 20, description: "" },
-  ]);
-  const [newAllocationSections, setNewAllocationSections] = useState<AllocationSection[]>([]);
-  const [newStrictnessLevel, setNewStrictnessLevel] = useState("MODERATE");
-  const [newEvaluatorPersona, setNewEvaluatorPersona] = useState("");
-  const [newStudyBuddyContext, setNewStudyBuddyContext] = useState("");
-  const [newDueAt, setNewDueAt] = useState("");
-  const [creatingTask, setCreatingTask] = useState(false);
-
-  // Quiz inline creation state
-  const [newQuizMode, setNewQuizMode] = useState<"fixed" | "adaptive">("fixed");
-  const [newTimeLimitMinutes, setNewTimeLimitMinutes] = useState("");
-  const [newShowCorrectAnswer, setNewShowCorrectAnswer] = useState(false);
-  const [newQuizQuestions, setNewQuizQuestions] = useState<QuizQuestion[]>([]);
-  const [importingPDF, setImportingPDF] = useState(false);
-
-  // Published tab state
-  const [publishedInstances, setPublishedInstances] = useState<TaskInstance[]>([]);
-  const [loadingPublished, setLoadingPublished] = useState(false);
-
-  // Chapter collapse state
-  const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(new Set());
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-
-  // Edit course dialog state
   const [editCourseDialogOpen, setEditCourseDialogOpen] = useState(false);
   const [editCourseTitle, setEditCourseTitle] = useState("");
   const [editCourseDescription, setEditCourseDescription] = useState("");
   const [savingEditCourse, setSavingEditCourse] = useState(false);
 
-  // Multi-class state
-  const [courseClasses, setCourseClasses] = useState<{ id: string; classId: string; class: { id: string; name: string } }[]>([]);
+  const [courseClasses, setCourseClasses] = useState<
+    { id: string; classId: string; class: { id: string; name: string } }[]
+  >([]);
   const [addClassDialogOpen, setAddClassDialogOpen] = useState(false);
   const [addClassId, setAddClassId] = useState("");
   const [addingClass, setAddingClass] = useState(false);
-  const [classesList, setClassesList] = useState<{ id: string; name: string }[]>([]);
+  const [classesList, setClassesList] = useState<
+    { id: string; name: string }[]
+  >([]);
 
-  // Collaborative teachers state
-  const [courseTeachers, setCourseTeachers] = useState<{ id: string; teacherId: string; teacher: { id: string; name: string; email: string } }[]>([]);
+  const [courseTeachers, setCourseTeachers] = useState<
+    {
+      id: string;
+      teacherId: string;
+      teacher: { id: string; name: string; email: string };
+    }[]
+  >([]);
   const [teacherDialogOpen, setTeacherDialogOpen] = useState(false);
   const [teacherEmail, setTeacherEmail] = useState("");
   const [addingTeacher, setAddingTeacher] = useState(false);
+
+  // ---------- Inline UI state ----------
+
+  const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(
+    new Set(),
+  );
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
+
+  // ---------- Wizard modal state ----------
+
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardContext, setWizardContext] =
+    useState<WizardModalContext | null>(null);
+
+  // ---------- Fetchers ----------
 
   const fetchCourse = useCallback(async () => {
     try {
@@ -362,6 +241,8 @@ export default function TeacherCourseDetailPage() {
     }
   }
 
+  // ---------- Class handlers ----------
+
   async function handleAddClass() {
     if (!addClassId) {
       toast.error("请选择班级");
@@ -409,6 +290,8 @@ export default function TeacherCourseDetailPage() {
     }
   }
 
+  // ---------- Teacher handlers ----------
+
   async function handleAddTeacher() {
     if (!teacherEmail.trim()) {
       toast.error("请输入教师邮箱");
@@ -455,6 +338,8 @@ export default function TeacherCourseDetailPage() {
       toast.error("网络错误");
     }
   }
+
+  // ---------- Course meta handlers ----------
 
   function openEditCourseDialog() {
     if (!course) return;
@@ -523,620 +408,7 @@ export default function TeacherCourseDetailPage() {
     }
   }
 
-  async function fetchAvailableTasks() {
-    setLoadingTasks(true);
-    try {
-      const res = await fetch("/api/tasks");
-      const json = await res.json();
-      if (json.success) {
-        setAvailableTasks(json.data ?? []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingTasks(false);
-    }
-  }
-
-  async function fetchPublishedInstances() {
-    if (!course) return;
-    setLoadingPublished(true);
-    try {
-      const res = await fetch(`/api/lms/task-instances?courseId=${course.id}`);
-      const json = await res.json();
-      if (json.success) {
-        setPublishedInstances(json.data ?? []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingPublished(false);
-    }
-  }
-
-  function resetInlineForm() {
-    setNewTaskType("simulation");
-    setNewTaskName("");
-    setNewScenario("");
-    setNewOpeningLine("");
-    setNewRequirements("");
-    setNewScoringCriteria([{ name: "", maxPoints: 20, description: "" }]);
-    setNewAllocationSections([]);
-    setNewStrictnessLevel("MODERATE");
-    setNewEvaluatorPersona("");
-    setNewStudyBuddyContext("");
-    setNewDueAt("");
-    setNewQuizMode("fixed");
-    setNewTimeLimitMinutes("");
-    setNewShowCorrectAnswer(false);
-    setNewQuizQuestions([]);
-    setImportingPDF(false);
-  }
-
-  function openAddDialog(chapterId: string, sectionId: string, slot: SlotType) {
-    setAddDialogContext({ chapterId, sectionId, slot });
-    // Reset template tab
-    setSelectedTaskId("");
-    setAddTitle("");
-    setAddDescription("");
-    setAddDueAt("");
-    setTaskPreview(null);
-    // Reset announcement tab
-    setAnnouncementTitle("");
-    setAnnouncementBody("");
-    // Reset inline creation form
-    resetInlineForm();
-    setAddDialogOpen(true);
-    fetchAvailableTasks();
-    fetchPublishedInstances();
-  }
-
-  // ---------- Template tab handlers ----------
-
-  async function handleTaskSelect(taskId: string) {
-    setSelectedTaskId(taskId);
-    const task = availableTasks.find((t) => t.id === taskId);
-    if (task) {
-      setAddTitle(task.taskName);
-    }
-    if (taskId) {
-      setLoadingPreview(true);
-      try {
-        const res = await fetch(`/api/tasks/${taskId}`);
-        const json = await res.json();
-        if (json.success) {
-          setTaskPreview(json.data);
-        }
-      } catch {
-        // silently fail
-      } finally {
-        setLoadingPreview(false);
-      }
-    } else {
-      setTaskPreview(null);
-    }
-  }
-
-  async function handleSubmitTask() {
-    if (!addDialogContext || !course) return;
-    if (!selectedTaskId) {
-      toast.error("请选择一个任务");
-      return;
-    }
-    if (!addTitle.trim()) {
-      toast.error("请填写标题");
-      return;
-    }
-    if (!addDueAt) {
-      toast.error("请设置截止时间");
-      return;
-    }
-
-    const selectedTask = availableTasks.find((t) => t.id === selectedTaskId);
-    if (!selectedTask) return;
-
-    setSubmittingContent(true);
-    try {
-      const createRes = await fetch("/api/lms/task-instances", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: addTitle.trim(),
-          description: addDescription.trim() || undefined,
-          taskId: selectedTaskId,
-          taskType: selectedTask.taskType,
-          classId: course.class.id,
-          courseId: course.id,
-          chapterId: addDialogContext.chapterId,
-          sectionId: addDialogContext.sectionId,
-          slot: addDialogContext.slot,
-          dueAt: new Date(addDueAt).toISOString(),
-        }),
-      });
-      const createJson = await createRes.json();
-      if (!createJson.success) {
-        toast.error(createJson.error?.message || "创建任务实例失败");
-        return;
-      }
-
-      const newInstanceId = createJson.data?.id;
-      if (newInstanceId) {
-        const publishRes = await fetch(
-          `/api/lms/task-instances/${newInstanceId}/publish`,
-          { method: "POST" }
-        );
-        const publishJson = await publishRes.json();
-        if (!publishJson.success) {
-          toast.error("任务已创建但发布失败，请手动发布");
-          setAddDialogOpen(false);
-          fetchCourse();
-          return;
-        }
-      }
-
-      toast.success("任务已添加并发布");
-      setAddDialogOpen(false);
-      fetchCourse();
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setSubmittingContent(false);
-    }
-  }
-
-  // ---------- Announcement tab handler ----------
-
-  async function handleSubmitAnnouncement() {
-    if (!course) return;
-    if (!announcementTitle.trim()) {
-      toast.error("请填写公告标题");
-      return;
-    }
-    if (!announcementBody.trim()) {
-      toast.error("请填写公告内容");
-      return;
-    }
-
-    setSubmittingContent(true);
-    try {
-      const res = await fetch("/api/lms/announcements", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseId: course.id,
-          title: announcementTitle.trim(),
-          body: announcementBody.trim(),
-          status: "published",
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "发布公告失败");
-        return;
-      }
-      toast.success("公告已发布");
-      setAddDialogOpen(false);
-      fetchCourse();
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setSubmittingContent(false);
-    }
-  }
-
-  // ---------- Inline task creation handler ----------
-
-  async function handleCreateInlineTask() {
-    if (!newTaskName.trim()) {
-      toast.error("请输入任务名称");
-      return;
-    }
-    if (!addDialogContext || !course) return;
-
-    setCreatingTask(true);
-    try {
-      // Step 1: Create the task
-      const taskBody: Record<string, unknown> = {
-        taskType: newTaskType,
-        taskName: newTaskName.trim(),
-        requirements: newRequirements.trim() || undefined,
-      };
-
-      if (newTaskType === "quiz") {
-        taskBody.quizConfig = {
-          mode: newQuizMode,
-          timeLimitMinutes: newTimeLimitMinutes ? parseInt(newTimeLimitMinutes) : undefined,
-          showCorrectAnswer: newShowCorrectAnswer,
-        };
-        if (newQuizQuestions.length > 0) {
-          taskBody.quizQuestions = newQuizQuestions.map((q, i) => ({
-            type: q.type,
-            prompt: q.stem,
-            options: q.type === "short_answer" ? undefined : q.options,
-            correctOptionIds: q.type === "short_answer" ? undefined : q.correctOptionIds,
-            correctAnswer: q.type === "short_answer" ? q.correctAnswer : undefined,
-            points: q.points,
-            explanation: q.explanation || undefined,
-            order: i,
-          }));
-        }
-      }
-
-      if (newTaskType === "simulation") {
-        taskBody.simulationConfig = {
-          scenario: newScenario.trim(),
-          openingLine: newOpeningLine.trim(),
-          strictnessLevel: newStrictnessLevel,
-          evaluatorPersona: newEvaluatorPersona.trim() || undefined,
-          studyBuddyContext: newStudyBuddyContext.trim() || undefined,
-        };
-        const validCriteria = newScoringCriteria.filter((c) => c.name.trim());
-        if (validCriteria.length > 0) {
-          taskBody.scoringCriteria = validCriteria.map((c, i) => ({
-            name: c.name.trim(),
-            description: c.description.trim() || undefined,
-            maxPoints: c.maxPoints,
-            order: i,
-          }));
-        }
-        const validSections = newAllocationSections.filter((s) => s.label.trim());
-        if (validSections.length > 0) {
-          taskBody.allocationSections = validSections.map((s, i) => ({
-            label: s.label.trim(),
-            order: i,
-            items: s.items
-              .filter((item) => item.label.trim())
-              .map((item, j) => ({
-                label: item.label.trim(),
-                order: j,
-              })),
-          }));
-        }
-      }
-
-      const taskRes = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(taskBody),
-      });
-      const taskJson = await taskRes.json();
-      if (!taskJson.success) {
-        toast.error(taskJson.error?.message || "创建任务失败");
-        return;
-      }
-
-      // Step 2: Create task instance
-      const instRes = await fetch("/api/lms/task-instances", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTaskName.trim(),
-          taskId: taskJson.data.id,
-          taskType: newTaskType,
-          classId: course.class.id,
-          courseId: course.id,
-          chapterId: addDialogContext.chapterId,
-          sectionId: addDialogContext.sectionId,
-          slot: addDialogContext.slot,
-          dueAt: newDueAt
-            ? new Date(newDueAt).toISOString()
-            : new Date(Date.now() + 14 * 86400000).toISOString(),
-        }),
-      });
-      const instJson = await instRes.json();
-      if (!instJson.success) {
-        toast.error("任务已创建但实例创建失败");
-        return;
-      }
-
-      // Step 3: Publish
-      const pubRes = await fetch(
-        `/api/lms/task-instances/${instJson.data.id}/publish`,
-        { method: "POST" }
-      );
-      const pubJson = await pubRes.json();
-      if (!pubJson.success) {
-        toast.error("任务已创建但发布失败");
-      } else {
-        toast.success("任务已创建并发布");
-      }
-
-      setAddDialogOpen(false);
-      fetchCourse();
-    } catch {
-      toast.error("网络错误");
-    } finally {
-      setCreatingTask(false);
-    }
-  }
-
-  // ---------- Inline form helpers ----------
-
-  function addNewCriterion() {
-    setNewScoringCriteria((prev) => [...prev, { name: "", maxPoints: 20, description: "" }]);
-  }
-
-  function removeNewCriterion(idx: number) {
-    setNewScoringCriteria((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function setNewCriterion(idx: number, field: keyof ScoringCriterion, value: string | number) {
-    setNewScoringCriteria((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], [field]: value };
-      return next;
-    });
-  }
-
-  function addNewAllocationSection() {
-    setNewAllocationSections((prev) => [...prev, { label: "", items: [{ label: "" }] }]);
-  }
-
-  function removeNewAllocationSection(idx: number) {
-    setNewAllocationSections((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function setNewAllocationSectionLabel(idx: number, label: string) {
-    setNewAllocationSections((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], label };
-      return next;
-    });
-  }
-
-  function addNewAllocationItem(sectionIdx: number) {
-    setNewAllocationSections((prev) => {
-      const next = [...prev];
-      next[sectionIdx] = {
-        ...next[sectionIdx],
-        items: [...next[sectionIdx].items, { label: "" }],
-      };
-      return next;
-    });
-  }
-
-  function removeNewAllocationItem(sectionIdx: number, itemIdx: number) {
-    setNewAllocationSections((prev) => {
-      const next = [...prev];
-      next[sectionIdx] = {
-        ...next[sectionIdx],
-        items: next[sectionIdx].items.filter((_, i) => i !== itemIdx),
-      };
-      return next;
-    });
-  }
-
-  function setNewAllocationItemLabel(sectionIdx: number, itemIdx: number, label: string) {
-    setNewAllocationSections((prev) => {
-      const next = [...prev];
-      next[sectionIdx] = {
-        ...next[sectionIdx],
-        items: next[sectionIdx].items.map((item, i) =>
-          i === itemIdx ? { ...item, label } : item
-        ),
-      };
-      return next;
-    });
-  }
-
-  // ---------- Quiz question helpers ----------
-
-  function createEmptyQuestion(): QuizQuestion {
-    return {
-      type: "single_choice",
-      stem: "",
-      options: [
-        { id: "A", text: "" },
-        { id: "B", text: "" },
-        { id: "C", text: "" },
-        { id: "D", text: "" },
-      ],
-      correctOptionIds: [],
-      correctAnswer: "",
-      points: 1,
-      explanation: "",
-    };
-  }
-
-  function addQuizQuestion() {
-    setNewQuizQuestions((prev) => [...prev, createEmptyQuestion()]);
-  }
-
-  function removeQuizQuestion(idx: number) {
-    setNewQuizQuestions((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function updateQuizQuestion(idx: number, updates: Partial<QuizQuestion>) {
-    setNewQuizQuestions((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], ...updates };
-      return next;
-    });
-  }
-
-  function updateQuizQuestionType(idx: number, type: QuizQuestionType) {
-    setNewQuizQuestions((prev) => {
-      const next = [...prev];
-      const q = { ...next[idx], type };
-      if (type === "true_false") {
-        q.options = [
-          { id: "A", text: "正确" },
-          { id: "B", text: "错误" },
-        ];
-        q.correctOptionIds = [];
-      } else if (type === "short_answer") {
-        q.options = [];
-        q.correctOptionIds = [];
-      } else {
-        if (q.options.length === 0 || (q.options.length === 2 && q.options[0].text === "正确")) {
-          q.options = [
-            { id: "A", text: "" },
-            { id: "B", text: "" },
-            { id: "C", text: "" },
-            { id: "D", text: "" },
-          ];
-        }
-        q.correctOptionIds = [];
-      }
-      next[idx] = q;
-      return next;
-    });
-  }
-
-  function updateQuizOptionText(qIdx: number, optIdx: number, text: string) {
-    setNewQuizQuestions((prev) => {
-      const next = [...prev];
-      const opts = [...next[qIdx].options];
-      opts[optIdx] = { ...opts[optIdx], text };
-      next[qIdx] = { ...next[qIdx], options: opts };
-      return next;
-    });
-  }
-
-  async function handlePDFImport(file: File) {
-    if (!course || !addDialogContext) return;
-    setImportingPDF(true);
-    try {
-      // Step 1: Create a temporary task to hold the quiz
-      const taskRes = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskType: "quiz",
-          taskName: newTaskName.trim() || "PDF导入测验",
-          quizConfig: {
-            mode: newQuizMode,
-            timeLimitMinutes: newTimeLimitMinutes ? parseInt(newTimeLimitMinutes) : undefined,
-            showCorrectAnswer: newShowCorrectAnswer,
-          },
-        }),
-      });
-      const taskJson = await taskRes.json();
-      if (!taskJson.success) {
-        toast.error(taskJson.error?.message || "创建任务失败");
-        return;
-      }
-      const taskId = taskJson.data.id;
-
-      // Step 2: Upload PDF
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("taskId", taskId);
-      const uploadRes = await fetch("/api/import-jobs", {
-        method: "POST",
-        body: formData,
-      });
-      const uploadJson = await uploadRes.json();
-      if (!uploadJson.success) {
-        toast.error(uploadJson.error?.message || "上传失败");
-        return;
-      }
-      const jobId = uploadJson.data.id;
-
-      // Step 3: Poll for completion
-      toast.info("PDF 正在解析中...");
-      let attempts = 0;
-      const maxAttempts = 30;
-      while (attempts < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const pollRes = await fetch(`/api/import-jobs/${jobId}`);
-        const pollJson = await pollRes.json();
-        if (!pollJson.success) break;
-        const status = pollJson.data.status;
-        if (status === "completed") {
-          // Fetch the created questions
-          const qRes = await fetch(`/api/tasks/${taskId}`);
-          const qJson = await qRes.json();
-          if (qJson.success && qJson.data.questions) {
-            const imported: QuizQuestion[] = qJson.data.questions.map(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (q: any) => ({
-                type: q.type || "single_choice",
-                stem: q.prompt || q.stem || "",
-                options: q.options || [],
-                correctOptionIds: q.correctOptionIds || [],
-                correctAnswer: q.correctAnswer || "",
-                points: q.points || 1,
-                explanation: q.explanation || "",
-              })
-            );
-            setNewQuizQuestions((prev) => [...prev, ...imported]);
-            toast.success(`成功导入 ${imported.length} 道题目`);
-          }
-          break;
-        }
-        if (status === "failed") {
-          toast.error("PDF 解析失败: " + (pollJson.data.error || "未知错误"));
-          break;
-        }
-        attempts++;
-      }
-      if (attempts >= maxAttempts) {
-        toast.error("PDF 解析超时，请稍后查看");
-      }
-    } catch {
-      toast.error("PDF 导入失败");
-    } finally {
-      setImportingPDF(false);
-    }
-  }
-
-  async function handleAIGenerateQuestions() {
-    if (!newTaskName.trim()) {
-      toast.error("请先输入任务名称，AI 将根据名称生成题目");
-      return;
-    }
-    setImportingPDF(true);
-    try {
-      const taskRes = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskType: "quiz",
-          taskName: newTaskName.trim(),
-          quizConfig: {
-            mode: newQuizMode,
-            timeLimitMinutes: newTimeLimitMinutes ? parseInt(newTimeLimitMinutes) : undefined,
-            showCorrectAnswer: newShowCorrectAnswer,
-          },
-        }),
-      });
-      const taskJson = await taskRes.json();
-      if (!taskJson.success) {
-        toast.error(taskJson.error?.message || "创建任务失败");
-        return;
-      }
-      const taskId = taskJson.data.id;
-
-      // Trigger AI generation
-      const genRes = await fetch(`/api/tasks/${taskId}/generate-questions`, {
-        method: "POST",
-      });
-      const genJson = await genRes.json();
-      if (genJson.success && genJson.data?.questions) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const generated: QuizQuestion[] = genJson.data.questions.map((q: any) => ({
-          type: q.type || "single_choice",
-          stem: q.prompt || q.stem || "",
-          options: q.options || [],
-          correctOptionIds: q.correctOptionIds || [],
-          correctAnswer: q.correctAnswer || "",
-          points: q.points || 1,
-          explanation: q.explanation || "",
-        }));
-        setNewQuizQuestions((prev) => [...prev, ...generated]);
-        toast.success(`AI 生成了 ${generated.length} 道题目`);
-      } else {
-        toast.error(genJson.error?.message || "AI 生成失败");
-      }
-    } catch {
-      toast.error("AI 生成失败");
-    } finally {
-      setImportingPDF(false);
-    }
-  }
-
-  // ---------- Chapter / Section handlers ----------
+  // ---------- Chapter / Section creation ----------
 
   async function handleCreateChapter() {
     if (!chapterTitle.trim()) return;
@@ -1156,8 +428,9 @@ export default function TeacherCourseDetailPage() {
       if (json.success) {
         setChapterTitle("");
         setChapterDialogOpen(false);
-        setLoading(true);
         fetchCourse();
+      } else {
+        toast.error(json.error?.message || "创建章节失败");
       }
     } finally {
       setCreatingChapter(false);
@@ -1185,79 +458,104 @@ export default function TeacherCourseDetailPage() {
         setSectionTitle("");
         setSectionChapterId("");
         setSectionDialogOpen(false);
-        setLoading(true);
         fetchCourse();
+      } else {
+        toast.error(json.error?.message || "创建小节失败");
       }
     } finally {
       setCreatingSection(false);
     }
   }
 
-  function getTasksForSlot(section: Section, slot: SlotType): TaskInstance[] {
-    return section.taskInstances.filter((ti) => ti.slot === slot);
-  }
-
   function toggleChapter(chapterId: string) {
     setCollapsedChapters((prev) => {
       const next = new Set(prev);
-      if (next.has(chapterId)) {
-        next.delete(chapterId);
-      } else {
-        next.add(chapterId);
-      }
+      if (next.has(chapterId)) next.delete(chapterId);
+      else next.add(chapterId);
       return next;
     });
   }
 
-  const tocTree = useMemo(
-    () => (course ? buildTocTree(course.chapters) : []),
-    [course],
-  );
-  const counts = useMemo(
-    () =>
-      course
-        ? buildCourseCounts(course.chapters)
-        : { chapterCount: 0, sectionCount: 0, totalTasks: 0, publishedTasks: 0, draftTasks: 0 },
-    [course],
+  // ---------- Section / Block / Task handlers used by InlineSectionRow ----------
+
+  const handleRenameSection = useCallback(
+    async (sectionId: string, newTitle: string) => {
+      try {
+        const res = await fetch(`/api/lms/sections/${sectionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "重命名失败");
+          return;
+        }
+        toast.success("已重命名");
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [fetchCourse],
   );
 
-  const editableSectionContext: EditableSectionContext | null = useMemo(() => {
-    if (!course || !activeSectionId) return null;
-    for (const ch of course.chapters) {
-      const section = ch.sections.find((s) => s.id === activeSectionId);
-      if (!section) continue;
-      return {
+  const handleDeleteSection = useCallback(
+    async (sectionId: string) => {
+      try {
+        const res = await fetch(`/api/lms/sections/${sectionId}`, {
+          method: "DELETE",
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "删除失败");
+          return;
+        }
+        toast.success("已删除小节");
+        if (activeSectionId === sectionId) setActiveSectionId(null);
+        setExpandedBlockId(null);
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [fetchCourse, activeSectionId],
+  );
+
+  const handleAddTask = useCallback(
+    (chapterId: string, sectionId: string, slot: SlotType) => {
+      if (!course) return;
+      const ch = course.chapters.find((c) => c.id === chapterId);
+      const sec = ch?.sections.find((s) => s.id === sectionId);
+      setWizardContext({
         courseId: course.id,
-        chapterId: ch.id,
-        sectionId: section.id,
-        chapterTitle: ch.title,
-        chapterOrder: ch.order,
-        sectionTitle: section.title,
-        sectionOrder: section.order,
-        blocks: section.contentBlocks.map((b) => ({
-          id: b.id,
-          blockType: b.blockType,
-          slot: b.slot,
-          order: b.order,
-          data: b.data ?? null,
-        })),
-      };
-    }
-    return null;
-  }, [course, activeSectionId]);
+        classId: course.class.id,
+        chapterId,
+        sectionId,
+        slot,
+        chapterTitle: ch?.title,
+        sectionTitle: sec?.title,
+      });
+      setWizardOpen(true);
+    },
+    [course],
+  );
 
-  // Block editor handlers — all call PR-4D1 endpoints + refresh via fetchCourse().
   const handleCreateBlock = useCallback(
-    async (slot: "pre" | "in" | "post", blockType: string) => {
-      if (!editableSectionContext) return;
+    async (
+      chapterId: string,
+      sectionId: string,
+      slot: SlotType,
+      blockType: BlockType,
+    ) => {
       try {
         const res = await fetch("/api/lms/content-blocks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            courseId: editableSectionContext.courseId,
-            chapterId: editableSectionContext.chapterId,
-            sectionId: editableSectionContext.sectionId,
+            courseId,
+            chapterId,
+            sectionId,
             slot,
             blockType,
           }),
@@ -1273,7 +571,7 @@ export default function TeacherCourseDetailPage() {
         toast.error("网络错误，请稍后重试");
       }
     },
-    [editableSectionContext, fetchCourse],
+    [courseId, fetchCourse],
   );
 
   const handleUpdateBlock = useCallback(
@@ -1310,89 +608,35 @@ export default function TeacherCourseDetailPage() {
           return;
         }
         toast.success("已删除");
-        if (selectedBlockId === blockId) setSelectedBlockId(null);
+        if (expandedBlockId === blockId) setExpandedBlockId(null);
         await fetchCourse();
       } catch {
         toast.error("网络错误，请稍后重试");
       }
     },
-    [fetchCourse, selectedBlockId],
+    [fetchCourse, expandedBlockId],
   );
 
-  const handleReorderBlock = useCallback(
-    async (blockId: string, direction: "up" | "down") => {
-      if (!editableSectionContext) return;
-      const swap = computeReorderSwap(
-        editableSectionContext.blocks,
-        blockId,
-        direction
-      );
-      if (!swap) return;
-      try {
-        const res = await fetch("/api/lms/content-blocks/reorder", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: swap }),
-        });
-        const json = await res.json();
-        if (!json.success) {
-          toast.error(json.error?.message || "调序失败");
-          return;
-        }
-        await fetchCourse();
-      } catch {
-        toast.error("网络错误，请稍后重试");
-      }
-    },
-    [editableSectionContext, fetchCourse],
+  // ---------- Memoized derived state ----------
+
+  const tocTree = useMemo(
+    () => (course ? buildTocTree(course.chapters) : []),
+    [course],
   );
 
-  const handleRenameSection = useCallback(
-    async (newTitle: string) => {
-      if (!editableSectionContext) return;
-      try {
-        const res = await fetch(
-          `/api/lms/sections/${editableSectionContext.sectionId}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title: newTitle }),
+  const counts = useMemo(
+    () =>
+      course
+        ? buildCourseCounts(course.chapters)
+        : {
+            chapterCount: 0,
+            sectionCount: 0,
+            totalTasks: 0,
+            publishedTasks: 0,
+            draftTasks: 0,
           },
-        );
-        const json = await res.json();
-        if (!json.success) {
-          toast.error(json.error?.message || "重命名失败");
-          return;
-        }
-        toast.success("已重命名");
-        await fetchCourse();
-      } catch {
-        toast.error("网络错误，请稍后重试");
-      }
-    },
-    [editableSectionContext, fetchCourse],
+    [course],
   );
-
-  const handleDeleteSection = useCallback(async () => {
-    if (!editableSectionContext) return;
-    try {
-      const res = await fetch(
-        `/api/lms/sections/${editableSectionContext.sectionId}`,
-        { method: "DELETE" },
-      );
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "删除失败");
-        return;
-      }
-      toast.success("已删除小节");
-      setActiveSectionId(null);
-      setSelectedBlockId(null);
-      await fetchCourse();
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    }
-  }, [editableSectionContext, fetchCourse]);
 
   // ---------- Loading / Error states ----------
 
@@ -1437,7 +681,10 @@ export default function TeacherCourseDetailPage() {
         onAddChapter={() => setChapterDialogOpen(true)}
         onAddTeacher={() => setTeacherDialogOpen(true)}
         onEditCourse={openEditCourseDialog}
-        onAddClass={() => { setAddClassDialogOpen(true); fetchAvailableClasses(); }}
+        onAddClass={() => {
+          setAddClassDialogOpen(true);
+          fetchAvailableClasses();
+        }}
         onEditSemester={() => {
           setEditSemesterDate(course.semesterStartDate?.slice(0, 10) ?? "");
           setEditingSemesterDate(true);
@@ -1479,7 +726,9 @@ export default function TeacherCourseDetailPage() {
             <button
               type="button"
               onClick={() => {
-                setEditSemesterDate(course.semesterStartDate?.slice(0, 10) ?? "");
+                setEditSemesterDate(
+                  course.semesterStartDate?.slice(0, 10) ?? "",
+                );
                 setEditingSemesterDate(true);
               }}
               className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-[3px] text-[11px] text-white/90 hover:bg-white/15"
@@ -1495,7 +744,8 @@ export default function TeacherCourseDetailPage() {
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)_280px]">
+      {/* C1 layout: 2-column. Right edit panel removed; content edits inline. */}
+      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
         <TocSidebar
           chapters={tocTree}
           collapsedChapterIds={collapsedChapters}
@@ -1504,211 +754,90 @@ export default function TeacherCourseDetailPage() {
           onToggleChapter={toggleChapter}
           onJumpChapter={(id) => {
             setActiveSectionId(null);
-            document.getElementById(`chapter-${id}`)?.scrollIntoView({ behavior: "smooth" });
+            document
+              .getElementById(`chapter-${id}`)
+              ?.scrollIntoView({ behavior: "smooth" });
           }}
           onJumpSection={(id) => {
             setActiveSectionId(id);
-            document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth" });
+            document
+              .getElementById(`section-${id}`)
+              ?.scrollIntoView({ behavior: "smooth" });
           }}
         />
 
         <div className="min-w-0">
-      {/* Tabs Workbench */}
-      <Tabs defaultValue="structure" className="w-full">
-        <TabsList>
-          <TabsTrigger value="structure">课程结构</TabsTrigger>
-          <TabsTrigger value="analytics">数据分析</TabsTrigger>
-          <TabsTrigger value="announcements">公告管理</TabsTrigger>
-        </TabsList>
+          <Tabs defaultValue="structure" className="w-full">
+            <TabsList>
+              <TabsTrigger value="structure">课程结构</TabsTrigger>
+              <TabsTrigger value="analytics">数据分析</TabsTrigger>
+              <TabsTrigger value="announcements">公告管理</TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="structure" className="space-y-6 mt-4">
+            <TabsContent value="structure" className="mt-4 space-y-4">
+              {course.chapters.length > 0 && (
+                <Select
+                  onValueChange={(id) =>
+                    document
+                      .getElementById(`chapter-${id}`)
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }
+                >
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="跳转到章节..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {course.chapters.map((ch) => (
+                      <SelectItem key={ch.id} value={ch.id}>
+                        第{ch.order + 1}章：{ch.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
 
-      {/* Chapter jump navigation */}
-      {course.chapters.length > 0 && (
-        <Select onValueChange={(id) => document.getElementById(`chapter-${id}`)?.scrollIntoView({ behavior: "smooth" })}>
-          <SelectTrigger className="w-64">
-            <SelectValue placeholder="跳转到章节..." />
-          </SelectTrigger>
-          <SelectContent>
-            {course.chapters.map((ch) => (
-              <SelectItem key={ch.id} value={ch.id}>
-                第{ch.order + 1}章：{ch.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+              {course.chapters.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="h-12 w-12 rounded-full bg-paper-alt flex items-center justify-center mb-4">
+                      <BookOpen className="h-6 w-6 text-ink-4" />
+                    </div>
+                    <h3 className="text-lg font-medium mb-1">暂无章节</h3>
+                    <p className="text-sm text-ink-4 max-w-sm">
+                      点击 Hero 区右上「添加章节」按钮开始
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <ChapterSectionList
+                  chapters={course.chapters}
+                  collapsedChapterIds={collapsedChapters}
+                  expandedBlockId={expandedBlockId}
+                  onToggleChapter={toggleChapter}
+                  onToggleBlockExpand={setExpandedBlockId}
+                  onAddSection={(chapterId) => {
+                    setSectionChapterId(chapterId);
+                    setSectionDialogOpen(true);
+                  }}
+                  onRenameSection={handleRenameSection}
+                  onDeleteSection={handleDeleteSection}
+                  onAddTask={handleAddTask}
+                  onCreateBlock={handleCreateBlock}
+                  onUpdateBlock={handleUpdateBlock}
+                  onDeleteBlock={handleDeleteBlock}
+                />
+              )}
+            </TabsContent>
 
-      {/* Course Matrix */}
-      {course.chapters.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-              <BookOpen className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-1">暂无章节</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              点击上方按钮添加第一个章节
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          {course.chapters.map((chapter) => (
-            <Card key={chapter.id} id={`chapter-${chapter.id}`}>
-              <CardHeader className="cursor-pointer select-none" onClick={() => toggleChapter(chapter.id)}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ChevronDown className={cn("size-4 transition-transform", collapsedChapters.has(chapter.id) && "-rotate-90")} />
-                    <CardTitle className="text-lg">
-                      第 {chapter.order + 1} 章：{chapter.title}
-                    </CardTitle>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSectionChapterId(chapter.id);
-                      setSectionDialogOpen(true);
-                    }}
-                  >
-                    <Plus className="size-3 mr-1" />
-                    添加小节
-                  </Button>
-                </div>
-              </CardHeader>
-              {!collapsedChapters.has(chapter.id) && <CardContent>
-                {chapter.sections.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">暂无小节</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[200px]">小节</TableHead>
-                        {slots.map((slot) => (
-                          <TableHead key={slot} className="text-center">
-                            {slotLabels[slot]}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {chapter.sections.map((section) => (
-                        <TableRow
-                          key={section.id}
-                          id={`section-${section.id}`}
-                          className={cn(
-                            "cursor-pointer",
-                            activeSectionId === section.id && "bg-brand-soft/50",
-                          )}
-                          onClick={() => setActiveSectionId(section.id)}
-                        >
-                          <TableCell className="font-medium align-top">
-                            <span className="fs-num mr-1 text-ink-5">
-                              {chapter.order + 1}.{section.order + 1}
-                            </span>
-                            {section.title}
-                          </TableCell>
-                          {slots.map((slot) => {
-                            const tasks = getTasksForSlot(section, slot);
-                            return (
-                              <TableCell
-                                key={slot}
-                                className="align-top text-center min-w-[180px]"
-                              >
-                                {tasks.length === 0 ? (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-blue-50"
-                                    onClick={() =>
-                                      openAddDialog(chapter.id, section.id, slot)
-                                    }
-                                  >
-                                    <Plus className="size-4" />
-                                  </Button>
-                                ) : (
-                                  <div className="space-y-1.5">
-                                    {tasks.map((ti) => {
-                                      const Icon =
-                                        taskTypeIcons[ti.taskType] || FileText;
-                                      return (
-                                        <Link
-                                          key={ti.id}
-                                          href={`/teacher/instances/${ti.id}`}
-                                          className={`block rounded-md border p-2 text-left text-xs hover:ring-2 hover:ring-blue-300 transition-shadow cursor-pointer ${
-                                            statusColors[ti.status] || ""
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            <Icon className="size-3 shrink-0" />
-                                            <span className="font-medium truncate">
-                                              {ti.title}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center gap-1 mt-1">
-                                            <Badge
-                                              variant="outline"
-                                              className="text-[10px] px-1 py-0"
-                                            >
-                                              {taskTypeLabels[ti.taskType] || ti.taskType}
-                                            </Badge>
-                                            <span className="text-[10px] text-muted-foreground">
-                                              {statusLabels[ti.status] || ti.status}
-                                            </span>
-                                          </div>
-                                        </Link>
-                                      );
-                                    })}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-blue-50"
-                                      onClick={() =>
-                                        openAddDialog(chapter.id, section.id, slot)
-                                      }
-                                    >
-                                      <Plus className="size-3" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>}
-            </Card>
-          ))}
+            <TabsContent value="analytics" className="mt-4">
+              <CourseAnalyticsTab courseId={courseId} />
+            </TabsContent>
+
+            <TabsContent value="announcements" className="mt-4">
+              <CourseAnnouncementsPanel courseId={courseId} />
+            </TabsContent>
+          </Tabs>
         </div>
-      )}
-        </TabsContent>
-
-        <TabsContent value="analytics" className="mt-4">
-          <CourseAnalyticsTab courseId={courseId} />
-        </TabsContent>
-
-        <TabsContent value="announcements" className="mt-4">
-          <CourseAnnouncementsPanel courseId={courseId} />
-        </TabsContent>
-      </Tabs>
-        </div>
-
-        <BlockEditPanel
-          section={editableSectionContext}
-          selectedBlockId={selectedBlockId}
-          onSelectBlock={setSelectedBlockId}
-          onCreateBlock={handleCreateBlock}
-          onUpdateBlock={handleUpdateBlock}
-          onDeleteBlock={handleDeleteBlock}
-          onReorderBlock={handleReorderBlock}
-          onRenameSection={handleRenameSection}
-          onDeleteSection={handleDeleteSection}
-        />
       </div>
 
       {/* Create Chapter Dialog */}
@@ -1758,9 +887,7 @@ export default function TeacherCourseDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加小节</DialogTitle>
-            <DialogDescription>
-              为选定章节添加新的小节。
-            </DialogDescription>
+            <DialogDescription>为选定章节添加新的小节。</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -1795,876 +922,12 @@ export default function TeacherCourseDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Add Content Sheet (side panel with tabs) */}
-      <Sheet open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <SheetContent
-          side="right"
-          className="w-[600px] sm:w-[700px] sm:max-w-none overflow-y-auto p-0"
-        >
-          <SheetHeader className="p-6 pb-0">
-            <SheetTitle>
-              添加内容 - {addDialogContext ? slotLabels[addDialogContext.slot] : ""}
-            </SheetTitle>
-            <SheetDescription>
-              选择添加方式：新建任务、发布公告、使用已有模板或查看已发布内容。
-            </SheetDescription>
-          </SheetHeader>
-
-          <Tabs defaultValue="template" className="px-6 pb-6 mt-4">
-            <TabsList className="grid grid-cols-4 w-full">
-              <TabsTrigger value="new-task">新建任务</TabsTrigger>
-              <TabsTrigger value="announcement">新建公告</TabsTrigger>
-              <TabsTrigger value="template">任务模板</TabsTrigger>
-              <TabsTrigger value="published">已发布</TabsTrigger>
-            </TabsList>
-
-            {/* Tab 1: 新建任务 */}
-            <TabsContent value="new-task" className="mt-4 space-y-4">
-              {/* Task name */}
-              <div className="space-y-2">
-                <Label>任务名称 *</Label>
-                <Input
-                  placeholder="例如：客户理财咨询模拟"
-                  value={newTaskName}
-                  onChange={(e) => setNewTaskName(e.target.value)}
-                />
-              </div>
-
-              {/* Task type */}
-              <div className="space-y-2">
-                <Label>任务类型</Label>
-                <Select
-                  value={newTaskType}
-                  onValueChange={(v) => setNewTaskType(v as "simulation" | "quiz" | "subjective")}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="simulation">模拟对话</SelectItem>
-                    <SelectItem value="quiz">测验</SelectItem>
-                    <SelectItem value="subjective">主观题</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Due date */}
-              <div className="space-y-2">
-                <Label>截止时间</Label>
-                <Input
-                  type="datetime-local"
-                  value={newDueAt}
-                  onChange={(e) => setNewDueAt(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  留空则默认为两周后
-                </p>
-              </div>
-
-              {/* Simulation-specific fields */}
-              {newTaskType === "simulation" && (
-                <>
-                  <Separator />
-                  <h3 className="text-sm font-semibold">模拟对话配置</h3>
-
-                  {/* Scenario */}
-                  <div className="space-y-2">
-                    <Label>情景（AI 角色背景）*</Label>
-                    <Textarea
-                      placeholder="描述 AI 扮演的角色和对话场景..."
-                      value={newScenario}
-                      onChange={(e) => setNewScenario(e.target.value)}
-                      rows={4}
-                    />
-                  </div>
-
-                  {/* Opening line */}
-                  <div className="space-y-2">
-                    <Label>对话起始句 *</Label>
-                    <Textarea
-                      placeholder="AI 角色的开场白..."
-                      value={newOpeningLine}
-                      onChange={(e) => setNewOpeningLine(e.target.value)}
-                      rows={2}
-                    />
-                  </div>
-
-                  {/* Requirements */}
-                  <div className="space-y-2">
-                    <Label>要求（对话要求/学生目标）</Label>
-                    <Textarea
-                      placeholder="每行一条要求，例如：&#10;需要了解客户的风险偏好&#10;推荐合适的理财产品"
-                      value={newRequirements}
-                      onChange={(e) => setNewRequirements(e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-
-                  {/* Allocation sections */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>配置方案工具设置</Label>
-                      <Button variant="outline" size="sm" onClick={addNewAllocationSection}>
-                        <Plus className="size-3 mr-1" />
-                        添加分区
-                      </Button>
-                    </div>
-                    {newAllocationSections.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        暂无配置分区，点击上方按钮添加。
-                      </p>
-                    )}
-                    {newAllocationSections.map((section, si) => (
-                      <div key={si} className="rounded-lg border p-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium">分区 {si + 1}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeNewAllocationSection(si)}
-                            className="size-6 text-destructive"
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        </div>
-                        <Input
-                          placeholder="分区名称，例如：股票"
-                          value={section.label}
-                          onChange={(e) => setNewAllocationSectionLabel(si, e.target.value)}
-                        />
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">配置项</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => addNewAllocationItem(si)}
-                              className="h-6 text-xs"
-                            >
-                              <Plus className="size-3 mr-1" />
-                              添加项
-                            </Button>
-                          </div>
-                          {section.items.map((item, ii) => (
-                            <div key={ii} className="flex items-center gap-2">
-                              <Input
-                                placeholder="名称"
-                                value={item.label}
-                                onChange={(e) =>
-                                  setNewAllocationItemLabel(si, ii, e.target.value)
-                                }
-                                className="flex-1"
-                              />
-                              {section.items.length > 1 && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => removeNewAllocationItem(si, ii)}
-                                  className="size-6 shrink-0 text-destructive"
-                                >
-                                  <Trash2 className="size-3" />
-                                </Button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Study Buddy context */}
-                  <div className="space-y-2">
-                    <Label>Study Buddy 背景知识库</Label>
-                    <Textarea
-                      placeholder="提供给学习伙伴的背景知识..."
-                      value={newStudyBuddyContext}
-                      onChange={(e) => setNewStudyBuddyContext(e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-
-                  {/* Evaluator persona */}
-                  <div className="space-y-2">
-                    <Label>评估角色设定</Label>
-                    <Textarea
-                      placeholder="评估 AI 的角色和评估标准描述..."
-                      value={newEvaluatorPersona}
-                      onChange={(e) => setNewEvaluatorPersona(e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-
-                  {/* Scoring criteria */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>评分标准</Label>
-                      <Button variant="outline" size="sm" onClick={addNewCriterion}>
-                        <Plus className="size-3 mr-1" />
-                        添加标准
-                      </Button>
-                    </div>
-                    {newScoringCriteria.map((c, i) => (
-                      <div key={i} className="rounded-lg border p-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium">标准 {i + 1}</span>
-                          {newScoringCriteria.length > 1 && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeNewCriterion(i)}
-                              className="size-6 text-destructive"
-                            >
-                              <Trash2 className="size-3" />
-                            </Button>
-                          )}
-                        </div>
-                        <div className="grid gap-2 grid-cols-2">
-                          <div>
-                            <Label className="text-xs">名称</Label>
-                            <Input
-                              placeholder="例如：需求分析"
-                              value={c.name}
-                              onChange={(e) => setNewCriterion(i, "name", e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs">最高分</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={c.maxPoints}
-                              onChange={(e) =>
-                                setNewCriterion(i, "maxPoints", parseInt(e.target.value) || 1)
-                              }
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <Label className="text-xs">描述</Label>
-                          <Textarea
-                            placeholder="该评分标准的详细说明..."
-                            value={c.description}
-                            onChange={(e) => setNewCriterion(i, "description", e.target.value)}
-                            rows={2}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Strictness level */}
-                  <div className="space-y-2">
-                    <Label>评分模式</Label>
-                    <div className="flex gap-2">
-                      {[
-                        { value: "LENIENT", label: "宽松" },
-                        { value: "MODERATE", label: "较为宽松" },
-                        { value: "STRICT", label: "较为严苛" },
-                        { value: "VERY_STRICT", label: "严苛" },
-                      ].map((level) => (
-                        <Button
-                          key={level.value}
-                          variant={newStrictnessLevel === level.value ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setNewStrictnessLevel(level.value)}
-                        >
-                          {level.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Quiz type - full inline config */}
-              {newTaskType === "quiz" && (
-                <>
-                  <Separator />
-                  <h3 className="text-sm font-semibold">测验配置</h3>
-
-                  {/* Quiz mode */}
-                  <div className="space-y-2">
-                    <Label>测验模式</Label>
-                    <div className="flex gap-2">
-                      <Button
-                        variant={newQuizMode === "fixed" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setNewQuizMode("fixed")}
-                      >
-                        固定题目
-                      </Button>
-                      <Button
-                        variant={newQuizMode === "adaptive" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setNewQuizMode("adaptive")}
-                      >
-                        自适应
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Time limit */}
-                  <div className="space-y-2">
-                    <Label>时间限制（分钟）</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      placeholder="留空不限时"
-                      value={newTimeLimitMinutes}
-                      onChange={(e) => setNewTimeLimitMinutes(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Show correct answer */}
-                  <div className="flex items-center justify-between">
-                    <Label>提交后显示正确答案</Label>
-                    <Switch
-                      checked={newShowCorrectAnswer}
-                      onCheckedChange={setNewShowCorrectAnswer}
-                    />
-                  </div>
-
-                  <Separator />
-
-                  {/* Question sources */}
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-semibold">题目来源</h3>
-                    <div className="flex gap-2 flex-wrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={importingPDF}
-                        onClick={() => {
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = ".pdf";
-                          input.onchange = (e) => {
-                            const file = (e.target as HTMLInputElement).files?.[0];
-                            if (file) handlePDFImport(file);
-                          };
-                          input.click();
-                        }}
-                      >
-                        {importingPDF ? (
-                          <Loader2 className="size-3 mr-1 animate-spin" />
-                        ) : (
-                          <Upload className="size-3 mr-1" />
-                        )}
-                        从 PDF 导入
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={addQuizQuestion}>
-                        <Plus className="size-3 mr-1" />
-                        手动添加
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={importingPDF}
-                        onClick={handleAIGenerateQuestions}
-                      >
-                        {importingPDF ? (
-                          <Loader2 className="size-3 mr-1 animate-spin" />
-                        ) : (
-                          <Sparkles className="size-3 mr-1" />
-                        )}
-                        AI 出题
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Question list editor */}
-                  {newQuizQuestions.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold">
-                          题目列表（{newQuizQuestions.length} 题）
-                        </h3>
-                        <span className="text-xs text-muted-foreground">
-                          总分: {newQuizQuestions.reduce((s, q) => s + q.points, 0)}
-                        </span>
-                      </div>
-                      {newQuizQuestions.map((q, qi) => (
-                        <div key={qi} className="rounded-lg border p-3 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <Badge variant="secondary" className="text-xs">
-                              第 {qi + 1} 题
-                            </Badge>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeQuizQuestion(qi)}
-                              className="size-6 text-destructive"
-                            >
-                              <Trash2 className="size-3" />
-                            </Button>
-                          </div>
-
-                          <div className="grid gap-2 grid-cols-2">
-                            <div>
-                              <Label className="text-xs">题目类型</Label>
-                              <Select
-                                value={q.type}
-                                onValueChange={(v) =>
-                                  updateQuizQuestionType(qi, v as QuizQuestionType)
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(
-                                    Object.entries(quizQuestionTypeLabels) as [
-                                      QuizQuestionType,
-                                      string,
-                                    ][]
-                                  ).map(([val, label]) => (
-                                    <SelectItem key={val} value={val}>
-                                      {label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-xs">分值</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                max={5}
-                                value={q.points}
-                                onChange={(e) =>
-                                  updateQuizQuestion(qi, {
-                                    points: parseInt(e.target.value) || 1,
-                                  })
-                                }
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Question stem */}
-                          <div>
-                            <Label className="text-xs">题干</Label>
-                            <Textarea
-                              placeholder="请输入题目内容..."
-                              value={q.stem}
-                              onChange={(e) =>
-                                updateQuizQuestion(qi, { stem: e.target.value })
-                              }
-                              rows={2}
-                              className="text-sm"
-                            />
-                          </div>
-
-                          {/* Options for choice/true_false */}
-                          {(q.type === "single_choice" ||
-                            q.type === "multiple_choice" ||
-                            q.type === "true_false") && (
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">选项</Label>
-                              {q.options.map((opt, oi) => (
-                                <div key={oi} className="flex items-center gap-2">
-                                  <Badge
-                                    variant="outline"
-                                    className="size-6 flex items-center justify-center text-xs shrink-0"
-                                  >
-                                    {opt.id}
-                                  </Badge>
-                                  {q.type === "true_false" ? (
-                                    <span className="text-sm">{opt.text}</span>
-                                  ) : (
-                                    <Input
-                                      placeholder={`选项 ${opt.id}`}
-                                      value={opt.text}
-                                      onChange={(e) =>
-                                        updateQuizOptionText(qi, oi, e.target.value)
-                                      }
-                                      className="h-8 text-xs flex-1"
-                                    />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Correct answer */}
-                          <div>
-                            <Label className="text-xs">正确答案</Label>
-                            {q.type === "short_answer" ? (
-                              <Input
-                                placeholder="参考答案..."
-                                value={q.correctAnswer}
-                                onChange={(e) =>
-                                  updateQuizQuestion(qi, {
-                                    correctAnswer: e.target.value,
-                                  })
-                                }
-                                className="h-8 text-xs"
-                              />
-                            ) : q.type === "multiple_choice" ? (
-                              <div className="flex flex-wrap gap-1.5 mt-1">
-                                {q.options.map((opt) => (
-                                  <Button
-                                    key={opt.id}
-                                    variant={
-                                      q.correctOptionIds.includes(opt.id)
-                                        ? "default"
-                                        : "outline"
-                                    }
-                                    size="sm"
-                                    className="h-7 text-xs px-2"
-                                    onClick={() => {
-                                      const ids = q.correctOptionIds.includes(opt.id)
-                                        ? q.correctOptionIds.filter(
-                                            (id) => id !== opt.id
-                                          )
-                                        : [...q.correctOptionIds, opt.id];
-                                      updateQuizQuestion(qi, {
-                                        correctOptionIds: ids,
-                                      });
-                                    }}
-                                  >
-                                    {opt.id}
-                                  </Button>
-                                ))}
-                              </div>
-                            ) : (
-                              <Select
-                                value={q.correctOptionIds[0] || ""}
-                                onValueChange={(v) =>
-                                  updateQuizQuestion(qi, {
-                                    correctOptionIds: [v],
-                                  })
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue placeholder="选择正确答案" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {q.options.map((opt) => (
-                                    <SelectItem key={opt.id} value={opt.id}>
-                                      {opt.id}: {opt.text || "..."}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          </div>
-
-                          {/* Explanation */}
-                          <div>
-                            <Label className="text-xs">解析（选填）</Label>
-                            <Textarea
-                              placeholder="题目解析..."
-                              value={q.explanation}
-                              onChange={(e) =>
-                                updateQuizQuestion(qi, {
-                                  explanation: e.target.value,
-                                })
-                              }
-                              rows={2}
-                              className="text-xs"
-                            />
-                          </div>
-                        </div>
-                      ))}
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={addQuizQuestion}
-                      >
-                        <Plus className="size-3 mr-1" />
-                        添加题目
-                      </Button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* Subjective type - basic fields */}
-              {newTaskType === "subjective" && (
-                <>
-                  <Separator />
-                  <p className="text-sm text-muted-foreground">
-                    主观题的详细配置请在创建后到任务详情页编辑，或使用「任务模板」标签选择已有主观题。
-                  </p>
-                </>
-              )}
-
-              {/* Submit button */}
-              <div className="pt-2">
-                <Button
-                  className="w-full"
-                  onClick={handleCreateInlineTask}
-                  disabled={creatingTask}
-                >
-                  {creatingTask ? (
-                    <>
-                      <Loader2 className="size-4 mr-2 animate-spin" />
-                      创建中...
-                    </>
-                  ) : (
-                    "保存并添加"
-                  )}
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* Tab 2: 新建公告 */}
-            <TabsContent value="announcement" className="mt-4 space-y-4">
-              <div className="space-y-2">
-                <Label>公告标题 *</Label>
-                <Input
-                  placeholder="公告标题"
-                  value={announcementTitle}
-                  onChange={(e) => setAnnouncementTitle(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>公告内容 *</Label>
-                <Textarea
-                  placeholder="请输入公告内容..."
-                  value={announcementBody}
-                  onChange={(e) => setAnnouncementBody(e.target.value)}
-                  rows={6}
-                />
-              </div>
-              <div className="pt-2">
-                <Button
-                  className="w-full"
-                  onClick={handleSubmitAnnouncement}
-                  disabled={submittingContent}
-                >
-                  {submittingContent ? (
-                    <>
-                      <Loader2 className="size-4 mr-2 animate-spin" />
-                      发布中...
-                    </>
-                  ) : (
-                    "发布公告"
-                  )}
-                </Button>
-              </div>
-            </TabsContent>
-
-            {/* Tab 3: 任务模板 */}
-            <TabsContent value="template" className="mt-4 space-y-4">
-              {loadingTasks ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-                  <Loader2 className="size-4 animate-spin" />
-                  加载任务列表...
-                </div>
-              ) : availableTasks.length === 0 ? (
-                <div className="text-center py-8 space-y-2">
-                  <FileText className="size-8 text-muted-foreground mx-auto" />
-                  <p className="text-sm text-muted-foreground">
-                    暂无可用任务模板
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    请先在「新建任务」标签中创建任务。
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* Task cards list */}
-                  <div className="space-y-2">
-                    {availableTasks.map((task) => {
-                      const Icon = taskTypeIcons[task.taskType] || FileText;
-                      const isSelected = selectedTaskId === task.id;
-                      return (
-                        <div
-                          key={task.id}
-                          className={`rounded-lg border p-3 cursor-pointer transition-all hover:border-blue-300 ${
-                            isSelected
-                              ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500"
-                              : ""
-                          }`}
-                          onClick={() => handleTaskSelect(task.id)}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Icon className="size-4 shrink-0 text-muted-foreground" />
-                            <span className="font-medium text-sm flex-1 truncate">
-                              {task.taskName}
-                            </span>
-                            <Badge variant="secondary" className="text-xs">
-                              {taskTypeLabels[task.taskType] || task.taskType}
-                            </Badge>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Task preview */}
-                  {selectedTaskId && (
-                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                      {loadingPreview ? (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="size-4 animate-spin" />
-                          加载任务详情...
-                        </div>
-                      ) : taskPreview ? (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">任务预览</span>
-                            <Link
-                              href={`/teacher/tasks/${taskPreview.id}`}
-                              className="text-xs text-blue-600 hover:underline"
-                            >
-                              查看完整配置
-                            </Link>
-                          </div>
-                          <div className="text-xs space-y-1">
-                            <p>
-                              <span className="text-muted-foreground">类型：</span>
-                              {taskTypeLabels[taskPreview.taskType] || taskPreview.taskType}
-                            </p>
-                            {taskPreview.requirements && (
-                              <p>
-                                <span className="text-muted-foreground">要求：</span>
-                                {taskPreview.requirements}
-                              </p>
-                            )}
-                            {(taskPreview.scoringCriteria?.length ?? 0) > 0 && (
-                              <div>
-                                <span className="text-muted-foreground">评分标准：</span>
-                                <ul className="ml-3 mt-0.5 space-y-0.5">
-                                  {taskPreview.scoringCriteria?.map((c) => (
-                                    <li key={c.id}>
-                                      {c.name}（{c.maxPoints}分）
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {(taskPreview.questions?.length ?? 0) > 0 && (
-                              <p>
-                                <span className="text-muted-foreground">题目数量：</span>
-                                {taskPreview.questions?.length} 道
-                              </p>
-                            )}
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-                  )}
-
-                  {/* Instance form fields */}
-                  {selectedTaskId && (
-                    <div className="space-y-4 border-t pt-4">
-                      <div className="space-y-2">
-                        <Label>标题 *</Label>
-                        <Input
-                          placeholder="任务标题"
-                          value={addTitle}
-                          onChange={(e) => setAddTitle(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>描述</Label>
-                        <Textarea
-                          placeholder="可选描述..."
-                          value={addDescription}
-                          onChange={(e) => setAddDescription(e.target.value)}
-                          rows={2}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>截止时间 *</Label>
-                        <Input
-                          type="datetime-local"
-                          value={addDueAt}
-                          onChange={(e) => setAddDueAt(e.target.value)}
-                        />
-                      </div>
-                      <Button
-                        className="w-full"
-                        onClick={handleSubmitTask}
-                        disabled={submittingContent}
-                      >
-                        {submittingContent ? (
-                          <>
-                            <Loader2 className="size-4 mr-2 animate-spin" />
-                            添加中...
-                          </>
-                        ) : (
-                          "添加到课程"
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              )}
-            </TabsContent>
-
-            {/* Tab 4: 已发布任务 */}
-            <TabsContent value="published" className="mt-4">
-              {loadingPublished ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-                  <Loader2 className="size-4 animate-spin" />
-                  加载已发布任务...
-                </div>
-              ) : publishedInstances.length === 0 ? (
-                <div className="text-center py-8 space-y-2">
-                  <FileText className="size-8 text-muted-foreground mx-auto" />
-                  <p className="text-sm text-muted-foreground">
-                    该课程暂无已发布的任务实例
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {publishedInstances.map((inst) => {
-                    const Icon = taskTypeIcons[inst.taskType] || FileText;
-                    return (
-                      <Link
-                        key={inst.id}
-                        href={`/teacher/instances/${inst.id}`}
-                        className="block rounded-lg border p-3 hover:border-blue-300 transition-all"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="font-medium text-sm flex-1 truncate">
-                            {inst.title}
-                          </span>
-                          <Badge
-                            className={`text-xs ${statusColors[inst.status] || ""}`}
-                          >
-                            {statusLabels[inst.status] || inst.status}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                          <span>
-                            {taskTypeLabels[inst.taskType] || inst.taskType}
-                          </span>
-                          {inst.slot && (
-                            <span>{slotLabels[inst.slot as SlotType] || inst.slot}</span>
-                          )}
-                          {inst.dueAt && (
-                            <span>
-                              截止：{new Date(inst.dueAt).toLocaleDateString("zh-CN")}
-                            </span>
-                          )}
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </SheetContent>
-      </Sheet>
-
       {/* Add Class Dialog */}
       <Dialog open={addClassDialogOpen} onOpenChange={setAddClassDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加班级</DialogTitle>
-            <DialogDescription>
-              选择要关联到此课程的班级
-            </DialogDescription>
+            <DialogDescription>选择要关联到此课程的班级</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <Select value={addClassId} onValueChange={setAddClassId}>
@@ -2673,7 +936,9 @@ export default function TeacherCourseDetailPage() {
               </SelectTrigger>
               <SelectContent>
                 {classesList
-                  .filter((c) => !courseClasses.find((cc) => cc.classId === c.id))
+                  .filter(
+                    (c) => !courseClasses.find((cc) => cc.classId === c.id),
+                  )
                   .map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
@@ -2683,12 +948,22 @@ export default function TeacherCourseDetailPage() {
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddClassDialogOpen(false)} disabled={addingClass}>
+            <Button
+              variant="outline"
+              onClick={() => setAddClassDialogOpen(false)}
+              disabled={addingClass}
+            >
               取消
             </Button>
-            <Button onClick={handleAddClass} disabled={addingClass || !addClassId}>
+            <Button
+              onClick={handleAddClass}
+              disabled={addingClass || !addClassId}
+            >
               {addingClass ? (
-                <><Loader2 className="size-4 mr-2 animate-spin" />添加中...</>
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  添加中...
+                </>
               ) : (
                 "添加"
               )}
@@ -2719,12 +994,19 @@ export default function TeacherCourseDetailPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTeacherDialogOpen(false)} disabled={addingTeacher}>
+            <Button
+              variant="outline"
+              onClick={() => setTeacherDialogOpen(false)}
+              disabled={addingTeacher}
+            >
               取消
             </Button>
             <Button onClick={handleAddTeacher} disabled={addingTeacher}>
               {addingTeacher ? (
-                <><Loader2 className="size-4 mr-2 animate-spin" />添加中...</>
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  添加中...
+                </>
               ) : (
                 "添加"
               )}
@@ -2734,12 +1016,16 @@ export default function TeacherCourseDetailPage() {
       </Dialog>
 
       {/* Edit Course Dialog */}
-      <Dialog open={editCourseDialogOpen} onOpenChange={setEditCourseDialogOpen}>
+      <Dialog
+        open={editCourseDialogOpen}
+        onOpenChange={setEditCourseDialogOpen}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>编辑课程</DialogTitle>
             <DialogDescription>
-              修改课程名称与描述。其他元数据（班级、学期、协作教师）请在 Hero 区域直接编辑。
+              修改课程名称与描述。其他元数据（班级、学期、协作教师）请在 Hero
+              区域直接编辑。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -2769,7 +1055,10 @@ export default function TeacherCourseDetailPage() {
             >
               取消
             </Button>
-            <Button onClick={handleEditCourseSave} disabled={savingEditCourse}>
+            <Button
+              onClick={handleEditCourseSave}
+              disabled={savingEditCourse}
+            >
               {savingEditCourse ? (
                 <>
                   <Loader2 className="size-4 mr-2 animate-spin" />
@@ -2782,6 +1071,14 @@ export default function TeacherCourseDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* C2 · Task Wizard Modal */}
+      <TaskWizardModal
+        open={wizardOpen}
+        context={wizardContext}
+        onClose={() => setWizardOpen(false)}
+        onSuccess={fetchCourse}
+      />
     </div>
   );
 }

@@ -6,9 +6,16 @@ import { fileURLToPath } from "url";
 /**
  * PR-FIX-4 D1 · 任务向导旧 5 档 [MOOD:] prompt 清理。
  *
- * 验证 spec L52 — `app/teacher/tasks/new/page.tsx` 与 `app/teacher/tasks/[id]/
- * page.tsx` 的 systemPrompt 模板中已删除旧 5 档 `[MOOD: HAPPY|NEUTRAL|...]`
- * 指令（PR-7B 已切到 8 档 JSON 协议，运行时由 ai.service.chatReply 注入）。
+ * 验证 spec L52 — task wizard（PR-COURSE-1+2 后由
+ * `components/teacher-course-edit/task-wizard-modal.tsx` 持有）与
+ * `app/teacher/tasks/[id]/page.tsx`（编辑页）的 systemPrompt 模板中
+ * 已删除旧 5 档 `[MOOD: HAPPY|NEUTRAL|...]` 指令（PR-7B 已切到 8 档
+ * JSON 协议，运行时由 ai.service.chatReply 注入）。
+ *
+ * 历史：PR-COURSE-1+2 删除了 /teacher/tasks/new 路由，wizard 整合到
+ * 课程编辑器 modal。原文件 `app/teacher/tasks/new/page.tsx` 的资产搬到
+ * `components/teacher-course-edit/task-wizard-modal.tsx`，本测试守护
+ * 同等内容（[MOOD:] 不复发 + systemPrompt 仍生成）。
  *
  * 静态文件扫描即可证明 D1 已落（不需要真 AI E2E）。
  */
@@ -21,8 +28,10 @@ function readFile(relPath: string): string {
 }
 
 describe("PR-FIX-4 D1 · 旧 5 档 [MOOD:] 指令清理", () => {
-  it("app/teacher/tasks/new/page.tsx 不再包含 [MOOD: HAPPY|NEUTRAL|... 指令模板", () => {
-    const src = readFile("app/teacher/tasks/new/page.tsx");
+  it("components/teacher-course-edit/task-wizard-modal.tsx 不再包含 [MOOD: HAPPY|NEUTRAL|... 指令模板", () => {
+    const src = readFile(
+      "components/teacher-course-edit/task-wizard-modal.tsx",
+    );
     // 模板字面量字符串中不应再出现这种 5 枚举的 [MOOD:] 列表
     expect(src).not.toMatch(
       /\[MOOD:\s*HAPPY\s*\|\s*NEUTRAL\s*\|\s*CONFUSED\s*\|\s*SKEPTICAL\s*\|\s*ANGRY\]/,
@@ -39,11 +48,13 @@ describe("PR-FIX-4 D1 · 旧 5 档 [MOOD:] 指令清理", () => {
     expect(src).not.toMatch(/在每条回复末尾附加：\[MOOD:/);
   });
 
-  it("two 教师向导文件 systemPrompt 仍生成（仅承载人设/对话风格/禁止行为）", () => {
-    const newSrc = readFile("app/teacher/tasks/new/page.tsx");
+  it("两个教师向导持有点 systemPrompt 仍生成（仅承载人设/对话风格/禁止行为）", () => {
+    const wizardSrc = readFile(
+      "components/teacher-course-edit/task-wizard-modal.tsx",
+    );
     const editSrc = readFile("app/teacher/tasks/[id]/page.tsx");
     // 两个文件都仍有 systemPrompt 生成 + 引用 promptParts.join + 包含 {scenario}
-    for (const src of [newSrc, editSrc]) {
+    for (const src of [wizardSrc, editSrc]) {
       expect(src).toContain("const systemPrompt = promptParts.length > 0");
       expect(src).toContain("{scenario}");
       // 仍包含基础人设引言
