@@ -12,6 +12,10 @@ const MAX_SYSTEM_PROMPT_CHARS = 4000;
 const MAX_OPENING_CHARS = 2000;
 // PR-FIX-1 A9: 服务端最终只保留最近 N 轮（防被绕过）
 const SERVER_TRIM_RECENT_TURNS = 30;
+// PR-SIM-3 D3: 资产配置提交结构上限（防 token 浪费）
+const MAX_ALLOCATION_SECTIONS = 10;
+const MAX_ALLOCATION_ITEMS_PER_SECTION = 30;
+const MAX_ALLOCATION_LABEL_CHARS = 80;
 
 const chatSchema = z.object({
   transcript: z
@@ -36,6 +40,26 @@ const chatSchema = z.object({
   lastHintTurn: z.number().int().nonnegative().optional(),
   /** PR-7B: rubric criterion names used to grade student_perf + name deviated_dimensions */
   objectives: z.array(z.string()).max(20).optional(),
+  /** PR-SIM-3 D3: 学生交互类型。默认 user_message（学生发文字）；
+   *  config_submission 表示学生把当前资产配置交给客户征求反馈。 */
+  messageType: z.enum(["user_message", "config_submission"]).optional(),
+  /** PR-SIM-3 D3: 当 messageType=config_submission 时学生提交的资产配置快照。 */
+  allocations: z
+    .array(
+      z.object({
+        label: z.string().max(MAX_ALLOCATION_LABEL_CHARS, "section 标签超长"),
+        items: z
+          .array(
+            z.object({
+              label: z.string().max(MAX_ALLOCATION_LABEL_CHARS, "item 标签超长"),
+              value: z.number().min(0).max(100),
+            })
+          )
+          .max(MAX_ALLOCATION_ITEMS_PER_SECTION, "items 数量超长"),
+      })
+    )
+    .max(MAX_ALLOCATION_SECTIONS, "sections 数量超长")
+    .optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -56,6 +80,14 @@ export async function POST(request: NextRequest) {
       result.session.user.role === "student"
     ) {
       return forbidden("学生不允许传入自定义系统提示");
+    }
+
+    // PR-SIM-3 D3: messageType=config_submission 时必须带 allocations
+    if (
+      parsed.data.messageType === "config_submission" &&
+      (!parsed.data.allocations || parsed.data.allocations.length === 0)
+    ) {
+      return validationError("提交配置时必须附带 allocations");
     }
 
     // PR-FIX-1 A9: 服务端最终只保留最近 N 轮（即使客户端绕过 max 限制 也能兜底）

@@ -385,9 +385,13 @@ export function SimulationRunner({
     });
   }
 
-  // Record allocation snapshot (PR-7C). Validates 100% per section, then
-  // appends a {turn, ts, allocations: [{label, value}]} entry.
-  function handleSubmitAllocation() {
+  // PR-SIM-3 D3: "提交给客户" — 把当前配置发给客户 AI 征求反馈。
+  // 1. 100% 校验（与 PR-7C 一致）
+  // 2. POST /api/ai/chat with messageType=config_submission + allocations 结构化输入
+  // 3. 客户回复 push 到 messages（role=ai）+ 更新 mood
+  // 4. snapshot 仍 push 到 snapshots[]（PR-7C 持久化兜底，教师 insights 用）
+  async function handleSubmitAllocation() {
+    if (isSending) return;
     for (const section of allocations) {
       const total = section.items.reduce((sum, item) => sum + item.value, 0);
       if (total !== 100) {
@@ -399,12 +403,86 @@ export function SimulationRunner({
     const flat = allocations.flatMap((s) =>
       s.items.map((it) => ({ label: it.label, value: it.value }))
     );
-    setSnapshots((prev) => [
-      ...prev,
-      { turn, ts: new Date().toISOString(), allocations: flat },
-    ]);
-    // PR-FIX-3 C2: 计数从 snapshots.length 派生，不再独立维护 state
-    toast.success("已记录当前配比");
+
+    // PR-7B B3: 复用现有 hint 节流逻辑
+    let lastHintTurn: number | undefined;
+    let runningStudentTurns = 0;
+    for (const m of messages) {
+      if (m.role === "student") runningStudentTurns++;
+      if (m.role === "ai" && m.hint) lastHintTurn = runningStudentTurns;
+    }
+    const objectives = scoringCriteria.map((c) => c.label);
+
+    setIsSending(true);
+    const loadingToastId = toast.loading("客户正在阅读你的配置...");
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: messages.map((m) => ({ role: m.role, text: m.text })),
+          scenario,
+          openingLine,
+          systemPrompt,
+          lastHintTurn,
+          objectives,
+          messageType: "config_submission",
+          allocations: allocations.map((s) => ({
+            label: s.label,
+            items: s.items.map((it) => ({ label: it.label, value: it.value })),
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error?.message || "提交失败");
+      }
+
+      const data = await res.json();
+      const payload = data.data || data;
+      const rawReply: string = payload?.reply || "";
+      const aiText = stripLegacyMoodTag(rawReply);
+
+      const moodObj = payload?.mood as
+        | { score: number; key?: string; label?: string }
+        | undefined;
+      const newMood: MoodType = moodObj
+        ? moodKeyFromLabel(moodObj.label)
+        : "NEUTRAL";
+      const newMoodScore: number | undefined =
+        typeof moodObj?.score === "number" ? moodObj.score : undefined;
+
+      const aiHint: string | undefined =
+        typeof payload?.hint === "string" && payload.hint.trim().length > 0
+          ? payload.hint
+          : undefined;
+
+      const aiMsg: TranscriptMessage = {
+        id: generateId(),
+        role: "ai",
+        text: aiText,
+        timestamp: new Date().toISOString(),
+        mood: newMood,
+        moodScore: newMoodScore,
+        hint: aiHint,
+      };
+
+      setMood(newMood);
+      setMessages((prev) => [...prev, aiMsg]);
+      // PR-7C: snapshot 仍持久化（兜底教师 insights / 评估时演变分析）
+      setSnapshots((prev) => [
+        ...prev,
+        { turn, ts: new Date().toISOString(), allocations: flat },
+      ]);
+      toast.dismiss(loadingToastId);
+      toast.success("客户已回应你的配置");
+    } catch (err) {
+      toast.dismiss(loadingToastId);
+      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
+    } finally {
+      setIsSending(false);
+    }
   }
 
   // Reset allocation to defaults (visual-only convenience; doesn't touch submit count)
@@ -1240,7 +1318,7 @@ function SimRightPanel({
             className="mt-0.5 text-[11px]"
             style={{ color: "var(--fs-ink-5)" }}
           >
-            随对话实时调整，教师会看到最终配比
+            调整后可「提交给客户」，听听客户的反馈
           </div>
         </div>
         <span
@@ -1295,7 +1373,7 @@ function SimRightPanel({
               color: "var(--fs-success-deep)",
             }}
           >
-            <b>已记录 {snapshots.length} 次配比</b>
+            <b>已向客户提交 {snapshots.length} 次配置</b>
             <span className="ml-1.5 text-[10.5px] opacity-80">
               最近：第 {snapshots[snapshots.length - 1].turn} 轮
             </span>
@@ -1310,7 +1388,7 @@ function SimRightPanel({
           }}
         >
           <b style={{ color: "var(--fs-sim)" }}>提示：</b>
-          请根据对话中获取的客户偏好与风险承受能力调整配比。
+          调整后点「提交给客户」听反馈；客户会针对配置具体项给出回应。
         </div>
         <div className="flex gap-1.5">
           <button
@@ -1334,7 +1412,7 @@ function SimRightPanel({
             style={{ background: "var(--fs-ink)", color: "#fff" }}
           >
             <Check size={11} />
-            记录当前配比 ({submitCount}/{maxSubmissions})
+            提交给客户 ({submitCount}/{maxSubmissions})
           </button>
         </div>
       </div>
