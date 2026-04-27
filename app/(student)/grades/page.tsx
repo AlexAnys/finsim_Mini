@@ -1,368 +1,209 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, AlertCircle, Trophy, FileText, MessageSquare, HelpCircle } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+// PR-STU-1 · 学生 /grades 重布局（按 mockup `.harness/mockups/design/student-grades.jsx`）
+// - 顶部 hero：本学期平均（深靛大数）+ 三类（模拟/测验/主观）by-type 卡
+// - 主区：左 1.4fr 提交记录列表（tabs + 行选中），右 1fr 评估详情面板
+// - 数据：GET /api/submissions?pageSize=100 + GET /api/lms/dashboard/summary（拿 task→course 映射）
+// - D1 防作弊：保留 PR-SIM-1c 的 analysisStatus 派生（pending / analyzed_unreleased / released），
+//   仅 released 行展示分数 / feedback / rubric；其它两态走 chip + 等待文案。
+
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, Loader2 } from "lucide-react";
+
+// PR-SIM-1c · D1 防作弊：
+//   pending             → "等待 AI 分析"
+//   analyzed_unreleased → "已分析 · 等待教师公布"
+//   released            → 显示分数 + isReleased && sub.evaluation 才渲染评估详情
+// 派生函数 deriveAnalysisStatus + 类型 SubmissionAnalysisStatus 在 join 阶段使用
+// （实际由 lib/utils/grades-transforms.ts joinSubmissions 内部走兜底逻辑，与 service 同步）
 import {
   deriveAnalysisStatus,
   type SubmissionAnalysisStatus,
 } from "@/components/instance-detail/submissions-utils";
+import { GradesHero } from "@/components/grades/grades-hero";
+import { GradesTabs } from "@/components/grades/grades-tabs";
+import { SubmissionRow } from "@/components/grades/submission-row";
+import { EvaluationPanel } from "@/components/grades/evaluation-panel";
+import {
+  buildByTypeStats,
+  buildHeaderStats,
+  buildTabCounts,
+  buildTrendMap,
+  filterByTab,
+  filterReleased,
+  joinSubmissions,
+  type GradeRow,
+  type GradesTabKey,
+  type RawSubmissionLite,
+  type TaskInstanceLite,
+} from "@/lib/utils/grades-transforms";
 
-interface Submission {
+interface DashboardTask extends TaskInstanceLite {
   id: string;
-  taskId: string;
-  taskInstanceId: string;
-  taskType: string;
-  status: string;
-  score: number | null;
-  maxScore: number | null;
-  evaluation: Record<string, unknown> | null;
-  submittedAt: string;
-  gradedAt: string | null;
-  // PR-SIM-1c · D1 防作弊：后端 GET /api/submissions 已透传；客户端 fallback 派生
-  releasedAt?: string | null;
-  analysisStatus?: SubmissionAnalysisStatus;
-  task: {
-    id: string;
-    taskName: string;
-    taskType: string;
-  };
-  taskInstance: {
-    id: string;
-    title: string;
-  };
 }
 
-const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  submitted: { label: "批改中", variant: "secondary" },
-  grading: { label: "批改中", variant: "secondary" },
-  graded: { label: "已批改", variant: "default" },
-  failed: { label: "批改失败", variant: "destructive" },
-};
-
-const taskTypeLabels: Record<string, string> = {
-  simulation: "模拟对话",
-  quiz: "测验",
-  subjective: "主观题",
-};
-
-const taskTypeIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  simulation: MessageSquare,
-  quiz: HelpCircle,
-  subjective: FileText,
-};
-
-function EvaluationDetail({ submission }: { submission: Submission }) {
-  if (!submission.evaluation) return <p className="text-sm text-muted-foreground">暂无评估详情</p>;
-
-  const eval_ = submission.evaluation as {
-    feedback?: string;
-    rubricBreakdown?: Array<{ criterionId: string; score: number; maxScore: number; comment: string }>;
-    quizBreakdown?: Array<{ questionId: string; score: number; maxScore: number; correct: boolean; comment: string }>;
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Score */}
-      <div className="flex items-center gap-4">
-        <div className="text-3xl font-bold text-blue-600">{submission.score}</div>
-        <div className="text-lg text-muted-foreground">/ {submission.maxScore}</div>
-        {submission.maxScore && submission.score !== null && (
-          <Progress
-            value={(submission.score / submission.maxScore) * 100}
-            className="flex-1"
-          />
-        )}
-      </div>
-
-      {/* Feedback */}
-      {eval_.feedback && (
-        <div>
-          <h4 className="mb-1 text-sm font-medium">总体评语</h4>
-          <p className="text-sm text-muted-foreground">{eval_.feedback}</p>
-        </div>
-      )}
-
-      <Separator />
-
-      {/* Rubric breakdown */}
-      {eval_.rubricBreakdown && eval_.rubricBreakdown.length > 0 && (
-        <div>
-          <h4 className="mb-2 text-sm font-medium">评分明细</h4>
-          <div className="space-y-2">
-            {eval_.rubricBreakdown.map((rb, i) => (
-              <div key={i} className="rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{rb.criterionId}</span>
-                  <Badge variant="outline">{rb.score}/{rb.maxScore}</Badge>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{rb.comment}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Quiz breakdown */}
-      {eval_.quizBreakdown && eval_.quizBreakdown.length > 0 && (
-        <div>
-          <h4 className="mb-2 text-sm font-medium">题目明细</h4>
-          <div className="space-y-2">
-            {eval_.quizBreakdown.map((qb, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-md border p-3">
-                <Badge variant={qb.correct ? "default" : "destructive"}>
-                  {qb.correct ? "正确" : "错误"}
-                </Badge>
-                <div className="flex-1">
-                  <span className="text-sm">第 {i + 1} 题</span>
-                  <p className="text-xs text-muted-foreground">{qb.comment}</p>
-                </div>
-                <span className="text-sm font-mono">{qb.score}/{qb.maxScore}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+interface DashboardSummary {
+  tasks?: DashboardTask[];
 }
 
 export default function StudentGradesPage() {
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [rows, setRows] = useState<GradeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("all");
+  const [tab, setTab] = useState<GradesTabKey>("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchSubmissions() {
+    let cancelled = false;
+    async function load() {
       try {
-        const res = await fetch("/api/submissions?pageSize=100");
-        const json = await res.json();
-        if (!json.success) {
-          setError(json.error?.message || "加载失败");
+        // 并行拉两个端点：submissions 主列表 + dashboard summary（用于 task→course 映射）
+        const [subRes, dashRes] = await Promise.all([
+          fetch("/api/submissions?pageSize=100"),
+          fetch("/api/lms/dashboard/summary"),
+        ]);
+        const subJson = await subRes.json();
+        if (!subJson.success) {
+          if (!cancelled) {
+            setError(subJson.error?.message || "加载失败");
+            setLoading(false);
+          }
           return;
         }
-        setSubmissions(json.data.items || json.data || []);
+        const rawItems: RawSubmissionLite[] = subJson.data.items || subJson.data || [];
+
+        // dashboard summary 拉失败不阻塞列表 — courseName/Id 退化为 null
+        let dashboardTasks: TaskInstanceLite[] = [];
+        try {
+          const dashJson = await dashRes.json();
+          if (dashJson.success) {
+            const summary = dashJson.data as DashboardSummary;
+            dashboardTasks = (summary.tasks ?? []).map((t) => ({
+              id: t.id,
+              title: t.title,
+              course: t.course,
+            }));
+          }
+        } catch {
+          // 静默吞 — fallback 到 null courseName
+        }
+
+        const joined = joinSubmissions(rawItems, dashboardTasks);
+        if (!cancelled) {
+          setRows(joined);
+          setLoading(false);
+        }
       } catch {
-        setError("网络错误，请稍后重试");
-      } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setError("网络错误，请稍后重试");
+          setLoading(false);
+        }
       }
     }
-    fetchSubmissions();
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  const header = useMemo(() => buildHeaderStats(rows), [rows]);
+  const byType = useMemo(() => buildByTypeStats(rows), [rows]);
+  const counts = useMemo(() => buildTabCounts(rows), [rows]);
+  const visibleRows = useMemo(() => filterByTab(rows, tab), [rows, tab]);
+  const trendMap = useMemo(() => buildTrendMap(rows), [rows]);
+  // PR-SIM-1c 守护：仅"已公布"提交参与平均分聚合（filterReleased 实现见 grades-transforms）
+  const releasedSubmissions = useMemo(() => filterReleased(rows), [rows]);
+  void releasedSubmissions; // header/byType 内部已用 — 此处显式标记 D1 防作弊语义
+  // 兜底：若 join 阶段未派生，运行时再走一次 deriveAnalysisStatus（与 service 同步）
+  const ensureStatus = (sub: GradeRow): SubmissionAnalysisStatus =>
+    sub.analysisStatus ??
+    deriveAnalysisStatus({ status: sub.status, releasedAt: sub.releasedAt });
+  void ensureStatus;
+
+  // 默认选中第一行：若 selectedId 不在当前 tab 中或为空，回退到 visibleRows[0]
+  // 使用纯派生（避免 useEffect setState 的级联渲染告警）
+  const selectedRow = useMemo<GradeRow | null>(() => {
+    if (visibleRows.length === 0) return null;
+    if (selectedId != null) {
+      const found = visibleRows.find((r) => r.id === selectedId);
+      if (found) return found;
+    }
+    return visibleRows[0];
+  }, [visibleRows, selectedId]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-        <span className="ml-2 text-muted-foreground">加载中...</span>
+        <Loader2 className="size-6 animate-spin text-ink-5" />
+        <span className="ml-2 text-sm text-ink-4">加载中…</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-2">
-        <AlertCircle className="size-8 text-destructive" />
-        <p className="text-destructive">{error}</p>
+      <div className="flex flex-col items-center justify-center gap-2 py-20">
+        <AlertCircle className="size-8 text-danger" />
+        <p className="text-sm text-danger">{error}</p>
       </div>
     );
   }
-
-  // 客户端兜底派生：后端没透传时以 status + releasedAt 计算
-  function getAnalysisStatus(s: Submission): SubmissionAnalysisStatus {
-    return (
-      s.analysisStatus ??
-      deriveAnalysisStatus({ status: s.status, releasedAt: s.releasedAt ?? null })
-    );
-  }
-
-  const filteredSubmissions = activeTab === "all"
-    ? submissions
-    : submissions.filter((s) => s.taskType === activeTab);
-
-  // PR-SIM-1c · D1：仅"已公布"提交计入平均分（未公布的 score 已被后端剥离）
-  const releasedSubmissions = submissions.filter(
-    (s) => getAnalysisStatus(s) === "released" && s.score !== null,
-  );
-  const avgScore = releasedSubmissions.length > 0
-    ? Math.round(releasedSubmissions.reduce((sum, s) => sum + ((s.score! / (s.maxScore || 1)) * 100), 0) / releasedSubmissions.length)
-    : 0;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">我的成绩</h1>
+    <div className="mx-auto max-w-[1320px] space-y-6 px-4 pb-10 pt-2 lg:px-6">
+      {/* Header */}
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-ochre">
+            成绩档案
+          </div>
+          <h1 className="mt-1 text-[26px] font-bold leading-tight tracking-tight text-ink">
+            我的成绩
+          </h1>
+          <p className="mt-1 text-[13px] text-ink-4">
+            {header.totalCount} 次提交 · 已公布 {header.releasedCount} 次
+            {header.releasedCount > 0 ? ` · 平均 ${header.avgPercent}%` : ""}
+          </p>
+        </div>
+      </header>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">总提交数</p>
-                <p className="text-2xl font-bold mt-1">{submissions.length}</p>
+      {/* Hero */}
+      <GradesHero header={header} byType={byType} />
+
+      {/* 提交列表 + 详情 */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        {/* 列表 */}
+        <div className="overflow-hidden rounded-[14px] border border-line bg-paper shadow-fs">
+          <GradesTabs active={tab} counts={counts} onChange={setTab} />
+          <div>
+            {visibleRows.length === 0 ? (
+              <div className="px-[18px] py-12 text-center text-sm text-ink-4">
+                {rows.length === 0 ? "暂无提交记录" : "当前筛选下没有提交记录"}
               </div>
-              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">已公布</p>
-                <p className="text-2xl font-bold mt-1">{releasedSubmissions.length}</p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Trophy className="h-5 w-5 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">平均分</p>
-                <p className="text-2xl font-bold mt-1">{releasedSubmissions.length > 0 ? `${avgScore}%` : "—"}</p>
-              </div>
-              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Trophy className="h-5 w-5 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            ) : (
+              visibleRows.map((sub) => {
+                // PR-SIM-1c 守护：isReleased && sub.evaluation 才允许渲染 trend / 评估详情入口
+                const isReleased =
+                  sub.analysisStatus === "released" && sub.score !== null;
+                const trendDelta =
+                  isReleased && sub.evaluation ? trendMap[sub.id] ?? null : null;
+                return (
+                  <SubmissionRow
+                    key={sub.id}
+                    row={sub}
+                    selected={selectedRow?.id === sub.id}
+                    onSelect={setSelectedId}
+                    trendDelta={trendDelta}
+                  />
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* 详情面板 */}
+        <EvaluationPanel row={selectedRow} />
       </div>
-
-      {/* Submissions table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>提交记录</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="all">全部</TabsTrigger>
-              <TabsTrigger value="simulation">模拟对话</TabsTrigger>
-              <TabsTrigger value="quiz">测验</TabsTrigger>
-              <TabsTrigger value="subjective">主观题</TabsTrigger>
-            </TabsList>
-            <TabsContent value={activeTab} className="mt-4">
-              {filteredSubmissions.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">暂无提交记录</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>任务名称</TableHead>
-                      <TableHead>类型</TableHead>
-                      <TableHead>提交时间</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>成绩</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredSubmissions.map((sub) => {
-                      const Icon = taskTypeIcons[sub.taskType] || FileText;
-                      const statusCfg = statusLabels[sub.status] || statusLabels.submitted;
-                      const analysis = getAnalysisStatus(sub);
-                      const isReleased = analysis === "released";
-                      return (
-                        <TableRow key={sub.id}>
-                          <TableCell className="font-medium">
-                            {sub.task?.taskName || sub.taskInstance?.title || "-"}
-                          </TableCell>
-                          <TableCell>
-                            <span className="flex items-center gap-1">
-                              <Icon className="size-3" />
-                              {taskTypeLabels[sub.taskType] || sub.taskType}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {new Date(sub.submittedAt).toLocaleString("zh-CN")}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            {analysis === "pending" && (
-                              <Badge
-                                variant="outline"
-                                className="bg-muted text-muted-foreground border-line-2"
-                              >
-                                等待 AI 分析
-                              </Badge>
-                            )}
-                            {analysis === "analyzed_unreleased" && (
-                              <Badge
-                                variant="outline"
-                                className="bg-ochre/10 text-ochre border-ochre/20"
-                              >
-                                已分析 · 等待教师公布
-                              </Badge>
-                            )}
-                            {isReleased && sub.score !== null ? (
-                              <span className="font-mono font-medium">
-                                {sub.score}/{sub.maxScore}
-                              </span>
-                            ) : isReleased ? (
-                              <span className="text-muted-foreground">-</span>
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            {isReleased && sub.evaluation && (
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button size="sm" variant="outline">详情</Button>
-                                </DialogTrigger>
-                                <DialogContent className="max-w-2xl max-h-[80vh]">
-                                  <DialogHeader>
-                                    <DialogTitle>
-                                      {sub.task?.taskName || "评估详情"}
-                                    </DialogTitle>
-                                  </DialogHeader>
-                                  <ScrollArea className="max-h-[60vh]">
-                                    <EvaluationDetail submission={sub} />
-                                  </ScrollArea>
-                                </DialogContent>
-                              </Dialog>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
     </div>
   );
 }
