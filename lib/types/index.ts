@@ -82,7 +82,8 @@ export type AIFeature =
   | "subjectiveGrade"
   | "taskDraft"
   | "importParse"
-  | "insights";
+  | "insights"
+  | "weeklyInsight";
 
 // 评估结果
 export interface RubricBreakdown {

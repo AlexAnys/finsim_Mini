@@ -53,6 +53,7 @@ const FEATURE_TEMPERATURES: Record<AIFeature, number> = {
   taskDraft: 0.7,
   importParse: 0.4,
   insights: 0.4,
+  weeklyInsight: 0.4,
 };
 
 // Feature -> 环境变量前缀
@@ -66,6 +67,7 @@ const FEATURE_ENV_MAP: Record<AIFeature, string> = {
   taskDraft: "AI_TASK_DRAFT",
   importParse: "AI_IMPORT",
   insights: "AI_INSIGHTS",
+  weeklyInsight: "AI_WEEKLY_INSIGHT",
 };
 
 function getProviderForFeature(feature: AIFeature): { provider: ProviderConfig; model: string } {
@@ -279,6 +281,17 @@ export interface ChatReplyResult {
   hintTriggered: boolean;
 }
 
+/** PR-SIM-3 D3: 学生交互类型。
+ *  - user_message: 学生发文字消息（默认行为，与 PR-7B 一致）
+ *  - config_submission: 学生把当前资产配置"提交给客户"征求反馈
+ */
+export type ChatMessageType = "user_message" | "config_submission";
+
+export interface ChatAllocationSection {
+  label: string;
+  items: Array<{ label: string; value: number }>;
+}
+
 export async function chatReply(
   userId: string,
   data: {
@@ -292,8 +305,14 @@ export async function chatReply(
     lastHintTurn?: number;
     /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
     objectives?: string[];
+    /** PR-SIM-3 D3: 默认 user_message（学生发文字）；config_submission 表示
+     *  学生把当前资产配置交给客户征求反馈，触发客户视角对配置具体项的回应。 */
+    messageType?: ChatMessageType;
+    /** PR-SIM-3 D3: 当 messageType=config_submission 时必填，学生提交的资产配置快照。 */
+    allocations?: ChatAllocationSection[];
   }
 ): Promise<ChatReplyResult> {
+  const messageType: ChatMessageType = data.messageType ?? "user_message";
   const objectivesBlock =
     data.objectives && data.objectives.length > 0
       ? `\n【对话目标维度】（用作 student_perf 评估与 deviated_dimensions 命名）:\n${data.objectives.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n`
@@ -323,8 +342,22 @@ ${data.scenario}
 - 不要重复理财经理刚说过的话。
 - 不要无端制造对抗或拒绝所有建议。`;
 
+  // PR-SIM-3 D3: 当学生"提交给客户"时，注入额外指令让客户具体回应配置
+  const configSubmissionBlock =
+    messageType === "config_submission"
+      ? `\n【本轮交互类型 · 资产配置提交 · PR-SIM-3】
+学生刚刚向你展示了一版资产配置（参见用户消息中的"提交资产配置"段落）。
+请基于配置数字 + 已有对话上下文，做出客户视角的具体回应：
+- 必须在 reply 中明确提到配置的至少一项具体内容（如"为什么完全不配债券"、"股票从 50% 降到 30%，是出于风险考虑吗？"等）。
+- 如果配置与你之前表达的偏好/风险承受能力 / 隐性需求一致，表达认可并追问深层逻辑；如果不一致，礼貌质疑、表达担忧。
+- 不要泛泛评价整体（如"看起来不错"），要点名具体项。
+- mood_score / mood_label 反映你看到这版配置后的真实情绪变化。
+- student_perf 评估学生这版配置是否贴合你已表达的偏好与对话目标。
+`
+      : "";
+
   const systemPrompt = `${personaPrompt}
-${objectivesBlock}
+${objectivesBlock}${configSubmissionBlock}
 【输出格式 · 严格 JSON · PR-7B】
 请输出严格 JSON（不要包含其他任何文字、不要 Markdown 代码块）：
 {
@@ -355,7 +388,23 @@ ${objectivesBlock}
     .map((m) => `${m.role === "student" ? "理财经理" : "客户"}: ${m.text}`)
     .join("\n");
 
-  const userPrompt = `对话历史:\n${conversationHistory}\n\n请作为客户继续回复并按上面 JSON 格式输出。`;
+  // PR-SIM-3 D3: config_submission 时把学生提交的配置摊平为可读列表，给到客户视角看
+  const allocationSubmissionText =
+    messageType === "config_submission" && data.allocations && data.allocations.length > 0
+      ? `\n\n提交资产配置（学生当前要客户对这版方案的反馈）:\n${data.allocations
+          .map((sec) => {
+            const lines = sec.items
+              .map((it) => `  · ${it.label}: ${it.value}%`)
+              .join("\n");
+            return `[${sec.label}]\n${lines}`;
+          })
+          .join("\n")}`
+      : "";
+
+  const userPrompt =
+    messageType === "config_submission"
+      ? `对话历史:\n${conversationHistory}${allocationSubmissionText}\n\n请作为客户对这版资产配置做出具体回应（按上面 JSON 格式输出，reply 必须点名提到配置中至少一项具体内容）。`
+      : `对话历史:\n${conversationHistory}\n\n请作为客户继续回复并按上面 JSON 格式输出。`;
 
   const currentTurn = data.transcript.filter((m) => m.role === "student").length;
 

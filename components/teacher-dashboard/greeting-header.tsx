@@ -7,6 +7,9 @@ interface GreetingHeaderProps {
   todayClassCount: number;
   pendingGradeCount: number;
   publishedThisWeek: number;
+  /** PR-DASH-1e: 一周洞察按钮触发 modal */
+  onWeeklyInsightClick?: () => void;
+  weeklyInsightLoading?: boolean;
 }
 
 export function TeacherGreetingHeader({
@@ -14,6 +17,8 @@ export function TeacherGreetingHeader({
   todayClassCount,
   pendingGradeCount,
   publishedThisWeek,
+  onWeeklyInsightClick,
+  weeklyInsightLoading,
 }: GreetingHeaderProps) {
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -31,7 +36,11 @@ export function TeacherGreetingHeader({
         </p>
       </div>
       <div className="flex shrink-0 items-center">
-        <AiSuggestCallout variant="header-chip" />
+        <AiSuggestCallout
+          variant="header-chip"
+          onWeeklyInsightClick={onWeeklyInsightClick}
+          weeklyInsightLoading={weeklyInsightLoading}
+        />
       </div>
     </div>
   );

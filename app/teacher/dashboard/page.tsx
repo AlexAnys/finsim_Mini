@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, AlertCircle } from "lucide-react";
 import { TeacherGreetingHeader } from "@/components/teacher-dashboard/greeting-header";
 import { KpiStrip } from "@/components/teacher-dashboard/kpi-strip";
@@ -9,6 +9,10 @@ import { PerformanceChart } from "@/components/teacher-dashboard/performance-cha
 import { WeakInstances } from "@/components/teacher-dashboard/weak-instances";
 import { TodaySchedule } from "@/components/teacher-dashboard/today-schedule";
 import { ActivityFeed } from "@/components/teacher-dashboard/activity-feed";
+import {
+  WeeklyInsightModal,
+  type WeeklyInsightUiResult,
+} from "@/components/teacher-dashboard/weekly-insight-modal";
 import {
   buildActivityFeed,
   buildClassPerformance,
@@ -204,6 +208,44 @@ export default function TeacherDashboardPage() {
     }).length;
   }, [data]);
 
+  // PR-DASH-1e · B3 · 一周洞察 modal state
+  const [weeklyOpen, setWeeklyOpen] = useState(false);
+  const [weeklyData, setWeeklyData] = useState<WeeklyInsightUiResult | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const [weeklyError, setWeeklyError] = useState<string | null>(null);
+
+  const fetchWeeklyInsight = useCallback(async (force: boolean) => {
+    setWeeklyLoading(true);
+    setWeeklyError(null);
+    try {
+      const url = force
+        ? "/api/lms/weekly-insight?force=true"
+        : "/api/lms/weekly-insight";
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!json.success) {
+        setWeeklyError(json.error?.message || "生成洞察失败");
+        return;
+      }
+      setWeeklyData(json.data as WeeklyInsightUiResult);
+    } catch {
+      setWeeklyError("网络错误，请稍后重试");
+    } finally {
+      setWeeklyLoading(false);
+    }
+  }, []);
+
+  const handleWeeklyClick = useCallback(() => {
+    setWeeklyOpen(true);
+    if (!weeklyData && !weeklyLoading) {
+      void fetchWeeklyInsight(false);
+    }
+  }, [weeklyData, weeklyLoading, fetchWeeklyInsight]);
+
+  const handleWeeklyRegenerate = useCallback(() => {
+    void fetchWeeklyInsight(true);
+  }, [fetchWeeklyInsight]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -238,6 +280,8 @@ export default function TeacherDashboardPage() {
         todayClassCount={todayClassCount}
         pendingGradeCount={kpi.pendingCount}
         publishedThisWeek={publishedThisWeek}
+        onWeeklyInsightClick={handleWeeklyClick}
+        weeklyInsightLoading={weeklyLoading && !weeklyOpen}
       />
 
       <KpiStrip data={kpi} />
@@ -269,6 +313,15 @@ export default function TeacherDashboardPage() {
           <ActivityFeed items={activityItems} />
         </div>
       </div>
+
+      <WeeklyInsightModal
+        open={weeklyOpen}
+        onOpenChange={setWeeklyOpen}
+        data={weeklyData}
+        loading={weeklyLoading}
+        error={weeklyError}
+        onRegenerate={handleWeeklyRegenerate}
+      />
     </div>
   );
 }

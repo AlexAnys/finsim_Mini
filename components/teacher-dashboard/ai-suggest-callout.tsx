@@ -1,18 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
 
 interface AiSuggestCalloutProps {
   insightsHref?: string;
   assistantHref?: string;
   variant?: "callout" | "header-chip";
+  /** PR-DASH-1e: header-chip 模式下，点击"一周洞察"按钮触发 modal 而非跳转 */
+  onWeeklyInsightClick?: () => void;
+  /** PR-DASH-1e: header-chip 模式下，正在加载时显示 spinner */
+  weeklyInsightLoading?: boolean;
 }
 
 export function AiSuggestCallout({
   insightsHref = "/teacher/analytics",
   assistantHref = "/teacher/ai-assistant",
   variant = "callout",
+  onWeeklyInsightClick,
+  weeklyInsightLoading = false,
 }: AiSuggestCalloutProps) {
   if (variant === "header-chip") {
     return (
@@ -28,13 +34,30 @@ export function AiSuggestCallout({
           <span className="text-ink-5">·</span>
           <span className="truncate text-ink-3">本周建议</span>
         </div>
-        <Link
-          href={insightsHref}
-          className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[12px] font-medium text-[var(--fs-primary-fg)] transition-colors hover:bg-brand-lift"
-        >
-          一周洞察
-          <ArrowRight className="size-[11px]" />
-        </Link>
+        {onWeeklyInsightClick ? (
+          <button
+            type="button"
+            onClick={onWeeklyInsightClick}
+            disabled={weeklyInsightLoading}
+            aria-label="生成一周洞察"
+            className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[12px] font-medium text-[var(--fs-primary-fg)] transition-colors hover:bg-brand-lift disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            一周洞察
+            {weeklyInsightLoading ? (
+              <Loader2 className="size-[11px] animate-spin" aria-hidden />
+            ) : (
+              <ArrowRight className="size-[11px]" aria-hidden />
+            )}
+          </button>
+        ) : (
+          <Link
+            href={insightsHref}
+            className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[12px] font-medium text-[var(--fs-primary-fg)] transition-colors hover:bg-brand-lift"
+          >
+            一周洞察
+            <ArrowRight className="size-[11px]" />
+          </Link>
+        )}
       </div>
     );
   }

@@ -58,7 +58,11 @@ describe("PR-DASH-1b · B2 GreetingHeader renders AiSuggestCallout chip", () => 
   });
 
   it("renders AiSuggestCallout with variant='header-chip'", () => {
-    expect(greeting).toMatch(/<AiSuggestCallout\s+variant=["']header-chip["']\s*\/>/);
+    // PR-DASH-1e: 加了 onWeeklyInsightClick + weeklyInsightLoading props（多行 JSX），
+    // 守护意图是"GreetingHeader 渲染了 header-chip 变体"，故放宽匹配。
+    expect(greeting).toMatch(
+      /<AiSuggestCallout[\s\S]*?variant=["']header-chip["'][\s\S]*?\/>/,
+    );
   });
 
   it("preserves '教学工作台' page title", () => {
