@@ -1,24 +1,25 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 interface WordmarkProps {
   size?: number;
   className?: string;
-  /** 暗背景上的白色版（用于深色 nav、按钮内嵌等场景） */
+  /** 暗背景上的白色版（保留 prop 兼容签名；当前 PNG 自带极光背景，视觉无差异） */
   mono?: boolean;
   /** 是否显示「灵析 AI」文字（默认 true） */
   showText?: boolean;
 }
 
 /**
- * 灵析 AI 品牌 mark · 横向 ∞ 双环 + 双星点
+ * 灵析 AI 品牌 mark · 真 brand asset 版（圆角方块 + 极光 + 金属丝带 ∞）
  *
- * 与登录/注册页深色版（真实金属丝带 lockup.png）形态完全一致，
- * 这里是适配米色 paper 浅色背景的实色 SVG 版本。
- *
- * 替换路径：finsim/components/ui/wordmark.tsx
+ * 直接使用设计师交付的 `/public/brand/app-icon.png`，与登录/注册页
+ * 深色 hero 中的 lockup.png 同源 brand mark。
  *
  * API 完全向后兼容：size / className / mono / showText 全部保留，
  * 所有调用点（sidebar 等）零改动。
+ *
+ * mono prop 保留签名兼容，但 PNG 已包含完整极光背景，视觉无差异。
  */
 export function Wordmark({
   size = 28,
@@ -26,41 +27,22 @@ export function Wordmark({
   mono = false,
   showText = true,
 }: WordmarkProps) {
-  // 横向 ∞ 比例 80:44 ≈ 1.82:1（与真实 lockup logo 一致）
-  const symbolHeight = size;
-  const symbolWidth = Math.round(size * 1.82);
   const fontSize = Math.round(size * 0.54);
 
-  const strokeColor = mono ? "#ffffff" : "var(--fs-primary)";
-  const dot1Color = mono ? "#ffffff" : "var(--fs-sim)";
-  const dot2Color = mono ? "rgba(255,255,255,0.7)" : "var(--fs-primary-lift)";
   const textColorClass = mono ? "text-white" : "text-ink";
   const aiColorClass = mono ? "text-white/80" : "text-brand";
 
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <svg
-        width={symbolWidth}
-        height={symbolHeight}
-        viewBox="0 0 80 44"
-        fill="none"
-        aria-label="灵析 AI"
+      <Image
+        src="/brand/app-icon.png"
+        width={size}
+        height={size}
+        alt="灵析 AI"
+        priority
         className="shrink-0"
-      >
-        {/* 双环 ∞ 一笔画 */}
-        <path
-          d="M 14 22 C 14 10, 30 10, 40 22 C 50 34, 66 34, 66 22 C 66 10, 50 10, 40 22 C 30 34, 14 34, 14 22 Z"
-          stroke={strokeColor}
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        {/* 主星点（右上，紫色） */}
-        <circle cx="62" cy="11" r="1.8" fill={dot1Color} />
-        {/* 次星点（左下，浅靛蓝） */}
-        <circle cx="18" cy="33" r="1.2" fill={dot2Color} />
-      </svg>
+        style={{ borderRadius: Math.round(size * 0.22) }}
+      />
 
       {showText && (
         <div
