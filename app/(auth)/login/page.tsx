@@ -1,14 +1,30 @@
 "use client";
 
+/**
+ * 灵析 AI · 登录页 V4 深色版 · Midnight Aurora
+ *
+ * 关键技术：mix-blend-mode: screen 让品牌资产中的深空底变透明，
+ *           只保留极光、星点、丝带等亮色元素融入页面背景。
+ *
+ * 真实品牌资产（来自 灵析V2.zip）：
+ *   /public/brand/lockup.png        ← 横向 wordmark（∞ + 灵析 AI + LingXi）
+ *   /public/brand/mood-aurora.png   ← brand mood 极光横幅（顶部背景）
+ *   /public/brand/value-connect.png ← 连接（双星椭圆轨道，含文字）
+ *   /public/brand/value-explore.png ← 探索（星系螺旋，含文字）
+ *   /public/brand/value-grow.png    ← 成长（S 形螺旋向上，含文字）
+ *
+ * 落地步骤：HANDOFF-V4-DARK.md
+ */
+
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [roleHint, setRoleHint] = useState<"student" | "teacher">("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -17,35 +33,18 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setInlineError(null);
-
-    if (!email.trim()) {
-      setInlineError("请输入邮箱");
-      return;
-    }
-    if (!password) {
-      setInlineError("请输入密码");
-      return;
-    }
+    if (!email.trim()) { setInlineError("请输入邮箱"); return; }
+    if (!password) { setInlineError("请输入密码"); return; }
 
     setIsLoading(true);
-
     try {
       const result = await signIn("credentials", {
-        email: email.trim(),
-        password,
-        redirect: false,
+        email: email.trim(), password, redirect: false,
       });
-
-      if (result?.error) {
-        setInlineError("邮箱或密码错误");
-        return;
-      }
-
+      if (result?.error) { setInlineError("邮箱或密码错误"); return; }
       toast.success("登录成功");
-
       const sessionRes = await fetch("/api/auth/session");
       const session = await sessionRes.json();
-
       const role = session?.user?.role;
       if (role === "teacher" || role === "admin") {
         router.push("/teacher/dashboard");
@@ -60,231 +59,261 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
-      {/* LEFT · brand hero */}
-      <aside
-        className="relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:justify-between lg:px-16 lg:py-16"
-        style={{
-          background:
-            "linear-gradient(135deg, var(--fs-primary-deep) 0%, var(--fs-primary-lift) 100%)",
-        }}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full"
-          style={{ background: "color-mix(in oklab, var(--fs-sim) 30%, transparent)" }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full"
-          style={{ background: "color-mix(in oklab, var(--fs-primary) 25%, transparent)" }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.08]"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)",
-            backgroundSize: "24px 24px",
-          }}
-        />
+    <div className="lx-page">
+      <AuroraBackground />
+      <BrandHeader />
 
-        <div className="relative flex items-center gap-3">
-          <div
-            className="grid h-9 w-9 place-items-center rounded-lg text-[15px] font-bold"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
-            }}
-          >
-            灵
-          </div>
-          <div>
-            <div className="text-[15px] font-semibold">灵析 AI</div>
-            <div className="mt-0.5 text-[10.5px] text-white/55">
-              AI 把课堂的隐性问题，变成可视的行动
-            </div>
-          </div>
+      <main className="lx-main">
+        <div className="lx-stage">
+          <LoginHero />
+          <LoginForm
+            email={email}
+            password={password}
+            isLoading={isLoading}
+            inlineError={inlineError}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onSubmit={handleSubmit}
+          />
         </div>
-
-        <div className="relative">
-          <h2 className="mb-4 text-4xl font-semibold leading-tight tracking-tight">
-            看见每个学生
-            <br />
-            没说出口的{" "}
-            <span style={{ color: "var(--fs-sim)" }}>那道坎</span>。
-          </h2>
-          <p className="max-w-[480px] text-sm leading-relaxed text-white/75">
-            灵析在每节课后聚合学生的对话、答题、提交，把共性盲区、个体差异与知识断点，变成你立刻能采取的教学动作。
-          </p>
-        </div>
-
-        <div className="relative grid grid-cols-3 gap-3.5">
-          {[
-            { n: "看见", l: "AI 聚合隐性卡点" },
-            { n: "因人", l: "个性化建议到学生" },
-            { n: "省时", l: "AI 先批 · 教师确认" },
-          ].map((s) => (
-            <div
-              key={s.l}
-              className="rounded-[10px] border border-white/10 bg-white/[0.08] px-3.5 py-3"
-            >
-              <div className="fs-num text-[22px] font-bold tracking-tight">
-                {s.n}
-              </div>
-              <div className="mt-0.5 text-[11px] text-white/60">{s.l}</div>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      {/* RIGHT · form */}
-      <main className="flex items-center justify-center px-6 py-12 lg:px-12">
-        <div className="w-full max-w-[400px]">
-          {/* Mobile-only brand header */}
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div
-              className="grid h-10 w-10 place-items-center rounded-lg text-base font-bold text-white"
-              style={{
-                background:
-                  "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
-              }}
-            >
-              灵
-            </div>
-            <div>
-              <div className="text-base font-semibold text-ink">灵析 AI</div>
-              <div className="text-[11px] text-ink-4">
-                AI 把课堂的隐性问题，变成可视的行动
-              </div>
-            </div>
-          </div>
-
-          {/* Role hint chip switch — visual hint only, real role comes from account */}
-          <div
-            role="group"
-            aria-label="登录身份提示"
-            className="mb-7 flex rounded-lg p-1"
-            style={{ background: "var(--fs-bg-alt)" }}
-          >
-            {[
-              { k: "student" as const, label: "学生登录", sub: "使用学校邮箱登录" },
-              { k: "teacher" as const, label: "教师登录", sub: "使用工作邮箱登录" },
-            ].map((r) => {
-              const active = roleHint === r.k;
-              return (
-                <button
-                  key={r.k}
-                  type="button"
-                  onClick={() => setRoleHint(r.k)}
-                  className="flex-1 rounded-md px-3 py-2.5 text-left transition-shadow"
-                  style={{
-                    background: active ? "var(--fs-surface)" : "transparent",
-                    boxShadow: active ? "var(--fs-shadow)" : "none",
-                  }}
-                >
-                  <div
-                    className="text-[12.5px] font-semibold"
-                    style={{ color: active ? "var(--fs-ink)" : "var(--fs-ink-4)" }}
-                  >
-                    {r.label}
-                  </div>
-                  <div className="mt-px text-[10.5px] text-ink-5">{r.sub}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          <h1 className="text-[28px] font-semibold tracking-tight text-ink">
-            欢迎回来
-          </h1>
-          <p className="mb-7 mt-1.5 text-[13px] leading-relaxed text-ink-4">
-            继续你尚未完成的对话，或者从 AI 客户那里开始新的一次。
-          </p>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
-            <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                邮箱
-              </div>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={isLoading}
-                autoComplete="email"
-                placeholder="your@school.edu.cn"
-                className="w-full rounded-[7px] border border-line bg-paper-alt px-3.5 py-2.5 text-[13px] text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20"
-              />
-            </label>
-
-            <label className="block">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-[11.5px] font-semibold text-ink-3">
-                  密码
-                </span>
-                <span className="text-[11px] text-ink-5">
-                  忘记密码？请联系管理员
-                </span>
-              </div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-                autoComplete="current-password"
-                placeholder="••••••••"
-                className="w-full rounded-[7px] border border-line bg-paper-alt px-3.5 py-2.5 text-[13px] text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20"
-              />
-            </label>
-
-            {inlineError && (
-              <div
-                role="alert"
-                className="rounded-md border px-3 py-2 text-[12px]"
-                style={{
-                  background: "var(--fs-danger-soft)",
-                  borderColor: "color-mix(in oklab, var(--fs-danger) 30%, transparent)",
-                  color: "var(--fs-danger)",
-                }}
-              >
-                {inlineError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="mt-2 w-full rounded-lg py-3 text-[13px] font-semibold text-white transition disabled:opacity-60"
-              style={{ background: "var(--fs-ink)" }}
-            >
-              {isLoading ? "登录中..." : "登录"}
-            </button>
-          </form>
-
-          <div className="my-6 flex items-center gap-2.5">
-            <div className="h-px flex-1 bg-line" />
-            <span className="text-[11px] text-ink-5">或</span>
-            <div className="h-px flex-1 bg-line" />
-          </div>
-
-          <p className="text-center text-[12.5px] text-ink-4">
-            还没有账号？{" "}
-            <Link
-              href="/register"
-              className="font-medium text-brand underline-offset-4 hover:underline"
-            >
-              立即注册
-            </Link>
-          </p>
-
-          <div className="mt-7 text-center text-[11px] leading-relaxed text-ink-5">
-            登录即代表你同意{" "}
-            <span className="text-ink-4">使用条款</span> 与{" "}
-            <span className="text-ink-4">隐私政策</span>
-          </div>
-        </div>
+        <ValueOrbitStrip />
       </main>
+
+      <SiteFooter />
     </div>
+  );
+}
+
+// ─── AuroraBackground ───
+function AuroraBackground() {
+  return (
+    <div className="lx-aurora" aria-hidden>
+      {/* mood 图融入背景：mix-blend-mode: screen 让黑底透明 */}
+      <div
+        className="lx-aurora-mood"
+        style={{ backgroundImage: "url(/brand/mood-aurora.png)" }}
+      />
+      <div className="lx-aurora-arc-tr" />
+      <div className="lx-aurora-arc-bl" />
+      <div className="lx-stardust" />
+
+      <svg className="lx-orbit-decor" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" fill="none">
+        <defs>
+          <linearGradient id="track-bl" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#6a7cff" stopOpacity="0" />
+            <stop offset="50%" stopColor="#4fd1ff" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#00e0d6" stopOpacity="0.25" />
+          </linearGradient>
+          <linearGradient id="track-tr" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#00e0d6" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#6a7cff" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d="M -40 760 Q 220 680, 420 740 Q 620 800, 820 720 T 1200 760" stroke="url(#track-bl)" strokeWidth="1.2" fill="none" />
+        <circle cx="220" cy="708" r="2.5" fill="#4fd1ff" opacity="0.85" />
+        <circle cx="620" cy="780" r="2" fill="#6a7cff" opacity="0.75" />
+        <circle cx="1020" cy="724" r="2.5" fill="#00e0d6" opacity="0.85" />
+        <path d="M 900 80 Q 1140 140, 1320 280 Q 1420 380, 1480 540" stroke="url(#track-tr)" strokeWidth="1.4" fill="none" />
+        <circle cx="1140" cy="140" r="2" fill="#00e0d6" opacity="0.85" />
+        <circle cx="1320" cy="280" r="2.5" fill="#4fd1ff" opacity="0.85" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── BrandHeader · Logo 融入背景 ───
+function BrandHeader() {
+  return (
+    <header className="lx-topbar">
+      <div className="lx-brand">
+        {/* mix-blend-mode: screen 在 CSS 里处理 — 黑底透明，logo 浮起 */}
+        <Image
+          src="/brand/lockup.png"
+          alt="灵析 AI · LingXi"
+          width={220}
+          height={56}
+          className="lx-brand-logo"
+          style={{ width: "auto" }}
+          priority
+        />
+        <span className="lx-brand-divider" />
+        <span className="lx-brand-tag">课堂洞察 · AI 教学助手</span>
+      </div>
+      <a className="lx-topbar-help" href="#">需要帮助？</a>
+    </header>
+  );
+}
+
+// ─── LoginHero ───
+function LoginHero() {
+  return (
+    <>
+      <div className="lx-eyebrow">FOR EDUCATORS</div>
+      <div className="lx-title-wrap">
+        <h1 className="lx-title">
+          课堂之后，
+          <br />
+          真正的<em>教学</em>才开始。
+        </h1>
+        <svg className="lx-title-orbit" viewBox="0 0 130 90" fill="none" aria-hidden>
+          <path d="M 5 70 Q 35 45, 65 55 Q 95 65, 125 30" stroke="rgba(79,209,255,0.45)" strokeWidth="0.8" fill="none" />
+          <circle cx="125" cy="30" r="1.8" fill="#00e0d6">
+            <animate attributeName="r" values="1.5;2.5;1.5" dur="3s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="65" cy="55" r="1" fill="#6a7cff" opacity="0.85" />
+          <circle cx="125" cy="30" r="6" fill="#00e0d6" opacity="0.25">
+            <animate attributeName="r" values="4;8;4" dur="3s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0.1;0.4" dur="3s" repeatCount="indefinite" />
+          </circle>
+        </svg>
+      </div>
+      <p className="lx-sub">
+        灵析整理每位学生的对话、答题与提交，把分散的信号汇成教师可采取的下一步。
+      </p>
+    </>
+  );
+}
+
+// ─── LoginForm ───
+interface LoginFormProps {
+  email: string;
+  password: string;
+  isLoading: boolean;
+  inlineError: string | null;
+  onEmailChange: (v: string) => void;
+  onPasswordChange: (v: string) => void;
+  onSubmit: (e: React.FormEvent) => void;
+}
+
+function LoginForm({
+  email, password, isLoading, inlineError,
+  onEmailChange, onPasswordChange, onSubmit,
+}: LoginFormProps) {
+  return (
+    <>
+      <form onSubmit={onSubmit} className="lx-form">
+        <div className="lx-field">
+          <div className="lx-field-row">
+            <label className="lx-field-label" htmlFor="email">邮箱</label>
+          </div>
+          <div className="lx-input-wrap">
+            <input
+              className="lx-input" id="email" type="email"
+              value={email}
+              onChange={(e) => onEmailChange(e.target.value)}
+              disabled={isLoading}
+              autoComplete="email"
+              placeholder="your@school.edu.cn"
+            />
+          </div>
+        </div>
+
+        <div className="lx-field">
+          <div className="lx-field-row">
+            <label className="lx-field-label" htmlFor="password">密码</label>
+            <span className="lx-field-help">忘记密码？请联系管理员</span>
+          </div>
+          <div className="lx-input-wrap">
+            <input
+              className="lx-input" id="password" type="password"
+              value={password}
+              onChange={(e) => onPasswordChange(e.target.value)}
+              disabled={isLoading}
+              autoComplete="current-password"
+              placeholder="••••••••"
+            />
+          </div>
+        </div>
+
+        {inlineError && (
+          <div role="alert" className="lx-error">{inlineError}</div>
+        )}
+
+        <button type="submit" disabled={isLoading} className="lx-submit">
+          <span>{isLoading ? "登录中..." : "登 录"}</span>
+        </button>
+      </form>
+
+      <div className="lx-below-form">
+        <span>
+          还没有账号？
+          <Link href="/register" className="lx-link-primary">立即注册</Link>
+        </span>
+        <span className="lx-legal">
+          登录即代表同意 <a href="#">条款</a> 与 <a href="#">隐私</a>
+        </span>
+      </div>
+    </>
+  );
+}
+
+// ─── ValueOrbitStrip · 极简版：仅 3 张图 + screen blend，无文字无卡片 ───
+// 文字（连接 / 探索 / 成长 + 描述）已包含在每张品牌图中，避免重复
+const ORBIT_VALUES = [
+  {
+    img: "/brand/value-connect.png",
+    alt: "连接 — 汇聚学生信号，形成师生理解通路",
+  },
+  {
+    img: "/brand/value-explore.png",
+    alt: "探索 — 从课堂反馈中发现未被说出的困惑",
+  },
+  {
+    img: "/brand/value-grow.png",
+    alt: "成长 — 让每次教学反馈都成为下一步行动",
+  },
+];
+
+function ValueOrbitStrip() {
+  return (
+    <section className="lx-orbit-strip" aria-label="灵析 AI 核心价值（连接 · 探索 · 成长）">
+      <div className="lx-orbit-grid">
+        {ORBIT_VALUES.map((v) => (
+          <div key={v.img} className="lx-orbit-pillar">
+            <div className="lx-orbit-img-wrap">
+              <Image
+                src={v.img}
+                alt={v.alt}
+                width={400}
+                height={300}
+                className="lx-orbit-img"
+                style={{ width: "auto", height: "auto" }}
+                loading="lazy"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── SiteFooter ───
+const FOOTER_BRAND_WORDS = ["无限", "理解", "共鸣", "成长", "探索"];
+
+function SiteFooter() {
+  return (
+    <footer className="lx-footer">
+      <div className="lx-footer-brand-line">
+        {FOOTER_BRAND_WORDS.map((w, i) => (
+          <span key={w} style={{ display: "contents" }}>
+            <span>{w}</span>
+            {i < FOOTER_BRAND_WORDS.length - 1 && (
+              <span className="lx-footer-brand-dot" />
+            )}
+          </span>
+        ))}
+      </div>
+      <div className="lx-footer-meta-row">
+        <div className="lx-footer-meta">
+          <span>灵析 AI · 教学平台</span>
+          <span className="lx-footer-dot" />
+          <span>v3.0</span>
+          <span className="lx-footer-dot" />
+          <span>2026</span>
+        </div>
+        <div>© 2026 灵析</div>
+      </div>
+    </footer>
   );
 }

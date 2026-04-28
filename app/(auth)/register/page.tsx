@@ -1,17 +1,30 @@
 "use client";
 
+/**
+ * 灵析 AI · 注册页 V4 深色版 · Midnight Aurora
+ *
+ * 与登录页同款 BrandHeader + AuroraBackground + SiteFooter，
+ * 但去掉 ValueOrbitStrip（避免页面过长），保留所有原版字段和校验逻辑。
+ *
+ * 替换路径：finsim/app/(auth)/register/page.tsx
+ *
+ * 共享 CSS：login-dark.module.css（已在 login 页面用过）
+ *           本文件需要追加 register 专属样式（role-switch、select 适配）
+ *           见同目录 register-extra.module.css
+ *
+ * 保留的行为（与原版完全一致）：
+ *   - 字段：name, email, password, confirmPassword, classId(学生)/adminKey(教师)
+ *   - 学生角色自动加载班级列表（GET /api/classes）
+ *   - 完整校验：姓名 / 邮箱格式 / 密码长度 / 密码一致 / 班级或密钥必填
+ *   - 注册流程：POST /api/auth/register → 自动 signIn → 按 role 跳转
+ */
+
 import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { toast } from "sonner";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 interface ClassOption {
   id: string;
@@ -27,10 +40,10 @@ export default function RegisterPage() {
   const [classesLoading, setClassesLoading] = useState(false);
 
   // Form fields
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
   const [role, setRole] = useState<"student" | "teacher">("student");
   const [classId, setClassId] = useState("");
   const [adminKey, setAdminKey] = useState("");
@@ -42,60 +55,31 @@ export default function RegisterPage() {
       fetch("/api/classes")
         .then((res) => res.json())
         .then((data) => {
-          if (data.success) {
-            setClasses(data.data);
-          }
+          if (data.success) setClasses(data.data);
         })
-        .catch(() => {
-          toast.error("获取班级列表失败");
-        })
-        .finally(() => {
-          setClassesLoading(false);
-        });
+        .catch(() => toast.error("获取班级列表失败"))
+        .finally(() => setClassesLoading(false));
     }
   }, [role, classes.length]);
 
   function validate(): boolean {
-    if (!name.trim()) {
-      setInlineError("请输入姓名");
-      return false;
-    }
-    if (!email.trim()) {
-      setInlineError("请输入邮箱");
-      return false;
-    }
+    if (!name.trim()) { setInlineError("请输入姓名"); return false; }
+    if (!email.trim()) { setInlineError("请输入邮箱"); return false; }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
-      setInlineError("邮箱格式不正确");
-      return false;
-    }
-    if (password.length < 6) {
-      setInlineError("密码至少6个字符");
-      return false;
-    }
-    if (password !== confirmPassword) {
-      setInlineError("两次输入的密码不一致");
-      return false;
-    }
-    if (role === "student" && !classId) {
-      setInlineError("学生必须选择班级");
-      return false;
-    }
-    if (role === "teacher" && !adminKey.trim()) {
-      setInlineError("教师注册需要输入注册密钥");
-      return false;
-    }
+    if (!emailRegex.test(email.trim())) { setInlineError("邮箱格式不正确"); return false; }
+    if (password.length < 6) { setInlineError("密码至少 6 个字符"); return false; }
+    if (password !== confirmPassword) { setInlineError("两次输入的密码不一致"); return false; }
+    if (role === "student" && !classId) { setInlineError("学生必须选择班级"); return false; }
+    if (role === "teacher" && !adminKey.trim()) { setInlineError("教师注册需要输入注册密钥"); return false; }
     return true;
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setInlineError(null);
-
     if (!validate()) return;
 
     setIsLoading(true);
-
     try {
       const registerRes = await fetch("/api/auth/register", {
         method: "POST",
@@ -109,22 +93,18 @@ export default function RegisterPage() {
           adminKey: role === "teacher" ? adminKey.trim() : undefined,
         }),
       });
-
       const registerData = await registerRes.json();
-
       if (!registerData.success) {
         setInlineError(registerData.error?.message || "注册失败");
         return;
       }
 
       toast.success("注册成功，正在自动登录...");
-
       const signInResult = await signIn("credentials", {
         email: email.trim(),
         password,
         redirect: false,
       });
-
       if (signInResult?.error) {
         toast.error("自动登录失败，请手动登录");
         router.push("/login");
@@ -144,311 +124,268 @@ export default function RegisterPage() {
     }
   }
 
-  const inputClass =
-    "w-full rounded-[7px] border border-line bg-paper-alt px-3.5 py-2.5 text-[13px] text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
+  function switchRole(newRole: "student" | "teacher") {
+    setRole(newRole);
+    setClassId("");
+    setAdminKey("");
+    setInlineError(null);
+  }
 
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
-      {/* LEFT · brand hero */}
-      <aside
-        className="relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:justify-between lg:px-16 lg:py-16"
-        style={{
-          background:
-            "linear-gradient(135deg, var(--fs-primary-deep) 0%, var(--fs-primary-lift) 100%)",
-        }}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full"
-          style={{ background: "color-mix(in oklab, var(--fs-sim) 30%, transparent)" }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full"
-          style={{ background: "color-mix(in oklab, var(--fs-primary) 25%, transparent)" }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.08]"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)",
-            backgroundSize: "24px 24px",
-          }}
-        />
+    <div className="lx-page">
+      <AuroraBackground />
+      <BrandHeader />
 
-        <div className="relative flex items-center gap-3">
-          <div
-            className="grid h-9 w-9 place-items-center rounded-lg text-[15px] font-bold"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
-            }}
-          >
-            灵
-          </div>
-          <div>
-            <div className="text-[15px] font-semibold">灵析 AI</div>
-            <div className="mt-0.5 text-[10.5px] text-white/55">
-              AI 把课堂的隐性问题，变成可视的行动
-            </div>
-          </div>
-        </div>
+      <main className="lx-main">
+        <div className="lx-stage">
+          <RegisterHero />
 
-        <div className="relative">
-          <h2 className="mb-4 text-4xl font-semibold leading-tight tracking-tight">
-            把每节课的隐性问题，
-            <br />
-            <span style={{ color: "var(--fs-sim)" }}>变成可视的行动</span>。
-          </h2>
-          <p className="max-w-[480px] text-sm leading-relaxed text-white/75">
-            无论你是教师还是学生，灵析都把对话、答题、提交背后的盲区与差异，转化成清晰的下一步。
-          </p>
-        </div>
-
-        <div className="relative grid grid-cols-3 gap-3.5">
-          {[
-            { n: "对话", l: "8 档情绪 · AI 客户" },
-            { n: "诊断", l: "薄弱概念聚合" },
-            { n: "中文", l: "全程本地化" },
-          ].map((s) => (
-            <div
-              key={s.l}
-              className="rounded-[10px] border border-white/10 bg-white/[0.08] px-3.5 py-3"
+          {/* Role switch */}
+          <div className="lx-role-switch" role="group" aria-label="选择注册角色">
+            <button
+              type="button"
+              className={`lx-role-chip ${role === "student" ? "lx-role-chip--active" : ""}`}
+              onClick={() => switchRole("student")}
+              disabled={isLoading}
             >
-              <div className="fs-num text-[22px] font-bold tracking-tight">
-                {s.n}
-              </div>
-              <div className="mt-0.5 text-[11px] text-white/60">{s.l}</div>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      {/* RIGHT · form */}
-      <main className="flex items-center justify-center px-6 py-12 lg:px-12">
-        <div className="w-full max-w-[400px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div
-              className="grid h-10 w-10 place-items-center rounded-lg text-base font-bold text-white"
-              style={{
-                background:
-                  "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
-              }}
+              <span className="lx-role-chip-label">学生注册</span>
+              <span className="lx-role-chip-sub">加入老师的课堂</span>
+            </button>
+            <button
+              type="button"
+              className={`lx-role-chip ${role === "teacher" ? "lx-role-chip--active" : ""}`}
+              onClick={() => switchRole("teacher")}
+              disabled={isLoading}
             >
-              灵
-            </div>
-            <div>
-              <div className="text-base font-semibold text-ink">灵析 AI</div>
-              <div className="text-[11px] text-ink-4">
-                AI 把课堂的隐性问题，变成可视的行动
-              </div>
-            </div>
+              <span className="lx-role-chip-label">教师注册</span>
+              <span className="lx-role-chip-sub">需要邀请密钥</span>
+            </button>
           </div>
 
-          <div
-            role="group"
-            aria-label="选择注册角色"
-            className="mb-7 flex rounded-lg p-1"
-            style={{ background: "var(--fs-bg-alt)" }}
-          >
-            {[
-              { k: "student" as const, label: "学生注册", sub: "加入老师的课堂" },
-              { k: "teacher" as const, label: "教师注册", sub: "需要邀请密钥" },
-            ].map((r) => {
-              const active = role === r.k;
-              return (
-                <button
-                  key={r.k}
-                  type="button"
-                  onClick={() => {
-                    setRole(r.k);
-                    setClassId("");
-                    setAdminKey("");
-                    setInlineError(null);
-                  }}
-                  disabled={isLoading}
-                  className="flex-1 rounded-md px-3 py-2.5 text-left transition-shadow"
-                  style={{
-                    background: active ? "var(--fs-surface)" : "transparent",
-                    boxShadow: active ? "var(--fs-shadow)" : "none",
-                  }}
-                >
-                  <div
-                    className="text-[12.5px] font-semibold"
-                    style={{ color: active ? "var(--fs-ink)" : "var(--fs-ink-4)" }}
-                  >
-                    {r.label}
-                  </div>
-                  <div className="mt-px text-[10.5px] text-ink-5">{r.sub}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          <h1 className="text-[28px] font-semibold tracking-tight text-ink">
-            创建账号
-          </h1>
-          <p className="mb-7 mt-1.5 text-[13px] leading-relaxed text-ink-4">
-            填写下面的信息加入灵析。
-          </p>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
-            <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                姓名
-              </div>
+          <form onSubmit={handleSubmit} className="lx-form">
+            <Field label="姓名" id="name">
               <input
-                type="text"
+                className="lx-input" id="name" type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={isLoading}
                 autoComplete="name"
                 placeholder="请输入真实姓名"
-                className={inputClass}
               />
-            </label>
+            </Field>
 
-            <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                邮箱
-              </div>
+            <Field label="邮箱" id="email">
               <input
-                type="email"
+                className="lx-input" id="email" type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
                 autoComplete="email"
                 placeholder="your@school.edu.cn"
-                className={inputClass}
               />
-            </label>
+            </Field>
 
-            <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                密码
-              </div>
+            <Field label="密码" id="password">
               <input
-                type="password"
+                className="lx-input" id="password" type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
                 autoComplete="new-password"
                 placeholder="至少 6 个字符"
-                className={inputClass}
               />
-            </label>
+              <div className="lx-password-hint">建议包含字母与数字组合</div>
+            </Field>
 
-            <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                确认密码
-              </div>
+            <Field label="确认密码" id="confirmPassword">
               <input
-                type="password"
+                className="lx-input" id="confirmPassword" type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isLoading}
                 autoComplete="new-password"
                 placeholder="再次输入密码"
-                className={inputClass}
               />
-            </label>
+            </Field>
 
             {role === "student" && (
-              <label className="block">
-                <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                  班级
-                </div>
-                <Select
+              <Field label="所在班级" id="classId">
+                <select
+                  className="lx-select" id="classId"
                   value={classId}
-                  onValueChange={setClassId}
+                  onChange={(e) => setClassId(e.target.value)}
                   disabled={isLoading || classesLoading}
                 >
-                  <SelectTrigger className="w-full rounded-[7px] border border-line bg-paper-alt px-3.5 py-2.5 text-[13px] text-ink">
-                    <SelectValue
-                      placeholder={classesLoading ? "加载中..." : "请选择班级"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classes.map((cls) => (
-                      <SelectItem key={cls.id} value={cls.id}>
-                        {cls.name}
-                        {cls.code ? ` (${cls.code})` : ""}
-                      </SelectItem>
-                    ))}
-                    {!classesLoading && classes.length === 0 && (
-                      <div className="px-2 py-4 text-center text-sm text-ink-4">
-                        暂无可选班级
-                      </div>
-                    )}
-                  </SelectContent>
-                </Select>
-              </label>
+                  <option value="">
+                    {classesLoading ? "加载中..." : "请选择班级"}
+                  </option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}{cls.code ? ` (${cls.code})` : ""}
+                    </option>
+                  ))}
+                  {!classesLoading && classes.length === 0 && (
+                    <option value="" disabled>暂无可选班级</option>
+                  )}
+                </select>
+              </Field>
             )}
 
             {role === "teacher" && (
-              <label className="block">
-                <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
-                  教师注册密钥
-                </div>
+              <Field
+                label="教师注册密钥"
+                id="adminKey"
+                help="向管理员获取"
+              >
                 <input
-                  type="password"
+                  className="lx-input" id="adminKey" type="password"
                   value={adminKey}
                   onChange={(e) => setAdminKey(e.target.value)}
                   disabled={isLoading}
-                  placeholder="请向管理员获取密钥"
-                  className={inputClass}
+                  placeholder="请输入注册密钥"
                 />
-              </label>
+              </Field>
             )}
 
             {inlineError && (
-              <div
-                role="alert"
-                className="rounded-md border px-3 py-2 text-[12px]"
-                style={{
-                  background: "var(--fs-danger-soft)",
-                  borderColor: "color-mix(in oklab, var(--fs-danger) 30%, transparent)",
-                  color: "var(--fs-danger)",
-                }}
-              >
-                {inlineError}
-              </div>
+              <div role="alert" className="lx-error">{inlineError}</div>
             )}
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="mt-2 w-full rounded-lg py-3 text-[13px] font-semibold text-white transition disabled:opacity-60"
-              style={{ background: "var(--fs-ink)" }}
-            >
-              {isLoading ? "注册中..." : "注册"}
+            <button type="submit" disabled={isLoading} className="lx-submit">
+              <span>{isLoading ? "创建中..." : "创建账号"}</span>
             </button>
           </form>
 
-          <div className="my-6 flex items-center gap-2.5">
-            <div className="h-px flex-1 bg-line" />
-            <span className="text-[11px] text-ink-5">或</span>
-            <div className="h-px flex-1 bg-line" />
-          </div>
-
-          <p className="text-center text-[12.5px] text-ink-4">
-            已有账号？{" "}
-            <Link
-              href="/login"
-              className="font-medium text-brand underline-offset-4 hover:underline"
-            >
-              立即登录
-            </Link>
-          </p>
-
-          <div className="mt-7 text-center text-[11px] leading-relaxed text-ink-5">
-            注册即代表你同意{" "}
-            <span className="text-ink-4">使用条款</span> 与{" "}
-            <span className="text-ink-4">隐私政策</span>
+          <div className="lx-below-form">
+            <span>
+              已有账号？
+              <Link href="/login" className="lx-link-primary">立即登录</Link>
+            </span>
+            <span className="lx-legal">
+              注册即代表同意 <a href="#">条款</a> 与 <a href="#">隐私</a>
+            </span>
           </div>
         </div>
       </main>
+
+      <SiteFooter />
     </div>
+  );
+}
+
+// ─── Field 复用包装组件 ───
+function Field({
+  label, id, help, children,
+}: {
+  label: string;
+  id: string;
+  help?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="lx-field">
+      <div className="lx-field-row">
+        <label className="lx-field-label" htmlFor={id}>{label}</label>
+        {help && <span className="lx-field-help">{help}</span>}
+      </div>
+      <div className="lx-input-wrap">{children}</div>
+    </div>
+  );
+}
+
+// ─── AuroraBackground ───
+function AuroraBackground() {
+  return (
+    <div className="lx-aurora" aria-hidden>
+      <div
+        className="lx-aurora-mood"
+        style={{ backgroundImage: "url(/brand/mood-aurora.png)" }}
+      />
+      <div className="lx-aurora-arc-tr" />
+      <div className="lx-aurora-arc-bl" />
+      <div className="lx-stardust" />
+    </div>
+  );
+}
+
+// ─── BrandHeader ───
+function BrandHeader() {
+  return (
+    <header className="lx-topbar">
+      <div className="lx-brand">
+        <Image
+          src="/brand/lockup.png"
+          alt="灵析 AI · LingXi"
+          width={220}
+          height={56}
+          className="lx-brand-logo"
+          style={{ width: "auto" }}
+          priority
+        />
+        <span className="lx-brand-divider" />
+        <span className="lx-brand-tag">课堂洞察 · AI 教学助手</span>
+      </div>
+      <a className="lx-topbar-help" href="#">需要帮助？</a>
+    </header>
+  );
+}
+
+// ─── RegisterHero ───
+function RegisterHero() {
+  return (
+    <>
+      <div className="lx-eyebrow">JOIN US</div>
+      <div className="lx-title-wrap">
+        <h1 className="lx-title">
+          教与学，
+          <br />
+          在这里<em>会合</em>。
+        </h1>
+        <svg className="lx-title-orbit" viewBox="0 0 130 90" fill="none" aria-hidden>
+          <path d="M 5 70 Q 35 45, 65 55 Q 95 65, 125 30" stroke="rgba(79,209,255,0.45)" strokeWidth="0.8" fill="none" />
+          <circle cx="125" cy="30" r="1.8" fill="#00e0d6">
+            <animate attributeName="r" values="1.5;2.5;1.5" dur="3s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="65" cy="55" r="1" fill="#6a7cff" opacity="0.85" />
+          <circle cx="125" cy="30" r="6" fill="#00e0d6" opacity="0.25">
+            <animate attributeName="r" values="4;8;4" dur="3s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0.1;0.4" dur="3s" repeatCount="indefinite" />
+          </circle>
+        </svg>
+      </div>
+      <p className="lx-sub">
+        灵析 AI 把每节课的对话、答题与提交，汇成师生之间共同的理解。
+      </p>
+    </>
+  );
+}
+
+// ─── SiteFooter ───
+const FOOTER_BRAND_WORDS = ["无限", "理解", "共鸣", "成长", "探索"];
+
+function SiteFooter() {
+  return (
+    <footer className="lx-footer">
+      <div className="lx-footer-brand-line">
+        {FOOTER_BRAND_WORDS.map((w, i) => (
+          <span key={w} style={{ display: "contents" }}>
+            <span>{w}</span>
+            {i < FOOTER_BRAND_WORDS.length - 1 && (
+              <span className="lx-footer-brand-dot" />
+            )}
+          </span>
+        ))}
+      </div>
+      <div className="lx-footer-meta-row">
+        <div className="lx-footer-meta">
+          <span>灵析 AI · 教学平台</span>
+          <span className="lx-footer-dot" />
+          <span>v3.0</span>
+          <span className="lx-footer-dot" />
+          <span>2026</span>
+        </div>
+        <div>© 2026 灵析</div>
+      </div>
+    </footer>
   );
 }
