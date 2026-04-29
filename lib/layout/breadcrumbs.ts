@@ -14,6 +14,7 @@ const LABELS: Record<string, string> = {
   tasks: "任务中心",
   groups: "班级管理",
   analytics: "数据洞察",
+  "analytics-v2": "洞察实验",
   instances: "任务实例",
   announcements: "公告管理",
   "ai-assistant": "AI 助手",

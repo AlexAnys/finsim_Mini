@@ -53,11 +53,17 @@ function submission(overrides: {
   score?: number | null;
   maxScore?: number | null;
   submittedAt: string;
+  quizEvaluation?: unknown;
+  quizConceptTags?: string[];
+  subjectiveEvaluation?: unknown;
+  subjectiveConceptTags?: string[];
+  taskType?: "quiz" | "simulation" | "subjective";
 }) {
+  const taskType = overrides.taskType ?? "quiz";
   return {
     id: overrides.id,
     studentId: overrides.studentId,
-    taskType: "quiz" as const,
+    taskType,
     status: overrides.status,
     score: overrides.score ?? null,
     maxScore: overrides.maxScore ?? null,
@@ -65,11 +71,17 @@ function submission(overrides: {
     student: { id: overrides.studentId, name: overrides.studentId.toUpperCase() },
     simulationSubmission: null,
     quizSubmission: {
-      evaluation: null,
-      conceptTags: [],
+      evaluation: overrides.quizEvaluation ?? null,
+      conceptTags: overrides.quizConceptTags ?? [],
       durationSeconds: null,
     },
-    subjectiveSubmission: null,
+    subjectiveSubmission:
+      taskType === "subjective"
+        ? {
+            evaluation: overrides.subjectiveEvaluation ?? null,
+            conceptTags: overrides.subjectiveConceptTags ?? [],
+          }
+        : null,
   };
 }
 
@@ -77,14 +89,16 @@ function instance(overrides: {
   id?: string;
   classId?: string;
   groupIds?: string[];
+  taskType?: "quiz" | "simulation" | "subjective";
   submissions?: ReturnType<typeof submission>[];
 }) {
   const classId = overrides.classId ?? "class-A";
+  const taskType = overrides.taskType ?? "quiz";
   return {
     id: overrides.id ?? "inst-1",
     title: "课后测验",
     taskId: "task-1",
-    taskType: "quiz" as const,
+    taskType,
     classId,
     groupIds: overrides.groupIds ?? [],
     chapterId: "chapter-1",
@@ -92,6 +106,16 @@ function instance(overrides: {
     class: { id: classId, name: classId === "class-A" ? "A 班" : "B 班" },
     chapter: { id: "chapter-1", title: "资产配置", order: 1 },
     section: { id: "section-1", title: "风险预算", chapterId: "chapter-1", order: 1 },
+    task: {
+      quizQuestions: [
+        { id: "q1", prompt: "CAPM 中 beta 衡量什么？", points: 5, order: 1 },
+        { id: "q2", prompt: "风险预算的作用是什么？", points: 5, order: 2 },
+      ],
+      scoringCriteria: [
+        { id: "r1", name: "概念准确性", maxPoints: 5, order: 1 },
+        { id: "r2", name: "推理完整性", maxPoints: 5, order: 2 },
+      ],
+    },
     submissions: overrides.submissions ?? [],
   };
 }
@@ -322,5 +346,192 @@ describe("getAnalyticsV2Diagnosis", () => {
     expect(result.kpis.submittedStudents).toBe(1);
     expect(result.kpis.completionRate).toBe(0.5);
     expect(result.kpis.avgNormalizedScore).toBe(80);
+  });
+
+  it("limits chapter diagnostics to the active chapter scope", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue({
+      ...course,
+      chapters: [
+        ...course.chapters,
+        {
+          id: "chapter-2",
+          title: "保险规划",
+          order: 2,
+          sections: [],
+        },
+      ],
+    });
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 80,
+              maxScore: 100,
+              submittedAt: "2026-01-01T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      chapterId: "chapter-1",
+      now: new Date("2026-01-10T00:00:00Z"),
+    });
+
+    expect(result.chapterDiagnostics.map((chapter) => chapter.chapterId)).toEqual([
+      "chapter-1",
+    ]);
+  });
+
+  it("aggregates quiz question diagnostics from selected quiz breakdown rows", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 5,
+              maxScore: 10,
+              submittedAt: "2026-01-01T00:00:00Z",
+              quizConceptTags: ["CAPM"],
+              quizEvaluation: {
+                quizBreakdown: [
+                  { questionId: "q1", score: 5, maxScore: 5, correct: true, comment: "回答正确" },
+                  { questionId: "q2", score: 0, maxScore: 5, correct: false, comment: "未作答" },
+                ],
+              },
+            }),
+            submission({
+              id: "sub-2",
+              studentId: "s2",
+              status: "graded",
+              score: 2,
+              maxScore: 10,
+              submittedAt: "2026-01-02T00:00:00Z",
+              quizConceptTags: ["风险预算"],
+              quizEvaluation: {
+                quizBreakdown: [
+                  { questionId: "q1", score: 0, maxScore: 5, correct: false, comment: "正确答案: beta" },
+                  { questionId: "q2", score: 2, maxScore: 5, correct: false, comment: "部分正确" },
+                ],
+              },
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-10T00:00:00Z"),
+    });
+
+    expect(result.quizDiagnostics).toEqual([
+      expect.objectContaining({
+        questionId: "q1",
+        order: 1,
+        prompt: "CAPM 中 beta 衡量什么？",
+        correctRate: 0.5,
+        unansweredRate: 0,
+        avgScoreRate: 50,
+        weakTags: ["风险预算"],
+      }),
+      expect.objectContaining({
+        questionId: "q2",
+        correctRate: 0,
+        unansweredRate: 0.5,
+        avgScoreRate: 20,
+        weakTags: ["风险预算", "CAPM"],
+      }),
+    ]);
+  });
+
+  it("aggregates rubric diagnostics from subjective rubric breakdown rows", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([{ ...optionInstance, taskType: "subjective" }])
+      .mockResolvedValueOnce([
+        instance({
+          taskType: "subjective",
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 6,
+              maxScore: 10,
+              taskType: "subjective",
+              submittedAt: "2026-01-01T00:00:00Z",
+              subjectiveEvaluation: {
+                rubricBreakdown: [
+                  { criterionId: "r1", score: 2, maxScore: 5, comment: "概念混淆" },
+                  { criterionId: "r2", score: 4, maxScore: 5, comment: "推理尚可" },
+                ],
+              },
+            }),
+            submission({
+              id: "sub-2",
+              studentId: "s2",
+              status: "graded",
+              score: 9,
+              maxScore: 10,
+              taskType: "subjective",
+              submittedAt: "2026-01-02T00:00:00Z",
+              subjectiveEvaluation: {
+                rubricBreakdown: [
+                  { criterionId: "r1", score: 5, maxScore: 5, comment: "准确" },
+                  { criterionId: "r2", score: 4, maxScore: 5, comment: "完整" },
+                ],
+              },
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-10T00:00:00Z"),
+    });
+
+    expect(result.simulationDiagnostics).toEqual([
+      expect.objectContaining({
+        criterionId: "r1",
+        criterionName: "概念准确性",
+        avgScoreRate: 70,
+        lowScoreCount: 1,
+        weakStudents: [{ studentId: "s1", studentName: "S1" }],
+        sampleComments: ["概念混淆"],
+      }),
+      expect.objectContaining({
+        criterionId: "r2",
+        criterionName: "推理完整性",
+        avgScoreRate: 80,
+        lowScoreCount: 0,
+        weakStudents: [],
+      }),
+    ]);
   });
 });

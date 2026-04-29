@@ -60,8 +60,8 @@ export interface AnalyticsV2Diagnosis {
   actionItems: ActionItem[];
   chapterDiagnostics: ChapterDiagnostic[];
   instanceDiagnostics: InstanceDiagnostic[];
-  quizDiagnostics: unknown[];
-  simulationDiagnostics: unknown[];
+  quizDiagnostics: QuizQuestionDiagnostic[];
+  simulationDiagnostics: RubricCriterionDiagnostic[];
   studentInterventions: StudentIntervention[];
   weeklyInsight: {
     generatedAt: string | null;
@@ -120,6 +120,25 @@ export interface InstanceDiagnostic {
   passRate: number | null;
   attemptCount: number;
   weaknesses: Array<{ tag: string; count: number }>;
+}
+
+export interface QuizQuestionDiagnostic {
+  questionId: string;
+  order: number;
+  prompt: string;
+  correctRate: number | null;
+  unansweredRate: number | null;
+  avgScoreRate: number | null;
+  weakTags: string[];
+}
+
+export interface RubricCriterionDiagnostic {
+  criterionId: string;
+  criterionName: string;
+  avgScoreRate: number | null;
+  lowScoreCount: number;
+  weakStudents: Array<{ studentId: string; studentName: string }>;
+  sampleComments: string[];
 }
 
 export interface StudentIntervention {
@@ -187,6 +206,20 @@ interface DiagnosisInstance {
   class: { id: string; name: string };
   chapter: { id: string; title: string; order: number } | null;
   section: { id: string; title: string; chapterId: string; order: number } | null;
+  task: {
+    quizQuestions: Array<{
+      id: string;
+      prompt: string;
+      points: number;
+      order: number;
+    }>;
+    scoringCriteria: Array<{
+      id: string;
+      name: string;
+      maxPoints: number;
+      order: number;
+    }>;
+  };
   submissions: DiagnosisSubmission[];
 }
 
@@ -438,6 +471,18 @@ export async function getAnalyticsV2Diagnosis(
       class: { select: { id: true, name: true } },
       chapter: { select: { id: true, title: true, order: true } },
       section: { select: { id: true, title: true, chapterId: true, order: true } },
+      task: {
+        select: {
+          quizQuestions: {
+            orderBy: { order: "asc" },
+            select: { id: true, prompt: true, points: true, order: true },
+          },
+          scoringCriteria: {
+            orderBy: { order: "asc" },
+            select: { id: true, name: true, maxPoints: true, order: true },
+          },
+        },
+      },
       submissions: {
         where: dateFrom ? { submittedAt: { gte: dateFrom } } : undefined,
         include: {
@@ -493,10 +538,10 @@ export async function getAnalyticsV2Diagnosis(
     },
     chapterClassHeatmap: buildChapterClassHeatmap(instanceMetrics),
     actionItems: buildActionItems(instanceMetrics),
-    chapterDiagnostics: buildChapterDiagnostics(course.chapters, instanceMetrics),
+    chapterDiagnostics: buildChapterDiagnostics(course.chapters, instanceMetrics, input.chapterId),
     instanceDiagnostics: instanceMetrics.map(toInstanceDiagnostic),
-    quizDiagnostics: [],
-    simulationDiagnostics: [],
+    quizDiagnostics: buildQuizDiagnostics(instanceMetrics),
+    simulationDiagnostics: buildRubricDiagnostics(instanceMetrics),
     studentInterventions: buildStudentInterventions(instanceMetrics),
     weeklyInsight: {
       generatedAt: null,
@@ -728,6 +773,7 @@ function buildChapterClassHeatmap(metrics: InstanceMetrics[]): ChapterClassHeatm
 function buildChapterDiagnostics(
   chapters: Array<{ id: string; title: string; order: number }>,
   metrics: InstanceMetrics[],
+  scopedChapterId?: string,
 ): ChapterDiagnostic[] {
   const byChapter = new Map<string, InstanceMetrics[]>();
   for (const metric of metrics) {
@@ -737,8 +783,11 @@ function buildChapterDiagnostics(
     byChapter.set(key, rows);
   }
 
-  const knownChapterIds = new Set(chapters.map((chapter) => chapter.id));
-  const diagnostics: ChapterDiagnostic[] = chapters.map((chapter) =>
+  const chapterRows = scopedChapterId
+    ? chapters.filter((chapter) => chapter.id === scopedChapterId)
+    : chapters;
+  const knownChapterIds = new Set(chapterRows.map((chapter) => chapter.id));
+  const diagnostics: ChapterDiagnostic[] = chapterRows.map((chapter) =>
     toChapterDiagnostic(chapter.id, chapter.title, byChapter.get(chapter.id) ?? []),
   );
   const unassigned = byChapter.get("unassigned") ?? [];
@@ -898,6 +947,203 @@ function buildStudentInterventions(metrics: InstanceMetrics[]): StudentIntervent
       return scoreA - scoreB;
     })
     .slice(0, 50);
+}
+
+function buildQuizDiagnostics(metrics: InstanceMetrics[]): QuizQuestionDiagnostic[] {
+  const diagnostics: QuizQuestionDiagnostic[] = [];
+
+  for (const metric of metrics) {
+    if (metric.instance.taskType !== "quiz") continue;
+    const questions = metric.instance.task.quizQuestions;
+    if (questions.length === 0) continue;
+
+    const selectedSubmissions = getSelectedDiagnosisSubmissions(metric).filter(
+      (submission) => submission.quizSubmission,
+    );
+    if (selectedSubmissions.length === 0) continue;
+
+    for (const question of questions) {
+      const scoreRates: number[] = [];
+      const weakTagCounts = new Map<string, number>();
+      let correctCount = 0;
+      let unansweredCount = 0;
+
+      for (const submission of selectedSubmissions) {
+        const breakdown = getQuizBreakdown(getEvaluation(submission));
+        const row = breakdown.find((item) => item.questionId === question.id);
+        if (!row) {
+          unansweredCount += 1;
+          continue;
+        }
+
+        if (row.correct === true) correctCount += 1;
+        if (isUnansweredQuizRow(row)) unansweredCount += 1;
+
+        const rowScoreRate = normalizeScore(row.score, row.maxScore);
+        if (rowScoreRate !== null) scoreRates.push(rowScoreRate);
+        if (row.correct === false || (rowScoreRate !== null && rowScoreRate < LOW_SCORE_THRESHOLD)) {
+          for (const tag of getConceptTags(submission)) {
+            weakTagCounts.set(tag, (weakTagCounts.get(tag) ?? 0) + 1);
+          }
+        }
+      }
+
+      diagnostics.push({
+        questionId: question.id,
+        order: question.order,
+        prompt: question.prompt,
+        correctRate: rate(correctCount, selectedSubmissions.length),
+        unansweredRate: rate(unansweredCount, selectedSubmissions.length),
+        avgScoreRate: average(scoreRates),
+        weakTags: Array.from(weakTagCounts.entries())
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"))
+          .slice(0, 5)
+          .map(([tag]) => tag),
+      });
+    }
+  }
+
+  return diagnostics.sort((a, b) => a.order - b.order || a.questionId.localeCompare(b.questionId));
+}
+
+function buildRubricDiagnostics(metrics: InstanceMetrics[]): RubricCriterionDiagnostic[] {
+  const byCriterion = new Map<
+    string,
+    {
+      criterionId: string;
+      criterionName: string;
+      scoreRates: number[];
+      weakStudents: Map<string, string>;
+      sampleComments: string[];
+    }
+  >();
+
+  for (const metric of metrics) {
+    if (metric.instance.taskType !== "simulation" && metric.instance.taskType !== "subjective") continue;
+    const criteria = metric.instance.task.scoringCriteria;
+    if (criteria.length === 0) continue;
+
+    const selectedSubmissions = getSelectedDiagnosisSubmissions(metric);
+    if (selectedSubmissions.length === 0) continue;
+
+    for (const criterion of criteria) {
+      const row = byCriterion.get(criterion.id) ?? {
+        criterionId: criterion.id,
+        criterionName: criterion.name,
+        scoreRates: [],
+        weakStudents: new Map<string, string>(),
+        sampleComments: [],
+      };
+
+      for (const submission of selectedSubmissions) {
+        const breakdown = getRubricBreakdown(getEvaluation(submission));
+        const item = breakdown.find((entry) => entry.criterionId === criterion.id);
+        if (!item) continue;
+
+        const scoreRate = normalizeScore(item.score, item.maxScore);
+        if (scoreRate !== null) row.scoreRates.push(scoreRate);
+        if (scoreRate !== null && scoreRate < LOW_SCORE_THRESHOLD) {
+          row.weakStudents.set(submission.student.id, submission.student.name);
+          if (item.comment && row.sampleComments.length < 3) {
+            row.sampleComments.push(item.comment);
+          }
+        }
+      }
+
+      byCriterion.set(criterion.id, row);
+    }
+  }
+
+  return Array.from(byCriterion.values())
+    .map((row) => ({
+      criterionId: row.criterionId,
+      criterionName: row.criterionName,
+      avgScoreRate: average(row.scoreRates),
+      lowScoreCount: row.weakStudents.size,
+      weakStudents: Array.from(row.weakStudents.entries())
+        .map(([studentId, studentName]) => ({ studentId, studentName }))
+        .sort((a, b) => a.studentName.localeCompare(b.studentName, "zh-CN") || a.studentId.localeCompare(b.studentId))
+        .slice(0, 8),
+      sampleComments: row.sampleComments,
+    }))
+    .filter((row) => row.avgScoreRate !== null || row.lowScoreCount > 0)
+    .sort((a, b) => {
+      const scoreA = a.avgScoreRate ?? Number.POSITIVE_INFINITY;
+      const scoreB = b.avgScoreRate ?? Number.POSITIVE_INFINITY;
+      return scoreA - scoreB || b.lowScoreCount - a.lowScoreCount || a.criterionName.localeCompare(b.criterionName, "zh-CN");
+    });
+}
+
+function getSelectedDiagnosisSubmissions(metric: InstanceMetrics): DiagnosisSubmission[] {
+  const submissions: DiagnosisSubmission[] = [];
+  for (const attempt of metric.studentAttempts.values()) {
+    if (!attempt.selectedSubmission) continue;
+    submissions.push(attempt.selectedSubmission as DiagnosisSubmission);
+  }
+  return submissions;
+}
+
+interface QuizBreakdownRow {
+  questionId: string;
+  score: number | string | Prisma.Decimal | null;
+  maxScore: number | string | Prisma.Decimal | null;
+  correct: boolean | null;
+  comment: string | null;
+}
+
+interface RubricBreakdownRow {
+  criterionId: string;
+  score: number | string | Prisma.Decimal | null;
+  maxScore: number | string | Prisma.Decimal | null;
+  comment: string | null;
+}
+
+function getQuizBreakdown(evaluation: unknown): QuizBreakdownRow[] {
+  return getArrayField(evaluation, "quizBreakdown")
+    .map((row) => {
+      if (typeof row !== "object" || row === null) return null;
+      const record = row as Record<string, unknown>;
+      const questionId = typeof record.questionId === "string" ? record.questionId : null;
+      if (!questionId) return null;
+      return {
+        questionId,
+        score: numericJsonField(record.score),
+        maxScore: numericJsonField(record.maxScore),
+        correct: typeof record.correct === "boolean" ? record.correct : null,
+        comment: typeof record.comment === "string" ? record.comment : null,
+      };
+    })
+    .filter((row): row is QuizBreakdownRow => row !== null);
+}
+
+function getRubricBreakdown(evaluation: unknown): RubricBreakdownRow[] {
+  return getArrayField(evaluation, "rubricBreakdown")
+    .map((row) => {
+      if (typeof row !== "object" || row === null) return null;
+      const record = row as Record<string, unknown>;
+      const criterionId = typeof record.criterionId === "string" ? record.criterionId : null;
+      if (!criterionId) return null;
+      return {
+        criterionId,
+        score: numericJsonField(record.score),
+        maxScore: numericJsonField(record.maxScore),
+        comment: typeof record.comment === "string" ? record.comment : null,
+      };
+    })
+    .filter((row): row is RubricBreakdownRow => row !== null);
+}
+
+function numericJsonField(value: unknown): number | string | Prisma.Decimal | null {
+  if (typeof value === "number" || typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    return value as Prisma.Decimal;
+  }
+  return null;
+}
+
+function isUnansweredQuizRow(row: QuizBreakdownRow): boolean {
+  if (normalizeScore(row.score, row.maxScore) === 0 && row.comment?.includes("未作答")) return true;
+  return row.comment?.trim() === "未作答";
 }
 
 function topWeaknesses(metrics: InstanceMetrics[]) {
