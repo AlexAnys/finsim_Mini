@@ -9,9 +9,12 @@ concurrency:
   group: deploy-main
   cancel-in-progress: false
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/alexanys/finsim_mini
+# 部署架构：runner 跑 quality 检查 → 打包源码 tarball → scp 到阿里云服务器 →
+# 服务器本地 docker compose build + up。不再走 ghcr.io 镜像推拉，规避国际带宽问题。
+#
+# 备用方案（A+E）：如本路径出现问题，可 git revert 此 workflow 切回 ghcr.io 推拉路径。
+# Dockerfile / .dockerignore 已是优化版本（standalone 分层 + 排除非必要文件），
+# 无论走哪条路径都受益。
 
 jobs:
   quality:
@@ -39,72 +42,61 @@ jobs:
       - name: Test
         run: npx vitest run --passWithNoTests
 
-  build-push:
+  deploy:
     needs: quality
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Create source tarball
+        run: |
+          # git archive 自动排除 .git 和 untracked 文件
+          # docker build 阶段 .dockerignore 还会再次过滤
+          git archive --format=tar.gz -o finsim-src.tar.gz HEAD
+          ls -lh finsim-src.tar.gz
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy:
-    needs: build-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Copy docker-compose.yml to server
+      - name: Copy source tarball to server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: docker-compose.yml
+          source: finsim-src.tar.gz
           target: /opt/finsim/
           overwrite: true
 
-      - name: Deploy to server
+      - name: Build and deploy on server
         uses: appleboy/ssh-action@v1
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GIT_ACTOR: ${{ github.actor }}
           GIT_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: GHCR_TOKEN,GIT_ACTOR,GIT_SHA
-          command_timeout: 120m
+          envs: GIT_SHA
+          command_timeout: 60m
           script: |
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GIT_ACTOR" --password-stdin
+            set -e
             cd /opt/finsim
-            export IMAGE_TAG="$GIT_SHA"
-            docker compose pull app
-            docker compose up -d
+
+            # 解压源码（覆盖现有源码文件；保留 .env、last-deployed-* 等非源码文件）
+            tar -xzf finsim-src.tar.gz
+            rm finsim-src.tar.gz
+
+            # 构建 app image（postgres 用 image，无 build 段，不动）
+            # docker layer cache 在服务器本地，第二次起 standalone node_modules 层缓存命中
+            docker compose build app
+
+            # 启动/更新 app（postgres 已运行 → 保留，复用 pgdata 卷与 uploads 卷）
+            docker compose up -d app
+
+            # 清理 dangling images
             docker image prune -f
+
+            # 记录部署元数据
+            echo "${GIT_SHA}" > /opt/finsim/last-deployed-sha
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > /opt/finsim/last-deployed-at
+
+            # 简单健康检查
+            sleep 5
+            docker compose ps
