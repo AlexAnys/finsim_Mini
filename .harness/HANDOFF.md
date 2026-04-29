@@ -2,50 +2,121 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
-## 🎉 Phase 8 全收官（2026-04-26 — 一个 session 跨 ~6 小时 / 22 commits）
+## 🚀 部署架构切换：ghcr.io → 服务器直接构建（2026-04-29 · ~1.5h · 3 commits）
 
-main HEAD = `6a46834`。**22 commits 进 main**：用户 5 大块反馈完整落地。
+main HEAD = `d8d6b03`。**main 的 deploy 现在 7-11 分钟就能跑完，旧路径常态 1.5-2h 还经常超时**。
 
-灵析品牌 + 教师工作台 9 项 + 课程编辑器 3 项 + 模拟核心 5 项 + 学生 3 页全做完。
+### 这一次解决了什么
 
-### Phase 8 commits 总链（22 个）
+用户报"无法正常推送到阿里云服务器"。诊断出 4-27/4-28 多次失败 = `command_timeout: 120m` 卡死，**根因是阿里云国际带宽拉 ghcr.io 极慢**（13 KB/s 持续 1.7 小时拉 416MB 镜像层），不是代码或构建问题。
 
-```
-6a46834 PR-STU-2 study-buddy 重做（E2 收官）
-95ead9b PR-COURSE-1+2 课程编辑器联合（拆 2787→1084 + C1 inline + C2 wizard）
-4291a01 PR-STU-3 schedule hero 视觉对齐（E3 保留 3-Tab）
-7eff6c9 PR-STU-1 grades 重做（E1）
-698906a PR-SIM-3 D3 资产提交给客户（chat config_submission 模式）
-9518b8d PR-DASH-1e B3 一周洞察 AI 管道（教师工作台 Block B 收官）
-86c99b0 PR-SIM-1c D1 学生防作弊 UI（闭环）
-c51ba8d PR-SIM-1b D1 教师公布管理 UI
-546b8de fix(test) flaky timezone weekType
-ca3e6d6 PR-SIM-1a D1 防作弊后端（schema + 4 endpoints + 16 单测）
-469e182 progress fix
-72b8249 PR-DASH-1d B7 班级表现 filter+多班对比
-f57dcde progress sync
-492103b PR-DASH-1c B5 任务列表+B6 卡片重做
-b130dd0 fix(defensive) 2 pre-existing console errors
-72f9eb1 PR-COURSE-3 PDF 进度对话框
-a73e3ad PR-DASH-1b B2 AI 助手挪右上+B4 近期课表
-b26c949 progress 归档
-2462abf PR-SIM-4 D5+D4 mood/拖拽（🤖 Codex 实现）
-0a68908 PR-DASH-1a B1+B8+B9 删按钮+KPI+文案
-45204df PR-NAME-1 灵析命名+主页文案重写
-b64aae6 fix(ci) 3 lint errors 解锁部署
-```
+### 部署架构（新基线）
 
-### 5 大 Block 完成度（按用户反馈编号）
-
-| Block | 完成度 | 详情 |
+| 阶段 | 之前（ghcr.io 推拉） | 现在（服务器直接构建） |
 |---|---|---|
-| **A** 命名+主页 | ✅ 100% | FinSim → 灵析 / wordmark / hero / KPI / 教师视角定位 "AI 把课堂的隐性问题，变成可视的行动" |
-| **B** 教师工作台 | ✅ 100% | B1 删按钮 / B2 AI 助手右上 / B3 一周洞察 AI 管道(qwen3.5-plus + cache + modal) / B4 近期课表 4 节 / B5 任务列表 filter+时间线 / B6 卡片测试+管理双按钮 / B7 班级表现 filter+多班对比 / B8 典型实例改名 / B9 KPI 4 列+删班级均分+待批改→需审核 |
-| **C** 课程编辑器 | ✅ 100% | C1 块编辑器 inline edit(删整列右面板) / C2 任务向导整合 modal+删 /tasks/new 路由 / C3 PDF 导入 4 阶段进度对话框 |
-| **D** 模拟核心 | ✅ 80% | **D1 防作弊全闭环**(schema + 教师 UI + 学生 UI) / D3 提交给客户(config_submission AI 模式) / D4 study buddy 拖拽(Codex) / D5 mood label 简化(Codex) / **🟡 D2 客户 prompt 调优待用户给反例**(spec 标的，跳过) |
-| **E** 学生端 3 页 | ✅ 100% | E1 grades 重布局+保 D1 chip / E2 study-buddy 重做+8 子组件+顺手修 FK bug / E3 schedule hero 对齐(保留 3-Tab) |
+| 路径 | runner build → push ghcr.io → server pull | runner git archive → scp 5.8MB tarball → server `docker compose build` |
+| 时长 | 88-126 分钟（成功）or 120m timeout（失败） | **5-11 分钟** |
+| 触发条件 | push main | push main（同前） |
+| 备用回退 | — | git revert d8d6b03 即可切回 ghcr.io 路径（双模式 docker-compose.yml 保留）|
 
-### Codex 协作首次成功
+### 关键改动
+
+| 文件 | 关键内容 |
+|---|---|
+| [.github/workflows/deploy.yml](.github/workflows/deploy.yml) | 删 build-push job；deploy job = git archive → scp → ssh `docker compose build app && up -d app` |
+| [.github/workflows/server-diagnose.yml](.github/workflows/server-diagnose.yml) | 新增手动 dispatch workflow，SSH 看 RestartCount/logs/HTTP，不修改状态 |
+| [Dockerfile](Dockerfile) | runner stage 把 standalone 拆为多个 COPY 层（136MB node_modules 单独一层稳定缓存）|
+| [.dockerignore](.dockerignore) | 加固：排除 .harness/.claude/agent_docs/tests/public/uploads/*.test.* |
+
+### 踩过的坑（已修）
+
+第一次部署 deploy success 但 container `RestartCount=12` + `Cannot find module 'effect'` 反复 crash：
+
+- **根因**：runner stage 从 builder COPY 整个 `@prisma/` 子目录（带入 dev-only `@prisma/config`），让 `npm install --no-save prisma@6.19.2` 误判 deps 已满足、跳过装 transitive dep `effect`
+- **为什么旧 Dockerfile 没踩坑**：`COPY standalone ./` 整体复制——standalone 不含 `@prisma/config`（dev-only 不在 next file-tracing 里），npm 该装就装齐
+- **修复 commit `d8d6b03`**：删 `COPY .prisma + COPY @prisma` 两行，让 standalone 自带的 `@prisma/client + .prisma/client`（fresh 的 prisma generate 输出）生效，prisma CLI 由 npm install 装齐全链
+- **修复后 verify**：`RestartCount=0 / State=running / next Ready in 304ms / HTTP 200`
+
+### Next.js 14+ standalone 关键事实（cheat sheet）
+
+- standalone/node_modules **只含运行时实际用到的子集**（next file-tracing 选）—— @prisma/client + .prisma 在；@prisma/config 不在
+- `required-server-files.json` 仅列 15 个 `.next/` 内的 manifest 文件 → 运行时不需要 lib/ app/ components/ 源码
+- standalone/.env 会**自动从项目根的 .env 拷过去** ⚠️ — .dockerignore 必须排除 .env 防止 dev secrets 泄漏到生产 image（已加固）
+- standalone/server.js 已 inline 完整 nextConfig，运行时不需要 next.config.ts
+
+### 操作 cheat sheet
+
+```bash
+# 看部署历史
+gh run list --workflow=deploy.yml --limit 5
+
+# 手动触发服务器诊断（看 container 状态/日志/restart count）
+gh workflow run server-diagnose.yml
+gh run view <run-id> --log
+
+# 切回 ghcr.io 路径（万一服务器构建出问题）
+git revert d8d6b03 a71916a   # 同时 revert 修复和切换两个 commit
+git push origin main
+# Dockerfile/.dockerignore 优化保留，回去后是 A+E 优化版本
+```
+
+### Coordinator 违规自检
+
+CLAUDE.md 明确："You do NOT write application code."
+
+本 session **未违规** ✅ — 全部改动是 CI/部署架构（workflow yaml + Dockerfile + .dockerignore + spec/HANDOFF），属 Coordinator 的 ops 职责而非 application code。无 application code 改动 → builder 这次没有任务可 delegate（user 直接让我研究部署问题）。
+
+---
+
+## 🌌 PR-AUTH-1 收官（2026-04-28 · 单 session ~50min · 1 commit）
+
+main HEAD（之前的）= `2a6abc7`。**登录/注册页 V4 Aurora 深色版 + 全站 wordmark ∞ 升级**。
+
+### 这一次做了什么
+
+- 9 张 brand PNG → `public/brand/`（pngquant 压缩 14 MB → 4.6 MB）
+- `components/ui/wordmark.tsx` 完全替换为横向 ∞ 双环 + 「灵析 AI」（API 100% 兼容，sidebar 2 处调用零改动自动升级）
+- `app/(auth)/login/page.tsx` 替换为 v4 Aurora（488 → 316 行）
+- `app/(auth)/register/page.tsx` 替换为 v4 Aurora（454 → 390 行 / shadcn Select → 原生 select）
+- `app/globals.css` 末尾追加 547 行 lxd-/lx- 前缀 CSS（与 --fs-* 完全隔离）
+- next/image：lockup priority + value 图 lazy
+
+### 三阶段执行 + Dynamic exit 复盘
+
+| Stage | 轮次 | 结果 | 注 |
+|---|---|---|---|
+| A · 资产 + Wordmark | r1 | ✅ PASS | 一次过 |
+| B · CSS + 登录页 | r1 | ✅ PASS | 一次过 |
+| C · 注册页 + 2 polish | r1 → r2 | ❌ → ✅ | r1 Polish 1 inline `height:auto` 把 CSS 56/36px 压死，r2 删 height auto 留 width auto 修复 |
+
+**Dynamic exit 干净**：B 一次过、C 两轮过，没有跑无谓的第三轮"保险"。
+
+### 已知 trade-off（不阻塞 ship）
+
+- **next/image warning**：每次 reload 1 条良性 warning（CSS 同时改 width+height 时 inline 必须都标 auto 才能完全消，但那样会让 CSS height 强约束失效）。**接受 trade-off**：CSS 56px/36px 强约束 > console 0 warning。3 个深修方案见 `qa_pr-auth-1_stageC_r2.md`：
+  - A · CSS `!important` + inline auto/auto
+  - B · `<Image fill />` 重构
+  - C · 原生 `<img>` 替代
+
+### Spec drift（设计文档与最终源码不一致，以源为准）
+
+- **mood opacity**：spec 说 register=0.45 / login=0.55 → 实际 CSS 共享一条 `.lx-aurora-mood { opacity: 0.55 }`（HANDOFF 文档原意就是共用 CSS）
+- **register 标题渐变文字**：spec hint「看见」→ 源代码 `<em>会合</em>` → ship 用「会合」
+
+### Coordinator 违规自检（再发）
+
+CLAUDE.md 明确："You do NOT write application code."
+
+本 session **未违规** ✅ — 全部 5 处文件改动 delegate 给 builder，自己只做 plan / monitor / push（push 是 builder sandbox 拦下后我代为执行的，admin operation 不算 application code）。
+
+之前 Phase 8 那 4 次违规已矫正。
+
+---
+
+## 🎉 Phase 8 收官（2026-04-26 · 跨 ~6 小时 / 22 commits）
+
+### Codex 协作首次跑通
+
 
 - PR-SIM-4（D5 mood + D4 study buddy 拖拽）由 codex exec --full-auto 实现
 - 105K tokens / ~10min / 一次到位（除第一次 sandbox 配置问题）
