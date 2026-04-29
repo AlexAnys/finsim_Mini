@@ -87,25 +87,35 @@ function submission(overrides: {
 
 function instance(overrides: {
   id?: string;
+  title?: string;
   classId?: string;
   groupIds?: string[];
   taskType?: "quiz" | "simulation" | "subjective";
+  chapterId?: string | null;
+  chapterTitle?: string | null;
+  createdAt?: string;
+  publishedAt?: string | null;
+  dueAt?: string;
   submissions?: ReturnType<typeof submission>[];
 }) {
   const classId = overrides.classId ?? "class-A";
   const taskType = overrides.taskType ?? "quiz";
+  const chapterId = overrides.chapterId === undefined ? "chapter-1" : overrides.chapterId;
   return {
     id: overrides.id ?? "inst-1",
-    title: "课后测验",
+    title: overrides.title ?? "课后测验",
     taskId: "task-1",
     taskType,
     classId,
     groupIds: overrides.groupIds ?? [],
-    chapterId: "chapter-1",
-    sectionId: "section-1",
+    chapterId,
+    sectionId: chapterId ? "section-1" : null,
+    createdAt: new Date(overrides.createdAt ?? "2026-01-01T00:00:00Z"),
+    publishedAt: overrides.publishedAt === null ? null : new Date(overrides.publishedAt ?? "2026-01-01T00:00:00Z"),
+    dueAt: new Date(overrides.dueAt ?? "2026-01-05T00:00:00Z"),
     class: { id: classId, name: classId === "class-A" ? "A 班" : "B 班" },
-    chapter: { id: "chapter-1", title: "资产配置", order: 1 },
-    section: { id: "section-1", title: "风险预算", chapterId: "chapter-1", order: 1 },
+    chapter: chapterId ? { id: chapterId, title: overrides.chapterTitle ?? "资产配置", order: 1 } : null,
+    section: chapterId ? { id: "section-1", title: "风险预算", chapterId, order: 1 } : null,
     task: {
       quizQuestions: [
         { id: "q1", prompt: "CAPM 中 beta 衡量什么？", points: 5, order: 1 },
@@ -531,6 +541,133 @@ describe("getAnalyticsV2Diagnosis", () => {
         avgScoreRate: 80,
         lowScoreCount: 0,
         weakStudents: [],
+      }),
+    ]);
+  });
+
+  it("builds deterministic local weekly insight from diagnosis signals", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          title: "单元测验",
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 4,
+              maxScore: 10,
+              submittedAt: "2026-01-02T00:00:00Z",
+              quizConceptTags: ["课堂概念"],
+              quizEvaluation: {
+                quizBreakdown: [
+                  { questionId: "q1", score: 0, maxScore: 5, correct: false, comment: "概念混淆" },
+                ],
+              },
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+      { id: "s3", name: "S3", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-10T08:00:00Z"),
+    });
+
+    expect(result.weeklyInsight).toMatchObject({
+      generatedAt: "2026-01-10T08:00:00.000Z",
+      mode: "local_fallback",
+      label: "本地生成/待 AI 增强",
+    });
+    expect(result.weeklyInsight.highlights[0]?.detail).toContain("当前范围覆盖 1 个实例");
+    expect(result.weeklyInsight.risks.map((item) => item.title)).toEqual(
+      expect.arrayContaining(["存在未完成风险", "存在低掌握风险"]),
+    );
+    expect(result.weeklyInsight.recommendations.map((item) => item.title)).toEqual(
+      expect.arrayContaining(["先补齐未完成学生", "安排短讲评和再练习"]),
+    );
+  });
+
+  it("returns chapter, class, and student growth trends for the active range", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          title: "成长测验",
+          publishedAt: "2026-01-03T00:00:00Z",
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 5,
+              maxScore: 10,
+              submittedAt: "2026-01-03T00:00:00Z",
+            }),
+            submission({
+              id: "sub-2",
+              studentId: "s1",
+              status: "graded",
+              score: 8,
+              maxScore: 10,
+              submittedAt: "2026-01-04T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      range: "30d",
+      now: new Date("2026-01-10T00:00:00Z"),
+    });
+
+    expect(result.trends.range).toBe("30d");
+    expect(result.trends.chapterTrend).toEqual([
+      expect.objectContaining({
+        chapterId: "chapter-1",
+        title: "资产配置",
+        instanceCount: 1,
+        completionRate: 0.5,
+        avgNormalizedScore: 80,
+        latestActivityAt: "2026-01-04T00:00:00.000Z",
+      }),
+    ]);
+    expect(result.trends.classTrend).toEqual([
+      expect.objectContaining({
+        classId: "class-A",
+        className: "A 班",
+        assignedStudents: 2,
+        submittedStudents: 1,
+        completionRate: 0.5,
+        avgNormalizedScore: 80,
+      }),
+    ]);
+    expect(result.trends.studentGrowth).toEqual([
+      expect.objectContaining({
+        studentId: "s1",
+        studentName: "S1",
+        selectedScore: 80,
+        bestScore: 80,
+        improvement: 30,
+        attemptCount: 2,
+        completedInstances: 1,
+        firstSubmittedAt: "2026-01-03T00:00:00.000Z",
+        latestSubmittedAt: "2026-01-04T00:00:00.000Z",
       }),
     ]);
   });

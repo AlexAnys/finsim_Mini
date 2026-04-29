@@ -63,12 +63,68 @@ export interface AnalyticsV2Diagnosis {
   quizDiagnostics: QuizQuestionDiagnostic[];
   simulationDiagnostics: RubricCriterionDiagnostic[];
   studentInterventions: StudentIntervention[];
-  weeklyInsight: {
-    generatedAt: string | null;
-    highlights: unknown[];
-    risks: unknown[];
-  };
-  trends: unknown[];
+  weeklyInsight: WeeklyInsight;
+  trends: AnalyticsV2Trends;
+}
+
+export interface WeeklyInsight {
+  generatedAt: string;
+  mode: "local_fallback";
+  label: string;
+  highlights: WeeklyInsightItem[];
+  risks: WeeklyInsightItem[];
+  recommendations: WeeklyInsightItem[];
+}
+
+export interface WeeklyInsightItem {
+  id: string;
+  title: string;
+  detail: string;
+  evidence: string;
+  severity: "info" | "medium" | "high";
+}
+
+export interface AnalyticsV2Trends {
+  generatedAt: string;
+  range: AnalyticsV2Range;
+  chapterTrend: ChapterTrendPoint[];
+  classTrend: ClassTrendPoint[];
+  studentGrowth: StudentGrowthPoint[];
+}
+
+export interface ChapterTrendPoint {
+  chapterId: string | null;
+  title: string;
+  order: number | null;
+  instanceCount: number;
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+  latestActivityAt: string | null;
+}
+
+export interface ClassTrendPoint {
+  classId: string;
+  className: string;
+  instanceCount: number;
+  assignedStudents: number;
+  submittedStudents: number;
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+  latestActivityAt: string | null;
+}
+
+export interface StudentGrowthPoint {
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  selectedScore: number | null;
+  bestScore: number | null;
+  improvement: number | null;
+  attemptCount: number;
+  completedInstances: number;
+  firstSubmittedAt: string | null;
+  latestSubmittedAt: string | null;
 }
 
 export interface ChapterClassHeatmapRow {
@@ -203,6 +259,10 @@ interface DiagnosisInstance {
   chapterId: string | null;
   sectionId: string | null;
   taskId: string;
+  dueAt?: Date | string | null;
+  publishedAt?: Date | string | null;
+  publishAt?: Date | string | null;
+  createdAt?: Date | string | null;
   class: { id: string; name: string };
   chapter: { id: string; title: string; order: number } | null;
   section: { id: string; title: string; chapterId: string; order: number } | null;
@@ -509,6 +569,27 @@ export async function getAnalyticsV2Diagnosis(
   const gradedStudents = sum(instanceMetrics.map((metric) => metric.gradedCount));
   const submissionCount = sum(instanceMetrics.map((metric) => metric.submissionCount));
   const attemptCount = sum(instanceMetrics.map((metric) => metric.attemptCount));
+  const generatedAt = now.toISOString();
+  const kpis = {
+    instanceCount: instanceMetrics.length,
+    assignedStudents,
+    submittedStudents,
+    gradedStudents,
+    submissionCount,
+    attemptCount,
+    completionRate: rate(submittedStudents, assignedStudents),
+    avgNormalizedScore: average(allScores),
+    medianNormalizedScore: median(allScores),
+    passRate: rate(allScores.filter((score) => score >= PASS_THRESHOLD).length, allScores.length),
+  };
+  const chapterClassHeatmap = buildChapterClassHeatmap(instanceMetrics);
+  const actionItems = buildActionItems(instanceMetrics);
+  const chapterDiagnostics = buildChapterDiagnostics(course.chapters, instanceMetrics, input.chapterId);
+  const instanceDiagnostics = instanceMetrics.map(toInstanceDiagnostic);
+  const quizDiagnostics = buildQuizDiagnostics(instanceMetrics);
+  const simulationDiagnostics = buildRubricDiagnostics(instanceMetrics);
+  const studentInterventions = buildStudentInterventions(instanceMetrics);
+  const trends = buildAnalyticsTrends(instanceMetrics, range, generatedAt);
 
   return {
     scope: {
@@ -521,34 +602,27 @@ export async function getAnalyticsV2Diagnosis(
       taskInstanceId: input.taskInstanceId ?? null,
       scorePolicy,
       range,
-      generatedAt: now.toISOString(),
+      generatedAt,
     },
     filterOptions: buildFilterOptions(course, optionInstances),
-    kpis: {
-      instanceCount: instanceMetrics.length,
-      assignedStudents,
-      submittedStudents,
-      gradedStudents,
-      submissionCount,
-      attemptCount,
-      completionRate: rate(submittedStudents, assignedStudents),
-      avgNormalizedScore: average(allScores),
-      medianNormalizedScore: median(allScores),
-      passRate: rate(allScores.filter((score) => score >= PASS_THRESHOLD).length, allScores.length),
-    },
-    chapterClassHeatmap: buildChapterClassHeatmap(instanceMetrics),
-    actionItems: buildActionItems(instanceMetrics),
-    chapterDiagnostics: buildChapterDiagnostics(course.chapters, instanceMetrics, input.chapterId),
-    instanceDiagnostics: instanceMetrics.map(toInstanceDiagnostic),
-    quizDiagnostics: buildQuizDiagnostics(instanceMetrics),
-    simulationDiagnostics: buildRubricDiagnostics(instanceMetrics),
-    studentInterventions: buildStudentInterventions(instanceMetrics),
-    weeklyInsight: {
-      generatedAt: null,
-      highlights: [],
-      risks: [],
-    },
-    trends: [],
+    kpis,
+    chapterClassHeatmap,
+    actionItems,
+    chapterDiagnostics,
+    instanceDiagnostics,
+    quizDiagnostics,
+    simulationDiagnostics,
+    studentInterventions,
+    weeklyInsight: buildWeeklyInsight({
+      generatedAt,
+      kpis,
+      actionItems,
+      chapterDiagnostics,
+      quizDiagnostics,
+      simulationDiagnostics,
+      studentInterventions,
+    }),
+    trends,
   };
 }
 
@@ -949,6 +1023,353 @@ function buildStudentInterventions(metrics: InstanceMetrics[]): StudentIntervent
     .slice(0, 50);
 }
 
+function buildWeeklyInsight(input: {
+  generatedAt: string;
+  kpis: AnalyticsV2Diagnosis["kpis"];
+  actionItems: ActionItem[];
+  chapterDiagnostics: ChapterDiagnostic[];
+  quizDiagnostics: QuizQuestionDiagnostic[];
+  simulationDiagnostics: RubricCriterionDiagnostic[];
+  studentInterventions: StudentIntervention[];
+}): WeeklyInsight {
+  const highlights: WeeklyInsightItem[] = [];
+  const risks: WeeklyInsightItem[] = [];
+  const recommendations: WeeklyInsightItem[] = [];
+
+  const activeChapters = input.chapterDiagnostics.filter((chapter) => chapter.instanceCount > 0);
+  const strongestChapter = [...activeChapters]
+    .filter((chapter) => chapter.avgNormalizedScore !== null)
+    .sort((a, b) => (b.avgNormalizedScore ?? 0) - (a.avgNormalizedScore ?? 0))[0];
+  const weakestChapter = [...activeChapters].sort((a, b) => {
+    const scoreA = a.avgNormalizedScore ?? Number.POSITIVE_INFINITY;
+    const scoreB = b.avgNormalizedScore ?? Number.POSITIVE_INFINITY;
+    return scoreA - scoreB || (a.completionRate ?? 1) - (b.completionRate ?? 1);
+  })[0];
+  const topWeakness = activeChapters.flatMap((chapter) => chapter.weaknesses)[0];
+  const lowCompletionItem = input.actionItems.find((item) => item.type === "low_completion");
+  const lowScoreItem = input.actionItems.find((item) => item.type === "low_score");
+  const weakConceptItem = input.actionItems.find((item) => item.type === "weak_concept");
+  const weakestQuiz = [...input.quizDiagnostics]
+    .filter((row) => row.correctRate !== null || row.avgScoreRate !== null)
+    .sort((a, b) => {
+      const scoreA = a.correctRate ?? (a.avgScoreRate === null ? 1 : a.avgScoreRate / 100);
+      const scoreB = b.correctRate ?? (b.avgScoreRate === null ? 1 : b.avgScoreRate / 100);
+      return scoreA - scoreB || a.order - b.order;
+    })[0];
+  const weakestRubric = input.simulationDiagnostics[0];
+  const interventionCounts = countInterventionReasons(input.studentInterventions);
+
+  if (input.kpis.instanceCount === 0) {
+    highlights.push({
+      id: "no-active-data",
+      title: "当前范围暂无可诊断数据",
+      detail: "本地洞察没有发现已发布实例或有效提交，可先确认课程、班级、章节和时间筛选。",
+      evidence: "实例数 0",
+      severity: "info",
+    });
+  } else {
+    highlights.push({
+      id: "overall-progress",
+      title: "整体进度已汇总",
+      detail: `当前范围覆盖 ${input.kpis.instanceCount} 个实例，完成率 ${formatInsightRate(input.kpis.completionRate)}，归一化均分 ${formatInsightPercent(input.kpis.avgNormalizedScore)}。`,
+      evidence: `${input.kpis.submittedStudents}/${input.kpis.assignedStudents} 人次完成，${input.kpis.gradedStudents} 人次已评分`,
+      severity: "info",
+    });
+  }
+
+  if (strongestChapter) {
+    highlights.push({
+      id: "strongest-chapter",
+      title: `${strongestChapter.title} 掌握较好`,
+      detail: `该章节均分 ${formatInsightPercent(strongestChapter.avgNormalizedScore)}，可作为后续讲评中的正向样例来源。`,
+      evidence: `${strongestChapter.submittedStudents}/${strongestChapter.assignedStudents} 人次完成`,
+      severity: "info",
+    });
+  }
+
+  if (lowCompletionItem) {
+    risks.push({
+      id: "risk-low-completion",
+      title: "存在未完成风险",
+      detail: `${lowCompletionItem.title}，建议先确认学生是否知道提交入口、截止时间和补交通道。`,
+      evidence: `完成率 ${formatInsightRate(lowCompletionItem.metric)}`,
+      severity: "high",
+    });
+    recommendations.push({
+      id: "recommend-completion-followup",
+      title: "先补齐未完成学生",
+      detail: "按班级点名跟进未完成名单，给出明确补交时间，并在下一节课前检查是否补齐。",
+      evidence: "低完成率会影响后续掌握度判断",
+      severity: "high",
+    });
+  }
+
+  if (lowScoreItem || (weakestChapter?.avgNormalizedScore !== null && (weakestChapter?.avgNormalizedScore ?? 100) < LOW_SCORE_THRESHOLD)) {
+    const sourceTitle = lowScoreItem?.title ?? `${weakestChapter?.title ?? "当前章节"} 平均分偏低`;
+    const metric = lowScoreItem?.metric ?? weakestChapter?.avgNormalizedScore ?? null;
+    risks.push({
+      id: "risk-low-score",
+      title: "存在低掌握风险",
+      detail: `${sourceTitle}，说明部分学生还没有稳定掌握本轮任务要求。`,
+      evidence: `均分 ${formatInsightPercent(metric)}`,
+      severity: "medium",
+    });
+    recommendations.push({
+      id: "recommend-short-reteach",
+      title: "安排短讲评和再练习",
+      detail: "用 10-15 分钟复盘共性错误，再布置一道同类型小练习，优先观察低掌握学生是否能独立完成。",
+      evidence: "均分或章节掌握度低于 60%",
+      severity: "medium",
+    });
+  }
+
+  if (weakConceptItem || topWeakness) {
+    const weaknessTitle = weakConceptItem?.title ?? `${topWeakness?.tag ?? "薄弱点"} 需要关注`;
+    const count = weakConceptItem?.metric ?? topWeakness?.count ?? 0;
+    risks.push({
+      id: "risk-weak-concept",
+      title: "共性薄弱点已出现",
+      detail: `${weaknessTitle}，适合用板书或例题把关键步骤重新拆开。`,
+      evidence: `${count} 人次相关信号`,
+      severity: "medium",
+    });
+  }
+
+  if (weakestQuiz && ((weakestQuiz.correctRate ?? 1) < 0.6 || (weakestQuiz.avgScoreRate ?? 100) < LOW_SCORE_THRESHOLD)) {
+    recommendations.push({
+      id: "recommend-quiz-review",
+      title: "针对低正确率题目讲评",
+      detail: `优先讲评 Q${weakestQuiz.order}，让学生说明选择依据，再补充一题同考点变式。`,
+      evidence: `正确率 ${formatInsightRate(weakestQuiz.correctRate)}，得分率 ${formatInsightPercent(weakestQuiz.avgScoreRate)}`,
+      severity: "medium",
+    });
+  }
+
+  if (weakestRubric && (weakestRubric.avgScoreRate !== null || weakestRubric.lowScoreCount > 0)) {
+    recommendations.push({
+      id: "recommend-rubric-review",
+      title: "用评分维度对齐作答标准",
+      detail: `围绕“${weakestRubric.criterionName}”展示一份达标样例和一份待修改样例，帮助学生看清得分要求。`,
+      evidence: `低分 ${weakestRubric.lowScoreCount} 人，平均得分率 ${formatInsightPercent(weakestRubric.avgScoreRate)}`,
+      severity: "medium",
+    });
+  }
+
+  if (input.studentInterventions.length > 0) {
+    risks.push({
+      id: "risk-student-intervention",
+      title: "部分学生需要单独跟进",
+      detail: "干预名单中包含未完成、低掌握或退步学生，建议按原因分组处理。",
+      evidence: `未完成 ${interventionCounts.not_submitted} 人次，低掌握 ${interventionCounts.low_score} 人次，退步 ${interventionCounts.declining} 人次`,
+      severity: interventionCounts.not_submitted + interventionCounts.low_score >= 5 ? "high" : "medium",
+    });
+    recommendations.push({
+      id: "recommend-student-groups",
+      title: "分组推进学生干预",
+      detail: "未完成学生先补交，低掌握学生做订正和二次练习，退步学生单独询问最近学习卡点。",
+      evidence: `${input.studentInterventions.length} 条干预记录`,
+      severity: "medium",
+    });
+  }
+
+  if (risks.length === 0) {
+    risks.push({
+      id: "risk-none",
+      title: "暂未发现明显风险",
+      detail: "当前完成率、得分和干预信号没有触发高风险阈值，可继续保持常规检查。",
+      evidence: "本地规则未触发低完成、低掌握或退步风险",
+      severity: "info",
+    });
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push({
+      id: "recommend-maintain",
+      title: "保持当前教学节奏",
+      detail: "继续用短测或课堂练习跟踪掌握情况，下一次诊断重点观察是否有新增薄弱点。",
+      evidence: "当前范围暂无高优先级行动项",
+      severity: "info",
+    });
+  }
+
+  return {
+    generatedAt: input.generatedAt,
+    mode: "local_fallback",
+    label: "本地生成/待 AI 增强",
+    highlights: highlights.slice(0, 3),
+    risks: risks.slice(0, 4),
+    recommendations: recommendations.slice(0, 4),
+  };
+}
+
+function buildAnalyticsTrends(
+  metrics: InstanceMetrics[],
+  range: AnalyticsV2Range,
+  generatedAt: string,
+): AnalyticsV2Trends {
+  return {
+    generatedAt,
+    range,
+    chapterTrend: buildChapterTrend(metrics),
+    classTrend: buildClassTrend(metrics),
+    studentGrowth: buildStudentGrowth(metrics),
+  };
+}
+
+function buildChapterTrend(metrics: InstanceMetrics[]): ChapterTrendPoint[] {
+  const grouped = new Map<string, InstanceMetrics[]>();
+  for (const metric of metrics) {
+    const key = metric.instance.chapterId ?? "unassigned";
+    const rows = grouped.get(key) ?? [];
+    rows.push(metric);
+    grouped.set(key, rows);
+  }
+
+  return Array.from(grouped.values())
+    .map((rows) => {
+      const first = rows[0].instance;
+      const assignedStudents = sum(rows.map((row) => row.assignedCount));
+      const submittedStudents = sum(rows.map((row) => row.submittedCount));
+      return {
+        chapterId: first.chapterId,
+        title: first.chapter?.title ?? "未关联章节",
+        order: first.chapter?.order ?? null,
+        instanceCount: rows.length,
+        completionRate: rate(submittedStudents, assignedStudents),
+        avgNormalizedScore: average(rows.flatMap((row) => row.scores)),
+        latestActivityAt: latestIso(rows.map((row) => getInstanceActivityAt(row.instance))),
+      };
+    })
+    .filter((row) => row.instanceCount > 0)
+    .sort((a, b) => {
+      const orderA = a.order ?? Number.POSITIVE_INFINITY;
+      const orderB = b.order ?? Number.POSITIVE_INFINITY;
+      return orderA - orderB || compareNullableIso(b.latestActivityAt, a.latestActivityAt) || a.title.localeCompare(b.title, "zh-CN");
+    });
+}
+
+function buildClassTrend(metrics: InstanceMetrics[]): ClassTrendPoint[] {
+  const grouped = new Map<string, InstanceMetrics[]>();
+  for (const metric of metrics) {
+    const rows = grouped.get(metric.instance.classId) ?? [];
+    rows.push(metric);
+    grouped.set(metric.instance.classId, rows);
+  }
+
+  return Array.from(grouped.values())
+    .map((rows) => {
+      const first = rows[0].instance;
+      const assignedStudents = sum(rows.map((row) => row.assignedCount));
+      const submittedStudents = sum(rows.map((row) => row.submittedCount));
+      return {
+        classId: first.classId,
+        className: first.class.name,
+        instanceCount: rows.length,
+        assignedStudents,
+        submittedStudents,
+        completionRate: rate(submittedStudents, assignedStudents),
+        avgNormalizedScore: average(rows.flatMap((row) => row.scores)),
+        latestActivityAt: latestIso(rows.map((row) => getInstanceActivityAt(row.instance))),
+      };
+    })
+    .sort((a, b) => compareNullableIso(b.latestActivityAt, a.latestActivityAt) || a.className.localeCompare(b.className, "zh-CN"));
+}
+
+function buildStudentGrowth(metrics: InstanceMetrics[]): StudentGrowthPoint[] {
+  const byStudent = new Map<
+    string,
+    {
+      studentId: string;
+      studentName: string;
+      classId: string;
+      className: string;
+      selectedScores: number[];
+      scoredAttempts: Array<{ id: string; score: number; submittedAt: Date | string }>;
+      attemptCount: number;
+      completedInstances: number;
+    }
+  >();
+
+  for (const metric of metrics) {
+    const assignedById = new Map(metric.assignedStudents.map((student) => [student.id, student]));
+    for (const [studentId, attempt] of metric.studentAttempts.entries()) {
+      const student = assignedById.get(studentId);
+      if (!student) continue;
+      const row = byStudent.get(studentId) ?? {
+        studentId,
+        studentName: student.name,
+        classId: metric.instance.classId,
+        className: metric.instance.class.name,
+        selectedScores: [],
+        scoredAttempts: [],
+        attemptCount: 0,
+        completedInstances: 0,
+      };
+      row.attemptCount += attempt.attemptCount;
+      if (attempt.selectedScore !== null) {
+        row.selectedScores.push(attempt.selectedScore);
+        row.completedInstances += 1;
+      }
+      byStudent.set(studentId, row);
+    }
+
+    const assignedIds = new Set(metric.assignedStudents.map((student) => student.id));
+    for (const submission of metric.instance.submissions) {
+      if (!assignedIds.has(submission.studentId)) continue;
+      if (submission.status !== "graded") continue;
+      const score = normalizeScore(submission.score, submission.maxScore);
+      if (score === null) continue;
+      const student = assignedById.get(submission.studentId);
+      if (!student) continue;
+      const row = byStudent.get(submission.studentId) ?? {
+        studentId: submission.studentId,
+        studentName: student.name,
+        classId: metric.instance.classId,
+        className: metric.instance.class.name,
+        selectedScores: [],
+        scoredAttempts: [],
+        attemptCount: 0,
+        completedInstances: 0,
+      };
+      row.scoredAttempts.push({ id: submission.id, score, submittedAt: submission.submittedAt });
+      byStudent.set(submission.studentId, row);
+    }
+  }
+
+  return Array.from(byStudent.values())
+    .filter((row) => row.attemptCount > 0)
+    .map((row) => {
+      const scoredAttempts = [...row.scoredAttempts].sort((a, b) => compareSubmittedAt(a, b));
+      const first = scoredAttempts[0];
+      const latest = scoredAttempts[scoredAttempts.length - 1];
+      return {
+        studentId: row.studentId,
+        studentName: row.studentName,
+        classId: row.classId,
+        className: row.className,
+        selectedScore: average(row.selectedScores),
+        bestScore:
+          scoredAttempts.length > 0
+            ? Math.max(...scoredAttempts.map((attempt) => attempt.score))
+            : null,
+        improvement:
+          first && latest && scoredAttempts.length >= 2
+            ? round1(latest.score - first.score)
+            : null,
+        attemptCount: row.attemptCount,
+        completedInstances: row.completedInstances,
+        firstSubmittedAt: first ? toIso(first.submittedAt) : null,
+        latestSubmittedAt: latest ? toIso(latest.submittedAt) : null,
+      };
+    })
+    .sort((a, b) => {
+      const improvementDelta = (b.improvement ?? Number.NEGATIVE_INFINITY) - (a.improvement ?? Number.NEGATIVE_INFINITY);
+      if (improvementDelta !== 0) return improvementDelta;
+      return compareNullableIso(b.latestSubmittedAt, a.latestSubmittedAt) || a.studentName.localeCompare(b.studentName, "zh-CN");
+    })
+    .slice(0, 50);
+}
+
 function buildQuizDiagnostics(metrics: InstanceMetrics[]): QuizQuestionDiagnostic[] {
   const diagnostics: QuizQuestionDiagnostic[] = [];
 
@@ -1168,6 +1589,47 @@ function getDateFromRange(range: AnalyticsV2Range, now: Date): Date | null {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 }
 
+function countInterventionReasons(rows: StudentIntervention[]) {
+  return rows.reduce(
+    (acc, row) => {
+      acc[row.reason] += 1;
+      return acc;
+    },
+    { not_submitted: 0, low_score: 0, declining: 0 },
+  );
+}
+
+function formatInsightRate(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "无";
+  return `${round1(value * 100)}%`;
+}
+
+function formatInsightPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "无";
+  return `${round1(value)}%`;
+}
+
+function getInstanceActivityAt(instance: DiagnosisInstance): Date | string | null {
+  return latestIso([
+    instance.publishedAt,
+    instance.publishAt,
+    instance.createdAt,
+    ...instance.submissions.map((submission) => submission.submittedAt),
+  ]);
+}
+
+function latestIso(values: Array<Date | string | null | undefined>): string | null {
+  const valid = values
+    .map((value) => (value ? new Date(value).getTime() : Number.NaN))
+    .filter((value) => Number.isFinite(value));
+  if (valid.length === 0) return null;
+  return new Date(Math.max(...valid)).toISOString();
+}
+
+function toIso(value: Date | string): string {
+  return new Date(value).toISOString();
+}
+
 function getConceptTags(submission: {
   simulationSubmission?: SubmissionDetail | null;
   quizSubmission?: SubmissionDetail | null;
@@ -1252,7 +1714,10 @@ function groupByStudent<T extends { studentId: string }>(rows: T[]) {
   return grouped;
 }
 
-function compareSubmittedAt(a: AttemptSubmission, b: AttemptSubmission): number {
+function compareSubmittedAt(
+  a: { id: string; submittedAt: Date | string },
+  b: { id: string; submittedAt: Date | string },
+): number {
   const delta = new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime();
   if (delta !== 0) return delta;
   return a.id.localeCompare(b.id);
@@ -1260,6 +1725,13 @@ function compareSubmittedAt(a: AttemptSubmission, b: AttemptSubmission): number 
 
 function compareStudentName(a: StudentRef, b: StudentRef): number {
   return a.name.localeCompare(b.name, "zh-CN") || a.id.localeCompare(b.id);
+}
+
+function compareNullableIso(a: string | null, b: string | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  return new Date(a).getTime() - new Date(b).getTime();
 }
 
 function average(values: number[]): number | null {

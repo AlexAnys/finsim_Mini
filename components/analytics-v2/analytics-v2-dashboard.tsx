@@ -156,18 +156,64 @@ interface AnalyticsV2Diagnosis {
     reason: "not_submitted" | "low_score" | "declining";
   }>;
   weeklyInsight: {
-    generatedAt: string | null;
-    highlights: unknown[];
-    risks: unknown[];
+    generatedAt: string;
+    mode: "local_fallback";
+    label: string;
+    highlights: InsightItem[];
+    risks: InsightItem[];
+    recommendations: InsightItem[];
   };
-  trends: unknown[];
+  trends: {
+    generatedAt: string;
+    range: RangeValue;
+    chapterTrend: Array<{
+      chapterId: string | null;
+      title: string;
+      order: number | null;
+      instanceCount: number;
+      completionRate: number | null;
+      avgNormalizedScore: number | null;
+      latestActivityAt: string | null;
+    }>;
+    classTrend: Array<{
+      classId: string;
+      className: string;
+      instanceCount: number;
+      assignedStudents: number;
+      submittedStudents: number;
+      completionRate: number | null;
+      avgNormalizedScore: number | null;
+      latestActivityAt: string | null;
+    }>;
+    studentGrowth: Array<{
+      studentId: string;
+      studentName: string;
+      classId: string;
+      className: string;
+      selectedScore: number | null;
+      bestScore: number | null;
+      improvement: number | null;
+      attemptCount: number;
+      completedInstances: number;
+      firstSubmittedAt: string | null;
+      latestSubmittedAt: string | null;
+    }>;
+  };
+}
+
+interface InsightItem {
+  id: string;
+  title: string;
+  detail: string;
+  evidence: string;
+  severity: "info" | "medium" | "high";
 }
 
 const ALL = "__all__";
 
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  simulation: "Simulation",
-  quiz: "Quiz",
+  simulation: "模拟练习",
+  quiz: "测验",
   subjective: "主观题",
 };
 
@@ -479,8 +525,8 @@ export function AnalyticsV2Dashboard() {
                 <TabsTrigger value="overview">课程总览</TabsTrigger>
                 <TabsTrigger value="chapters">章节诊断</TabsTrigger>
                 <TabsTrigger value="instances">测试实例</TabsTrigger>
-                <TabsTrigger value="quiz">Quiz 题库</TabsTrigger>
-                <TabsTrigger value="rubric">Simulation/主观题</TabsTrigger>
+                <TabsTrigger value="quiz">测验题库</TabsTrigger>
+                <TabsTrigger value="rubric">模拟/主观题</TabsTrigger>
                 <TabsTrigger value="students">学生干预</TabsTrigger>
                 <TabsTrigger value="weekly">AI 周洞察</TabsTrigger>
                 <TabsTrigger value="trends">长期趋势</TabsTrigger>
@@ -506,10 +552,10 @@ export function AnalyticsV2Dashboard() {
               <StudentInterventionTab rows={diagnosis.studentInterventions} />
             </TabsContent>
             <TabsContent value="weekly">
-              <PlaceholderTab title="AI 周洞察" description="P2 将接入周度生成、证据引用与教师操作建议。" />
+              <WeeklyInsightTab insight={diagnosis.weeklyInsight} />
             </TabsContent>
             <TabsContent value="trends">
-              <PlaceholderTab title="长期趋势" description="P3 将沉淀跨周趋势、概念稳定性和班级 cohort 对比。" />
+              <TrendsTab diagnosis={diagnosis} />
             </TabsContent>
           </Tabs>
         </>
@@ -787,11 +833,11 @@ function InstanceTab({ diagnosis }: { diagnosis: AnalyticsV2Diagnosis }) {
 }
 
 function QuizTab({ rows }: { rows: AnalyticsV2Diagnosis["quizDiagnostics"] }) {
-  if (rows.length === 0) return <PlaceholderTab title="Quiz 题库" description="当前范围没有可聚合的 quizBreakdown 或题目元数据。" />;
+  if (rows.length === 0) return <PlaceholderTab title="测验题库" description="当前范围没有可聚合的题目作答明细或题目元数据。" />;
   return (
     <Card className="rounded-lg">
       <CardHeader>
-        <CardTitle className="text-base">Quiz 题目诊断</CardTitle>
+        <CardTitle className="text-base">测验题目诊断</CardTitle>
       </CardHeader>
       <CardContent>
         <Table>
@@ -827,11 +873,11 @@ function QuizTab({ rows }: { rows: AnalyticsV2Diagnosis["quizDiagnostics"] }) {
 }
 
 function RubricTab({ rows }: { rows: AnalyticsV2Diagnosis["simulationDiagnostics"] }) {
-  if (rows.length === 0) return <PlaceholderTab title="Simulation/主观题" description="当前范围没有可聚合的 rubricBreakdown 或评分维度元数据。" />;
+  if (rows.length === 0) return <PlaceholderTab title="模拟/主观题" description="当前范围没有可聚合的评分明细或评分维度元数据。" />;
   return (
     <Card className="rounded-lg">
       <CardHeader>
-        <CardTitle className="text-base">Rubric 维度诊断</CardTitle>
+        <CardTitle className="text-base">评分维度诊断</CardTitle>
       </CardHeader>
       <CardContent>
         <Table>
@@ -907,6 +953,211 @@ function StudentInterventionTab({ rows }: { rows: AnalyticsV2Diagnosis["studentI
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+function WeeklyInsightTab({ insight }: { insight: AnalyticsV2Diagnosis["weeklyInsight"] }) {
+  return (
+    <div className="space-y-3">
+      <Card className="rounded-lg">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <CardTitle className="text-base">AI 周洞察</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="rounded-md">
+                {insight.label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">生成时间 {formatDateTime(insight.generatedAt)}</span>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-3 lg:grid-cols-3">
+          <InsightColumn title="高亮摘要" items={insight.highlights} emptyText="当前范围暂无可汇总的高亮。" />
+          <InsightColumn title="风险" items={insight.risks} emptyText="当前范围暂无明显风险。" />
+          <InsightColumn title="下一步建议" items={insight.recommendations} emptyText="当前范围暂无建议。" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function InsightColumn({
+  title,
+  items,
+  emptyText,
+}: {
+  title: string;
+  items: InsightItem[];
+  emptyText: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">{title}</div>
+      {items.length === 0 ? (
+        <EmptyInline text={emptyText} />
+      ) : (
+        items.map((item) => (
+          <div key={item.id} className="rounded-md border p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-medium leading-5">{item.title}</div>
+              <Badge variant={insightBadgeVariant(item.severity)} className="shrink-0 rounded-md">
+                {insightSeverityLabel(item.severity)}
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.detail}</p>
+            <div className="mt-2 text-xs text-muted-foreground">依据：{item.evidence}</div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function TrendsTab({ diagnosis }: { diagnosis: AnalyticsV2Diagnosis }) {
+  const { trends } = diagnosis;
+  const hasData =
+    trends.chapterTrend.length > 0 ||
+    trends.classTrend.length > 0 ||
+    trends.studentGrowth.length > 0;
+  if (!hasData) {
+    return <PlaceholderTab title="长期趋势" description="当前时间范围内暂无可展示的章节、班级或学生成长趋势。" />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <Card className="rounded-lg">
+        <CardHeader>
+          <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+            <CardTitle className="text-base">章节趋势</CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {RANGE_LABELS[trends.range]} · 更新 {formatDateTime(trends.generatedAt)}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {trends.chapterTrend.length === 0 ? (
+            <EmptyInline text="当前范围暂无章节趋势数据" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>章节</TableHead>
+                  <TableHead>实例</TableHead>
+                  <TableHead>完成率</TableHead>
+                  <TableHead>章节掌握度</TableHead>
+                  <TableHead>最近活动</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trends.chapterTrend.map((row) => (
+                  <TableRow key={row.chapterId ?? "unassigned"}>
+                    <TableCell className="font-medium">{row.title}</TableCell>
+                    <TableCell>{row.instanceCount}</TableCell>
+                    <TableCell>
+                      <TrendMetric value={row.completionRate} kind="rate" />
+                    </TableCell>
+                    <TableCell>
+                      <TrendMetric value={row.avgNormalizedScore} kind="percent" />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(row.latestActivityAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardTitle className="text-base">班级趋势</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trends.classTrend.length === 0 ? (
+            <EmptyInline text="当前范围暂无班级趋势数据" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>班级</TableHead>
+                  <TableHead>实例</TableHead>
+                  <TableHead>完成</TableHead>
+                  <TableHead>完成率</TableHead>
+                  <TableHead>均分</TableHead>
+                  <TableHead>最近活动</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trends.classTrend.map((row) => (
+                  <TableRow key={row.classId}>
+                    <TableCell className="font-medium">{row.className}</TableCell>
+                    <TableCell>{row.instanceCount}</TableCell>
+                    <TableCell>{row.submittedStudents}/{row.assignedStudents}</TableCell>
+                    <TableCell>
+                      <TrendMetric value={row.completionRate} kind="rate" />
+                    </TableCell>
+                    <TableCell>
+                      <TrendMetric value={row.avgNormalizedScore} kind="percent" />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(row.latestActivityAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg">
+        <CardHeader>
+          <CardTitle className="text-base">学生成长</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trends.studentGrowth.length === 0 ? (
+            <EmptyInline text="当前范围暂无学生成长数据" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>学生</TableHead>
+                  <TableHead>班级</TableHead>
+                  <TableHead>当前得分</TableHead>
+                  <TableHead>最好</TableHead>
+                  <TableHead>变化</TableHead>
+                  <TableHead>尝试</TableHead>
+                  <TableHead>完成实例</TableHead>
+                  <TableHead>最近提交</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trends.studentGrowth.map((row) => (
+                  <TableRow key={row.studentId}>
+                    <TableCell className="font-medium">{row.studentName}</TableCell>
+                    <TableCell>{row.className}</TableCell>
+                    <TableCell>{formatPercentNumber(row.selectedScore)}</TableCell>
+                    <TableCell>{formatPercentNumber(row.bestScore)}</TableCell>
+                    <TableCell>{formatPointChange(row.improvement)}</TableCell>
+                    <TableCell>{row.attemptCount}</TableCell>
+                    <TableCell>{row.completedInstances}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(row.latestSubmittedAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function TrendMetric({ value, kind }: { value: number | null; kind: "rate" | "percent" }) {
+  const progressValue = value === null ? 0 : kind === "rate" ? value * 100 : value;
+  return (
+    <div className="min-w-[120px] space-y-1">
+      <div className="text-sm">{kind === "rate" ? formatRate(value) : formatPercentNumber(value)}</div>
+      <Progress value={progressValue} />
+    </div>
   );
 }
 
@@ -1019,6 +1270,41 @@ function actionMetric(item: AnalyticsV2Diagnosis["actionItems"][number]) {
   if (item.type === "low_completion") return formatRate(item.metric);
   if (item.type === "low_score") return formatPercentNumber(item.metric);
   return `${item.metric} 人次`;
+}
+
+function insightBadgeVariant(severity: InsightItem["severity"]) {
+  if (severity === "high") return "destructive";
+  if (severity === "medium") return "secondary";
+  return "outline";
+}
+
+function insightSeverityLabel(severity: InsightItem["severity"]) {
+  if (severity === "high") return "高";
+  if (severity === "medium") return "中";
+  return "提示";
+}
+
+function formatPointChange(value: number | null | undefined) {
+  if (value === null || value === undefined) return "无";
+  return `${value > 0 ? "+" : ""}${Math.round(value * 10) / 10}pp`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "无";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "无";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatRate(value: number | null | undefined) {
