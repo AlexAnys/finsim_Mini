@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
+import { clampTake } from "@/lib/pagination";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validators/task.schema";
+import type { Prisma } from "@prisma/client";
 
 // ============================================
 // PR-FIX-4 D1: 兼容旧 5 档 [MOOD:] 模板
@@ -61,8 +63,11 @@ function sanitizeSimulationConfig<
 // 任务定义 CRUD
 // ============================================
 
-export async function createTask(creatorId: string, input: CreateTaskInput) {
-  return prisma.$transaction(async (tx) => {
+export async function createTaskInTransaction(
+  tx: Prisma.TransactionClient,
+  creatorId: string,
+  input: CreateTaskInput,
+) {
     // 1. 创建 Task 主记录
     const task = await tx.task.create({
       data: {
@@ -148,7 +153,10 @@ export async function createTask(creatorId: string, input: CreateTaskInput) {
     }
 
     return task;
-  });
+}
+
+export async function createTask(creatorId: string, input: CreateTaskInput) {
+  return prisma.$transaction((tx) => createTaskInTransaction(tx, creatorId, input));
 }
 
 export async function getTaskById(taskId: string) {
@@ -178,13 +186,17 @@ export async function getTaskById(taskId: string) {
   });
 }
 
-export async function getTasksByCreator(creatorId: string) {
+export async function getTasksByCreator(
+  creatorId: string,
+  options: { take?: number } = {},
+) {
   return prisma.task.findMany({
     where: { creatorId },
     include: {
       scoringCriteria: { orderBy: { order: "asc" } },
     },
     orderBy: { createdAt: "desc" },
+    take: clampTake(options.take, 100, 200),
   });
 }
 

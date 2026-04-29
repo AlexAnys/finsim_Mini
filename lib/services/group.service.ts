@@ -1,17 +1,42 @@
 import { prisma } from "@/lib/db/prisma";
+import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
+import { clampTake } from "@/lib/pagination";
+import type { Prisma } from "@prisma/client";
+
+type UserLike = { id: string; role: string; classId?: string | null };
+
+async function assertStudentsInClass(
+  tx: Prisma.TransactionClient,
+  classId: string,
+  studentIds: string[] | undefined,
+) {
+  const uniqueIds = Array.from(new Set(studentIds ?? []));
+  if (uniqueIds.length === 0) return;
+
+  const students = await tx.user.findMany({
+    where: { id: { in: uniqueIds }, role: "student", classId },
+    select: { id: true },
+  });
+  if (students.length !== uniqueIds.length) {
+    throw new Error("GROUP_MEMBER_CLASS_MISMATCH");
+  }
+}
 
 export async function createGroup(data: {
-  teacherId: string;
+  user: UserLike;
   classId: string;
   name: string;
   type: "manual" | "auto_score_bucket";
   meta?: Record<string, unknown>;
   studentIds?: string[];
 }) {
+  await assertClassAccessForTeacher(data.classId, data.user);
   return prisma.$transaction(async (tx) => {
+    await assertStudentsInClass(tx, data.classId, data.studentIds);
+
     const group = await tx.studentGroup.create({
       data: {
-        teacherId: data.teacherId,
+        teacherId: data.user.id,
         classId: data.classId,
         name: data.name,
         type: data.type,
@@ -32,9 +57,12 @@ export async function createGroup(data: {
   });
 }
 
-export async function getGroupsByTeacher(teacherId: string) {
+export async function getGroupsByUser(
+  user: UserLike,
+  options: { take?: number } = {},
+) {
   return prisma.studentGroup.findMany({
-    where: { teacherId },
+    where: user.role === "admin" ? {} : { teacherId: user.id },
     include: {
       class: { select: { id: true, name: true } },
       members: {
@@ -45,12 +73,13 @@ export async function getGroupsByTeacher(teacherId: string) {
       _count: { select: { members: true } },
     },
     orderBy: { createdAt: "desc" },
+    take: clampTake(options.take, 100, 200),
   });
 }
 
 export async function updateGroup(
   groupId: string,
-  teacherId: string,
+  user: UserLike,
   data: {
     name?: string;
     addStudentIds?: string[];
@@ -58,11 +87,15 @@ export async function updateGroup(
   }
 ) {
   const group = await prisma.studentGroup.findUnique({ where: { id: groupId } });
-  if (!group || group.teacherId !== teacherId) {
+  if (!group) throw new Error("GROUP_NOT_FOUND");
+  if (user.role !== "admin" && group.teacherId !== user.id) {
     throw new Error("FORBIDDEN");
   }
+  await assertClassAccessForTeacher(group.classId, user);
 
   return prisma.$transaction(async (tx) => {
+    await assertStudentsInClass(tx, group.classId, data.addStudentIds);
+
     if (data.name) {
       await tx.studentGroup.update({
         where: { id: groupId },
@@ -97,9 +130,15 @@ export async function updateGroup(
 }
 
 export async function deleteGroup(groupId: string, teacherId: string) {
+  return deleteGroupForUser(groupId, { id: teacherId, role: "teacher" });
+}
+
+export async function deleteGroupForUser(groupId: string, user: UserLike) {
   const group = await prisma.studentGroup.findUnique({ where: { id: groupId } });
-  if (!group || group.teacherId !== teacherId) {
+  if (!group) throw new Error("GROUP_NOT_FOUND");
+  if (user.role !== "admin" && group.teacherId !== user.id) {
     throw new Error("FORBIDDEN");
   }
+  await assertClassAccessForTeacher(group.classId, user);
   return prisma.studentGroup.delete({ where: { id: groupId } });
 }

@@ -2,10 +2,9 @@ import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "./ai.service";
 import { z } from "zod";
 import { readFile } from "fs/promises";
-import { join } from "path";
 import { PDFParse } from "pdf-parse";
 
-const STORAGE_BASE = process.env.FILE_STORAGE_PATH || "./public/uploads";
+const STORAGE_BASE = (process.env.FILE_STORAGE_PATH || "./public/uploads").replace(/\/+$/, "");
 
 const parsedQuestionsSchema = z.object({
   questions: z.array(z.object({
@@ -56,7 +55,7 @@ async function processImportJob(jobId: string, userId: string) {
     if (!job) throw new Error("JOB_NOT_FOUND");
 
     // Read file and extract text
-    const fullPath = join(STORAGE_BASE, job.filePath);
+    const fullPath = `${STORAGE_BASE}/${job.filePath}`;
     const buffer = await readFile(fullPath);
     let text = "";
 

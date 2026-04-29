@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
+import { clampTake } from "@/lib/pagination";
 import type { SlotType, ContentBlockType } from "@prisma/client";
 
 // ============================================
@@ -77,7 +78,10 @@ export async function createCourse(data: {
   return course;
 }
 
-export async function getCoursesByTeacher(teacherId: string) {
+export async function getCoursesByTeacher(
+  teacherId: string,
+  options: { take?: number } = {},
+) {
   return prisma.course.findMany({
     where: teacherCourseFilter(teacherId),
     include: {
@@ -91,6 +95,7 @@ export async function getCoursesByTeacher(teacherId: string) {
       },
     },
     orderBy: { createdAt: "desc" },
+    take: clampTake(options.take, 100, 200),
   });
 }
 
@@ -183,13 +188,17 @@ export async function getCourseClasses(courseId: string) {
   });
 }
 
-export async function getCoursesByClass(classId: string) {
+export async function getCoursesByClass(
+  classId: string,
+  options: { take?: number } = {},
+) {
   return prisma.course.findMany({
     where: {
       OR: [{ classId }, { classes: { some: { classId } } }],
     },
     include: { class: true, classes: { include: { class: true } } },
     orderBy: { createdAt: "desc" },
+    take: clampTake(options.take, 100, 200),
   });
 }
 

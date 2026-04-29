@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth/resource-access";
 import { assertCourseAccess } from "@/lib/auth/course-access";
 import { prisma } from "@/lib/db/prisma";
+import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -63,9 +64,19 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || undefined;
 
   try {
-    const filters: Record<string, string | undefined> = { courseId, classId, status };
-    if (result.session.user.role === "teacher") {
-      filters.createdBy = result.session.user.id;
+    const filters: Record<string, string | number | undefined> = {
+      courseId,
+      classId,
+      status,
+      take: parseListTake(searchParams, 100, 200),
+    };
+    const { user } = result.session;
+    if (user.role === "student") {
+      if (!user.classId) throw new Error("FORBIDDEN");
+      filters.classId = user.classId;
+      filters.status = "published";
+    } else if (user.role === "teacher") {
+      filters.createdBy = user.id;
     }
 
     const instances = await getTaskInstances(filters);

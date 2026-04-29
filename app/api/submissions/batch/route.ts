@@ -19,8 +19,13 @@ export async function DELETE(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
-    await batchDeleteSubmissions(parsed.data.ids, result.session.user.id);
-    return success({ deleted: parsed.data.ids.length });
+    const { user } = result.session;
+    const deleted = await batchDeleteSubmissions(parsed.data.ids, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
+    return success({ deleted: deleted.count });
   } catch (err) {
     return handleServiceError(err);
   }

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { createGroup, getGroupsByTeacher } from "@/lib/services/group.service";
+import { createGroup, getGroupsByUser } from "@/lib/services/group.service";
+import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -24,7 +25,11 @@ export async function POST(request: NextRequest) {
     }
 
     const group = await createGroup({
-      teacherId: result.session.user.id,
+      user: {
+        id: result.session.user.id,
+        role: result.session.user.role,
+        classId: result.session.user.classId,
+      },
       ...parsed.data,
     });
     return created(group);
@@ -33,12 +38,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);
   if (result.error) return result.error;
 
   try {
-    const groups = await getGroupsByTeacher(result.session.user.id);
+    const { searchParams } = new URL(request.url);
+    const groups = await getGroupsByUser({
+      id: result.session.user.id,
+      role: result.session.user.role,
+      classId: result.session.user.classId,
+    }, {
+      take: parseListTake(searchParams, 100, 200),
+    });
     return success(groups);
   } catch (err) {
     return handleServiceError(err);

@@ -71,6 +71,14 @@ export function handleServiceError(err: unknown) {
         return notFound("任务不存在");
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
+      case "FILE_NOT_FOUND":
+        return notFound("文件不存在");
+      case "TASK_POST_NOT_FOUND":
+        return notFound("讨论不存在");
+      case "GROUP_NOT_FOUND":
+        return notFound("分组不存在");
+      case "GROUP_MEMBER_CLASS_MISMATCH":
+        return error("GROUP_MEMBER_CLASS_MISMATCH", "分组成员必须是本班学生", 400);
       case "SUBMISSION_NOT_GRADED":
         return error("SUBMISSION_NOT_GRADED", "提交尚未完成评估，无法公布", 400);
       case "JOB_NOT_FOUND":

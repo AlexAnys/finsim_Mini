@@ -109,6 +109,7 @@ export async function getCachedInsights(
   instanceId: string,
   teacherId: string
 ): Promise<AggregateInsightsResult | null> {
+  void teacherId;
   // Cache is shared across all teachers/admins authorized to view this instance.
   // createdBy is kept as audit metadata (last trigger) but is not part of the lookup
   // key — otherwise teacher B would re-trigger AI aggregation already done by teacher A

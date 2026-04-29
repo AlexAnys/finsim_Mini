@@ -1,16 +1,26 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { NextRequest, NextResponse } from "next/server";
+import { isStudentSelfRegistrationEnabled } from "@/lib/auth/secret";
+import { listRegistrationClasses } from "@/lib/services/class.service";
+import { parseListTake } from "@/lib/pagination";
 
-export async function GET() {
-  try {
-    const classes = await prisma.class.findMany({
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        academicYear: true,
+export async function GET(request: NextRequest) {
+  if (!isStudentSelfRegistrationEnabled()) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "REGISTRATION_CLOSED",
+          message: "学生自助注册暂未开放",
+        },
       },
-      orderBy: { name: "asc" },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const classes = await listRegistrationClasses({
+      take: parseListTake(searchParams, 100, 200),
     });
 
     return NextResponse.json({ success: true, data: classes });

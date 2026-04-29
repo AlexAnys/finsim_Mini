@@ -17,7 +17,6 @@ export interface TeacherInfo {
  * Build the ordered teacher list for a course: creator first, then CourseTeacher rows.
  * De-duplicates by teacher.id.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function buildTeacherList(course: RawCourse): TeacherInfo[] {
   const out: TeacherInfo[] = [];
   const seen = new Set<string>();
@@ -74,7 +73,6 @@ export function displayInitial(name: string | null | undefined): string {
 /**
  * Union of all classNames linked to the course (primary + CourseClass).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function buildClassNames(course: RawCourse): string[] {
   const out: string[] = [];
   const seen = new Set<string>();

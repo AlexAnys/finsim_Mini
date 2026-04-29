@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
 import { registerSchema } from "@/lib/validators/auth.schema";
+import {
+  isStudentSelfRegistrationEnabled,
+  resolveAdminKey,
+} from "@/lib/auth/secret";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +34,8 @@ export async function POST(request: NextRequest) {
 
     // 教师注册验证 adminKey
     if (role === "teacher") {
-      if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
+      const configuredAdminKey = resolveAdminKey();
+      if (!configuredAdminKey || !adminKey || adminKey.trim() !== configuredAdminKey) {
         return NextResponse.json(
           {
             success: false,
@@ -46,6 +51,19 @@ export async function POST(request: NextRequest) {
 
     // 学生注册必须提供 classId
     if (role === "student") {
+      if (!isStudentSelfRegistrationEnabled()) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "REGISTRATION_CLOSED",
+              message: "学生自助注册暂未开放",
+            },
+          },
+          { status: 403 }
+        );
+      }
+
       if (!classId) {
         return NextResponse.json(
           {

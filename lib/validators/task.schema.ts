@@ -118,6 +118,14 @@ export const createTaskInstanceSchema = z.object({
   attemptsAllowed: z.number().int().min(1).optional(),
 });
 
+export const createPublishedTaskWithInstanceSchema = z.object({
+  task: createTaskSchema,
+  instance: createTaskInstanceSchema.omit({
+    taskId: true,
+    taskType: true,
+  }),
+});
+
 export const updateTaskInstanceSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().optional(),
@@ -131,4 +139,5 @@ export const updateTaskInstanceSchema = z.object({
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type CreateTaskInstanceInput = z.infer<typeof createTaskInstanceSchema>;
+export type CreatePublishedTaskWithInstanceInput = z.infer<typeof createPublishedTaskWithInstanceSchema>;
 export type UpdateTaskInstanceInput = z.infer<typeof updateTaskInstanceSchema>;

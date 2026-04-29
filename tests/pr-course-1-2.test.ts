@@ -94,10 +94,11 @@ describe("PR-COURSE-1+2 · C2 任务向导整合（modal · 删 /teacher/tasks/n
     ]) {
       expect(src).toContain(comp);
     }
-    // POST → tasks → task-instances → publish 三步闭环
-    expect(src).toContain('"/api/tasks"');
-    expect(src).toContain('"/api/lms/task-instances"');
-    expect(src).toMatch(/\/api\/lms\/task-instances\/[^"]+\/publish/);
+    // 原子接口避免 tasks → task-instances → publish 三步留下半成品
+    expect(src).toContain('"/api/lms/task-instances/with-task"');
+    expect(src).not.toContain('"/api/tasks"');
+    expect(src).not.toContain('"/api/lms/task-instances"');
+    expect(src).not.toMatch(/\/api\/lms\/task-instances\/[^"]+\/publish/);
   });
 
   it("page.tsx 引入 TaskWizardModal 并通过 onAddTask 触发", () => {

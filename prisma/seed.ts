@@ -11,7 +11,7 @@ async function main() {
   // ============================================
   const passwordHash = await bcrypt.hash("password123", 12);
 
-  const admin = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: "admin@finsim.edu.cn" },
     update: {},
     create: {
@@ -118,7 +118,7 @@ async function main() {
     },
   });
 
-  const course2 = await prisma.course.create({
+  await prisma.course.create({
     data: {
       courseTitle: "投资分析基础",
       courseCode: "FIN302",

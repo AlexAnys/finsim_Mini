@@ -11,11 +11,6 @@ interface Labelable {
   label: string;
 }
 
-interface Textable {
-  // string or {label?: string}
-  value: string;
-}
-
 describe("review filtering rules", () => {
   it("filters requirements: drop empty and whitespace-only", () => {
     const requirements = ["", "  ", "\n\t", "真正的要求", "OK"];

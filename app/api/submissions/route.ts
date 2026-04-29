@@ -13,6 +13,7 @@ import {
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
 import { prisma } from "@/lib/db/prisma";
+import { clampPage, parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError, error } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -69,8 +70,8 @@ export async function GET(request: NextRequest) {
   const studentId = searchParams.get("studentId") || undefined;
   const taskId = searchParams.get("taskId") || undefined;
   const status = searchParams.get("status") || undefined;
-  const page = parseInt(searchParams.get("page") || "1");
-  const pageSize = parseInt(searchParams.get("pageSize") || "20");
+  const page = clampPage(searchParams.get("page"));
+  const pageSize = parseListTake(searchParams, 20, 100);
 
   const { user } = result.session;
 

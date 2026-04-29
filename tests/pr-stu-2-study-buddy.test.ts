@@ -317,7 +317,7 @@ describe("PR-STU-2 · UI 文件守护（中文 / 子组件 import / token / mock
     expect(file).toContain("AI 回复仅作学习引导");
   });
 
-  it("StudyBuddyNewPostDialog 4 字段 + 双模式选择 + 中文文案", async () => {
+  it("StudyBuddyNewPostDialog 5 字段 + 任务选择 + 双模式选择 + 中文文案", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = fs.readFileSync(
@@ -328,6 +328,8 @@ describe("PR-STU-2 · UI 文件守护（中文 / 子组件 import / token / mock
       "utf-8",
     );
     expect(file).toContain("向学习伙伴提问");
+    expect(file).toContain("关联任务");
+    expect(file).toContain("选择要关联的任务");
     expect(file).toContain("标题");
     expect(file).toContain("问题详情");
     expect(file).toContain("回答模式");

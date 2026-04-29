@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter, courseClassFilter } from "@/lib/services/course.service";
+import { clampTake } from "@/lib/pagination";
 import type { Prisma } from "@prisma/client";
 
 export async function createScheduleSlot(data: {
@@ -20,6 +21,7 @@ export async function getScheduleSlots(filters: {
   courseId?: string;
   classId?: string;
   teacherId?: string;
+  take?: number;
 }) {
   const where: Prisma.ScheduleSlotWhereInput = {};
   if (filters.courseId) where.courseId = filters.courseId;
@@ -48,5 +50,6 @@ export async function getScheduleSlots(filters: {
       },
     },
     orderBy: [{ dayOfWeek: "asc" }, { slotIndex: "asc" }],
+    take: clampTake(filters.take, 200, 200),
   });
 }

@@ -1,6 +1,25 @@
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter } from "@/lib/services/course.service";
-import type { CreateTaskInstanceInput, UpdateTaskInstanceInput } from "@/lib/validators/task.schema";
+import { clampTake } from "@/lib/pagination";
+import { createTaskInTransaction } from "@/lib/services/task.service";
+import type {
+  CreatePublishedTaskWithInstanceInput,
+  CreateTaskInstanceInput,
+  UpdateTaskInstanceInput,
+} from "@/lib/validators/task.schema";
+import type { Prisma } from "@prisma/client";
+
+const taskSnapshotInclude = {
+  simulationConfig: true,
+  quizConfig: true,
+  subjectiveConfig: true,
+  scoringCriteria: { orderBy: { order: "asc" } },
+  allocationSections: {
+    orderBy: { order: "asc" },
+    include: { items: { orderBy: { order: "asc" } } },
+  },
+  quizQuestions: { orderBy: { order: "asc" } },
+} satisfies Prisma.TaskInclude;
 
 async function isAuthorizedForInstance(instance: { createdBy: string; courseId: string | null }, userId: string): Promise<boolean> {
   if (instance.createdBy === userId) return true;
@@ -32,22 +51,53 @@ export async function createTaskInstance(createdBy: string, input: CreateTaskIns
   });
 }
 
+export async function createPublishedTaskWithInstance(
+  createdBy: string,
+  input: CreatePublishedTaskWithInstanceInput,
+) {
+  return prisma.$transaction(async (tx) => {
+    const task = await createTaskInTransaction(tx, createdBy, input.task);
+    const taskForSnapshot = await tx.task.findUnique({
+      where: { id: task.id },
+      include: taskSnapshotInclude,
+    });
+    if (!taskForSnapshot) throw new Error("TASK_NOT_FOUND");
+
+    const taskSnapshot = JSON.parse(JSON.stringify(taskForSnapshot)) as Prisma.InputJsonValue;
+    const instance = await tx.taskInstance.create({
+      data: {
+        title: input.instance.title,
+        description: input.instance.description,
+        taskId: task.id,
+        taskType: input.task.taskType,
+        classId: input.instance.classId,
+        groupIds: input.instance.groupIds,
+        courseId: input.instance.courseId,
+        chapterId: input.instance.chapterId,
+        sectionId: input.instance.sectionId,
+        slot: input.instance.slot as "pre" | "in" | "post" | undefined,
+        dueAt: new Date(input.instance.dueAt),
+        publishAt: input.instance.publishAt
+          ? new Date(input.instance.publishAt)
+          : undefined,
+        attemptsAllowed: input.instance.attemptsAllowed,
+        status: "published",
+        publishedAt: new Date(),
+        taskSnapshot,
+        createdBy,
+      },
+    });
+
+    return { task: taskForSnapshot, instance };
+  });
+}
+
 export async function publishTaskInstance(instanceId: string, createdBy: string) {
   const instance = await prisma.taskInstance.findUnique({
     where: { id: instanceId },
     include: {
       task: {
-        include: {
-          simulationConfig: true,
-          quizConfig: true,
-          subjectiveConfig: true,
-          scoringCriteria: { orderBy: { order: "asc" } },
-          allocationSections: {
-            orderBy: { order: "asc" },
-            include: { items: { orderBy: { order: "asc" } } },
-          },
-          quizQuestions: { orderBy: { order: "asc" } },
-        },
+        include: taskSnapshotInclude,
       },
     },
   });
@@ -77,6 +127,7 @@ export async function getTaskInstances(filters: {
   classId?: string;
   status?: string;
   createdBy?: string;
+  take?: number;
 }) {
   return prisma.taskInstance.findMany({
     where: {
@@ -97,6 +148,7 @@ export async function getTaskInstances(filters: {
       _count: { select: { submissions: true } },
     },
     orderBy: { createdAt: "desc" },
+    take: clampTake(filters.take, 100, 200),
   });
 }
 

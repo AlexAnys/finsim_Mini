@@ -358,11 +358,6 @@ function Scatter({ points }: { points: ScatterPoint[] }) {
   );
 }
 
-interface QuizAnswer {
-  questionId: string;
-  isCorrect?: boolean;
-}
-
 interface QuizEvaluationLike {
   quizBreakdown?: Array<{
     questionId: string;

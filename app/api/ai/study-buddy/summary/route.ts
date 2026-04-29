@@ -19,7 +19,12 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
-    const summary = await generateSummary(parsed.data.taskId, result.session.user.id);
+    const { user } = result.session;
+    const summary = await generateSummary(parsed.data.taskId, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
     return success(summary);
   } catch (err) {
     return handleServiceError(err);

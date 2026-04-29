@@ -10,11 +10,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://finsim:${POSTGRES_PASSWORD:-finsim_dev_password}@postgres:5432/finsim
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret-change-in-production}
+      - DATABASE_URL=postgresql://finsim:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/finsim
+      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET must be set}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-}
       - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set (e.g. http://47.100.98.69:3000)}
       - AUTH_TRUST_HOST=true
-      - ADMIN_KEY=${ADMIN_KEY:-finsim-teacher-key}
+      - ADMIN_KEY=${ADMIN_KEY:?ADMIN_KEY must be set}
       - AI_PROVIDER=${AI_PROVIDER:-qwen}
       - AI_FALLBACK_PROVIDER=${AI_FALLBACK_PROVIDER:-deepseek}
       - QWEN_API_KEY=${QWEN_API_KEY:-}
@@ -36,7 +37,7 @@ services:
     environment:
       - POSTGRES_DB=finsim
       - POSTGRES_USER=finsim
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finsim_dev_password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U finsim"]
       interval: 5s

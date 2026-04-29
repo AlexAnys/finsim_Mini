@@ -26,7 +26,7 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Install prisma CLI with all its dependencies (build-time only, ~50MB)
-RUN npm install --no-save prisma@6.19.2
+RUN npm install --no-save prisma@6.19.3
 
 USER nextjs
 EXPOSE 3000

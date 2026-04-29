@@ -251,7 +251,6 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
 // （quiz 是确定性批改，没有 AI 评估输出可解析；为聚合统一性单独喂 prompts → tags）
 async function extractQuizConceptTags(
   userId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   questions: Array<{ prompt: string }>,
 ): Promise<string[]> {
   if (questions.length === 0) return [];

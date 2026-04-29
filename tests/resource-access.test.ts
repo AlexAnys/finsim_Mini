@@ -8,7 +8,8 @@ vi.mock("@/lib/db/prisma", () => ({
     courseTeacher: { findUnique: vi.fn() },
     class: { findUnique: vi.fn() },
     submission: { findUnique: vi.fn() },
-    importJob: { findUnique: vi.fn() },
+    attachment: { findFirst: vi.fn() },
+    importJob: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
 }));
 
@@ -18,6 +19,7 @@ import {
   assertTaskInstanceReadableTeacherOnly,
   assertTaskReadable,
   assertClassAccessForTeacher,
+  assertFileReadable,
   assertSubmissionReadable,
   assertImportJobReadable,
 } from "@/lib/auth/resource-access";
@@ -414,6 +416,62 @@ describe("assertSubmissionReadable", () => {
     await expect(
       assertSubmissionReadable("sub-1", { id: "t-stranger", role: "teacher" }),
     ).rejects.toThrow("FORBIDDEN");
+  });
+});
+
+describe("assertFileReadable", () => {
+  it("admin bypasses without DB lookup", async () => {
+    await assertFileReadable("2026-01-01/a.pdf", { id: "admin", role: "admin" });
+    expect(prisma.attachment.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("allows a student to read their own submitted attachment", async () => {
+    mk(prisma.attachment.findFirst).mockResolvedValue({
+      subjectiveSubmission: { submissionId: "sub-1" },
+    });
+    mk(prisma.submission.findUnique).mockResolvedValue({
+      id: "sub-1",
+      studentId: "s1",
+      taskId: "task-1",
+      taskInstanceId: "ti-1",
+    });
+
+    await expect(
+      assertFileReadable("2026-01-01/a.pdf", { id: "s1", role: "student" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("allows an import-job owner to read their upload", async () => {
+    mk(prisma.attachment.findFirst).mockResolvedValue(null);
+    mk(prisma.importJob.findFirst).mockResolvedValue({ teacherId: "t1" });
+
+    await expect(
+      assertFileReadable("2026-01-01/import.pdf", { id: "t1", role: "teacher" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects referenced files for non-owners", async () => {
+    mk(prisma.attachment.findFirst).mockResolvedValue(null);
+    mk(prisma.importJob.findFirst).mockResolvedValue({ teacherId: "t1" });
+
+    await expect(
+      assertFileReadable("2026-01-01/import.pdf", {
+        id: "t2",
+        role: "teacher",
+      }),
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  it("returns FILE_NOT_FOUND for unreferenced files", async () => {
+    mk(prisma.attachment.findFirst).mockResolvedValue(null);
+    mk(prisma.importJob.findFirst).mockResolvedValue(null);
+
+    await expect(
+      assertFileReadable("2026-01-01/orphan.pdf", {
+        id: "t1",
+        role: "teacher",
+      }),
+    ).rejects.toThrow("FILE_NOT_FOUND");
   });
 });
 

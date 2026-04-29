@@ -2,8 +2,8 @@
 
 // PR-STU-2 · 学生 /study-buddy 新问题弹窗
 // - 复用现有 Dialog primitives（保留业务流不变）
-// - 字段：标题 / 问题详情 / 回答模式（Socratic / Direct）/ 匿名 toggle
-// - 提交流程：调 POST /api/study-buddy/posts，taskId 走原占位（service 层兼容）
+// - 字段：关联任务 / 标题 / 问题详情 / 回答模式（Socratic / Direct）/ 匿名 toggle
+// - 提交流程：调 POST /api/study-buddy/posts，taskId/taskInstanceId 来自学生显式选择的任务
 //
 // 视觉对照 mockup：白底卡 + 顶部标题 + 4 段 form 控件 + 底部主按钮
 // 不引入新表单库 — 用 Input/Textarea/Select/Switch 与 grades 风格保持一致。
@@ -21,7 +21,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import type { StudyBuddyMode } from "@/lib/utils/study-buddy-transforms";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type {
+  DashboardTaskLite,
+  StudyBuddyMode,
+} from "@/lib/utils/study-buddy-transforms";
 
 interface StudyBuddyNewPostDialogProps {
   open: boolean;
@@ -31,12 +41,15 @@ interface StudyBuddyNewPostDialogProps {
   question: string;
   mode: StudyBuddyMode;
   anonymous: boolean;
+  tasks: DashboardTaskLite[];
+  selectedTaskInstanceId: string;
   isSubmitting: boolean;
   /** 表单 setters */
   onTitleChange: (v: string) => void;
   onQuestionChange: (v: string) => void;
   onModeChange: (m: StudyBuddyMode) => void;
   onAnonymousChange: (v: boolean) => void;
+  onSelectedTaskInstanceIdChange: (v: string) => void;
   onSubmit: () => void;
 }
 
@@ -60,14 +73,21 @@ export function StudyBuddyNewPostDialog({
   question,
   mode,
   anonymous,
+  tasks,
+  selectedTaskInstanceId,
   isSubmitting,
   onTitleChange,
   onQuestionChange,
   onModeChange,
   onAnonymousChange,
+  onSelectedTaskInstanceIdChange,
   onSubmit,
 }: StudyBuddyNewPostDialogProps) {
-  const canSubmit = title.trim().length > 0 && question.trim().length > 0 && !isSubmitting;
+  const canSubmit =
+    selectedTaskInstanceId.length > 0 &&
+    title.trim().length > 0 &&
+    question.trim().length > 0 &&
+    !isSubmitting;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,6 +102,40 @@ export function StudyBuddyNewPostDialog({
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
+          {/* 关联任务 */}
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px] font-medium text-ink-2">
+              关联任务
+            </Label>
+            <Select
+              value={selectedTaskInstanceId}
+              onValueChange={onSelectedTaskInstanceIdChange}
+              disabled={isSubmitting || tasks.length === 0}
+            >
+              <SelectTrigger className="h-9 w-full border-line bg-paper text-[13.5px]">
+                <SelectValue
+                  placeholder={
+                    tasks.length > 0 ? "选择要关联的任务" : "暂无可关联任务"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent position="popper" className="max-h-72">
+                {tasks.map((task) => {
+                  const courseTitle = task.course?.courseTitle ?? "未关联课程";
+                  const taskTitle = task.taskName ?? task.title ?? "未命名任务";
+                  return (
+                    <SelectItem key={task.id} value={task.id}>
+                      {courseTitle} · {taskTitle}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            <p className="text-[11.5px] leading-relaxed text-ink-4">
+              学习伙伴会根据所选任务的课程上下文回答问题。
+            </p>
+          </div>
+
           {/* 标题 */}
           <div className="space-y-1.5">
             <Label className="text-[12.5px] font-medium text-ink-2">

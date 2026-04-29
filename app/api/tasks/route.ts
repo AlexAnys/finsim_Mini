@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { createTask, getTasksByCreator } from "@/lib/services/task.service";
 import { createTaskSchema } from "@/lib/validators/task.schema";
+import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
@@ -22,12 +23,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);
   if (result.error) return result.error;
 
   try {
-    const tasks = await getTasksByCreator(result.session.user.id);
+    const { searchParams } = new URL(request.url);
+    const tasks = await getTasksByCreator(result.session.user.id, {
+      take: parseListTake(searchParams, 100, 200),
+    });
     return success(tasks);
   } catch (err) {
     return handleServiceError(err);

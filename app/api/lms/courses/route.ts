@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { createCourse, getCoursesByTeacher, getCoursesByClass } from "@/lib/services/course.service";
+import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -32,18 +33,20 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const result = await requireAuth();
   if (result.error) return result.error;
 
   try {
     const { user } = result.session;
+    const { searchParams } = new URL(request.url);
+    const options = { take: parseListTake(searchParams, 100, 200) };
     let courses;
 
     if (user.role === "student" && user.classId) {
-      courses = await getCoursesByClass(user.classId);
+      courses = await getCoursesByClass(user.classId, options);
     } else {
-      courses = await getCoursesByTeacher(user.id);
+      courses = await getCoursesByTeacher(user.id, options);
     }
 
     return success(courses);

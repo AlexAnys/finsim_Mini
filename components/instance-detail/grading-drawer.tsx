@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import type { NormalizedSubmission } from "./submissions-utils";
 
 interface ScoringCriterion {
   id: string;
@@ -58,6 +57,10 @@ interface GradeEvaluation {
   feedback?: string;
   rubricBreakdown?: Array<{ criterionId: string; score: number; maxScore: number; comment?: string }>;
   confidence?: number;
+}
+
+function fileDownloadUrl(filePath: string) {
+  return `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 export interface GradingDrawerProps {
@@ -133,7 +136,10 @@ export function GradingDrawer({
     };
   }, [open, submissionId]);
 
-  const criteria = detail?.task.scoringCriteria || [];
+  const criteria = useMemo(
+    () => detail?.task.scoringCriteria ?? [],
+    [detail?.task.scoringCriteria]
+  );
   const totalMax = useMemo(
     () => criteria.reduce((sum, c) => sum + (c.maxPoints || 0), 0) || 100,
     [criteria]
@@ -553,7 +559,7 @@ function AnswerPanel({ detail }: { detail: SubmissionDetail }) {
                 >
                   <Paperclip className="size-3 text-ink-5" />
                   <a
-                    href={a.filePath}
+                    href={fileDownloadUrl(a.filePath)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-brand hover:underline truncate"

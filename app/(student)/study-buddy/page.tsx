@@ -5,8 +5,7 @@
 // - 右 flex-1：对话头（课程·任务·模式·标题）+ messages 滚动 + composer
 // - 数据：GET /api/study-buddy/posts + GET /api/lms/dashboard/summary（client-side join 派生 课程名）
 // - 业务逻辑保留（PR-STU-2 不改 service / API / schema）：
-//     · 创建 post → POST /api/study-buddy/posts（用 dashboard 第一个 published task 作为 taskId
-//        FK；原版用 0000-... 占位 UUID 实际会触发 FK 失败 — 此 PR UI 端修复）
+//     · 创建 post → POST /api/study-buddy/posts（学生需显式选择关联任务，避免问题被隐式绑定到错误上下文）
 //     · 跟进消息 → POST /api/ai/study-buddy/reply
 //     · pending 时 3s 轮询单 post 直到 status 转 answered/error
 //     · Socratic vs Direct 由 post 创建时锁定，跟进只展示不可改
@@ -57,6 +56,7 @@ export default function StudyBuddyPage() {
   const [newQuestion, setNewQuestion] = useState("");
   const [newMode, setNewMode] = useState<StudyBuddyMode>("socratic");
   const [newAnonymous, setNewAnonymous] = useState(false);
+  const [newTaskInstanceId, setNewTaskInstanceId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
   // 初始拉两个端点（并行）
@@ -126,6 +126,20 @@ export default function StudyBuddyPage() {
     [rawPosts, dashboardTasks],
   );
 
+  const selectableTasks = useMemo(
+    () => dashboardTasks.filter((task) => Boolean(task.taskId)),
+    [dashboardTasks],
+  );
+
+  useEffect(() => {
+    if (
+      newTaskInstanceId &&
+      !selectableTasks.some((task) => task.id === newTaskInstanceId)
+    ) {
+      setNewTaskInstanceId("");
+    }
+  }, [newTaskInstanceId, selectableTasks]);
+
   // 默认选中第一条
   const selectedPost = useMemo<StudyBuddyPostRow | null>(() => {
     if (posts.length === 0) return null;
@@ -171,11 +185,15 @@ export default function StudyBuddyPage() {
       toast.error("请填写标题和问题");
       return;
     }
-    // 选第一个 dashboard task 作为 taskId / taskInstanceId（FK 必填）
-    // dashboard 返回的 task 顺序与教师发布顺序一致 — 取第一项作合理默认
-    const defaultTask = dashboardTasks.find((t) => t.taskId);
-    if (!defaultTask?.taskId) {
-      toast.error("当前学期暂无可关联的任务，无法发起对话");
+    const selectedTask = selectableTasks.find(
+      (task) => task.id === newTaskInstanceId,
+    );
+    if (!selectedTask?.taskId) {
+      toast.error(
+        selectableTasks.length > 0
+          ? "请选择要关联的任务"
+          : "当前学期暂无可关联的任务，无法发起对话",
+      );
       return;
     }
     setIsCreating(true);
@@ -184,8 +202,8 @@ export default function StudyBuddyPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskId: defaultTask.taskId,
-          taskInstanceId: defaultTask.id,
+          taskId: selectedTask.taskId,
+          taskInstanceId: selectedTask.id,
           title: newTitle.trim(),
           question: newQuestion.trim(),
           mode: newMode,
@@ -203,6 +221,7 @@ export default function StudyBuddyPage() {
       setNewQuestion("");
       setNewMode("socratic");
       setNewAnonymous(false);
+      setNewTaskInstanceId("");
 
       // 立即把新 post 注入列表（等待 3s 轮询补全 messages/aiReply）
       const created = json.data as RawStudyBuddyPost | null;
@@ -317,11 +336,14 @@ export default function StudyBuddyPage() {
         question={newQuestion}
         mode={newMode}
         anonymous={newAnonymous}
+        tasks={selectableTasks}
+        selectedTaskInstanceId={newTaskInstanceId}
         isSubmitting={isCreating}
         onTitleChange={setNewTitle}
         onQuestionChange={setNewQuestion}
         onModeChange={setNewMode}
         onAnonymousChange={setNewAnonymous}
+        onSelectedTaskInstanceIdChange={setNewTaskInstanceId}
         onSubmit={handleCreatePost}
       />
     </div>

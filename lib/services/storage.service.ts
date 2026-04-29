@@ -17,6 +17,7 @@ class LocalStorageProvider implements StorageProvider {
   }
 
   async save(file: Buffer, originalName: string, contentType: string): Promise<{ filePath: string; fileSize: number }> {
+    void contentType;
     const ext = extname(originalName);
     const safeName = `${uuidv4()}${ext}`;
     const dateDir = new Date().toISOString().slice(0, 10);

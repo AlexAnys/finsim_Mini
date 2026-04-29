@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { courseClassFilter, teacherCourseFilter } from "@/lib/services/course.service";
+import { clampTake } from "@/lib/pagination";
 import type { Prisma } from "@prisma/client";
 
 export async function createAnnouncement(data: {
@@ -35,6 +36,7 @@ export async function getAnnouncements(filters: {
   classId?: string;
   teacherId?: string;
   status?: string;
+  take?: number;
 }) {
   const where: Prisma.AnnouncementWhereInput = {};
   if (filters.courseId) where.courseId = filters.courseId;
@@ -57,5 +59,6 @@ export async function getAnnouncements(filters: {
       creator: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
+    take: clampTake(filters.take, 100, 200),
   });
 }

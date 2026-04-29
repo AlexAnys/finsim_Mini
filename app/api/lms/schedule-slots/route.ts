@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseAccessForStudent } from "@/lib/auth/course-access";
 import { createScheduleSlot, getScheduleSlots } from "@/lib/services/schedule.service";
+import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
   const courseId = searchParams.get("courseId") || undefined;
 
   try {
-    const filters: { courseId?: string; classId?: string; teacherId?: string } = { courseId };
+    const filters: { courseId?: string; classId?: string; teacherId?: string; take?: number } = { courseId };
     const { user } = result.session;
     if (user.role === "student") {
       if (courseId) {
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
     } else if (user.role === "admin" && !courseId) {
       filters.teacherId = user.id;
     }
+    filters.take = parseListTake(searchParams, 200, 200);
 
     const slots = await getScheduleSlots(filters);
     return success(slots);

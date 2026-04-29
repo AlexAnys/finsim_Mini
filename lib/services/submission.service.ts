@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
+import { assertSubmissionReadable } from "@/lib/auth/resource-access";
+import { clampPage, clampTake } from "@/lib/pagination";
+
+type UserLike = { id: string; role: string; classId?: string | null };
 
 // PR-SIM-1a D1: 防作弊·学生可见数据剥离辅助
 //
@@ -106,7 +110,6 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
           submissionId: submission.id,
           transcript: input.transcript,
           assets: input.assets ?? undefined,
-          evaluation: input.evaluation ?? undefined,
         },
       });
     } else if (input.taskType === "quiz") {
@@ -154,8 +157,8 @@ export async function getSubmissions(filters: {
   page?: number;
   pageSize?: number;
 }) {
-  const page = filters.page ?? 1;
-  const pageSize = filters.pageSize ?? 20;
+  const page = clampPage(filters.page);
+  const pageSize = clampTake(filters.pageSize, 20, 100);
   const skip = (page - 1) * pageSize;
 
   const where = {
@@ -280,18 +283,24 @@ export async function deleteSubmission(submissionId: string) {
   return prisma.submission.delete({ where: { id: submissionId } });
 }
 
-export async function batchDeleteSubmissions(ids: string[], teacherId: string) {
-  // 验证所有提交归属于该教师的任务
-  const submissions = await prisma.submission.findMany({
-    where: { id: { in: ids } },
-    include: { task: { select: { creatorId: true } } },
-  });
+export async function batchDeleteSubmissions(ids: string[], user: UserLike | string) {
+  const actor =
+    typeof user === "string"
+      ? { id: user, role: "teacher" }
+      : user;
+  const uniqueIds = Array.from(new Set(ids));
 
-  for (const sub of submissions) {
-    if (sub.task.creatorId !== teacherId) {
-      throw new Error("FORBIDDEN");
-    }
+  const submissions = await prisma.submission.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true },
+  });
+  if (submissions.length !== uniqueIds.length) {
+    throw new Error("SUBMISSION_NOT_FOUND");
   }
 
-  return prisma.submission.deleteMany({ where: { id: { in: ids } } });
+  for (const id of uniqueIds) {
+    await assertSubmissionReadable(id, actor);
+  }
+
+  return prisma.submission.deleteMany({ where: { id: { in: uniqueIds } } });
 }

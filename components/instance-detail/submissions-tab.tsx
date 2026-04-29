@@ -283,6 +283,7 @@ export function SubmissionsTab({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const useVirtual = visibleRows.length > VIRTUALIZE_THRESHOLD;
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: useVirtual ? visibleRows.length : 0,
     getScrollElement: () => scrollerRef.current,

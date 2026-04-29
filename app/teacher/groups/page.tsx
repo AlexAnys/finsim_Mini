@@ -509,7 +509,8 @@ export default function TeacherGroupsPage() {
                       <div className="flex items-center justify-between">
                         <button
                           type="button"
-                          className="flex items-center gap-2 text-left"
+                          className="flex min-w-0 items-center gap-2 text-left"
+                          aria-expanded={isExpanded}
                           onClick={() => toggleExpand(group.id)}
                         >
                           {isExpanded ? (
@@ -517,9 +518,9 @@ export default function TeacherGroupsPage() {
                           ) : (
                             <ChevronRight className="size-4 text-muted-foreground" />
                           )}
-                          <CardTitle className="text-base">
+                          <span className="truncate text-base font-semibold leading-none">
                             {group.name}
-                          </CardTitle>
+                          </span>
                           <Badge variant="outline" className="text-xs">
                             {group.class.name}
                           </Badge>

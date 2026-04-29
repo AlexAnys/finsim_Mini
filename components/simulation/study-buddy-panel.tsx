@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { toast } from "sonner";
 import {
@@ -257,7 +257,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
     ? { left: position.x, top: position.y }
     : { right: 24, bottom: 24 };
 
-  async function fetchPosts() {
+  const fetchPosts = useCallback(async () => {
     setLoadingPosts(true);
     try {
       const res = await fetch(`/api/study-buddy/posts?taskId=${taskId}&taskInstanceId=${taskInstanceId}`);
@@ -270,13 +270,13 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
     } finally {
       setLoadingPosts(false);
     }
-  }
+  }, [taskId, taskInstanceId]);
 
   useEffect(() => {
     if (open && view === "history") {
       fetchPosts();
     }
-  }, [open, view]);
+  }, [open, view, fetchPosts]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -305,7 +305,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [selectedPost]);
+  }, [selectedPost, taskId, taskInstanceId]);
 
   async function handleCreate() {
     if (!title.trim() || !question.trim()) {

@@ -242,6 +242,48 @@ export async function assertSubmissionReadable(
 }
 
 // ============================================
+// Private files
+// ============================================
+
+/**
+ * Assert readability of a locally stored file path. A file must be referenced
+ * by either a submitted attachment or an import job before it can be served.
+ */
+export async function assertFileReadable(
+  filePath: string,
+  user: UserLike,
+): Promise<void> {
+  if (user.role === "admin") return;
+
+  const attachment = await prisma.attachment.findFirst({
+    where: { filePath },
+    select: {
+      subjectiveSubmission: {
+        select: { submissionId: true },
+      },
+    },
+  });
+  if (attachment) {
+    await assertSubmissionReadable(
+      attachment.subjectiveSubmission.submissionId,
+      user,
+    );
+    return;
+  }
+
+  const importJob = await prisma.importJob.findFirst({
+    where: { filePath },
+    select: { teacherId: true },
+  });
+  if (importJob) {
+    if (importJob.teacherId === user.id) return;
+    throw new Error("FORBIDDEN");
+  }
+
+  throw new Error("FILE_NOT_FOUND");
+}
+
+// ============================================
 // ImportJob
 // ============================================
 

@@ -64,6 +64,15 @@
   --color-brand-fg: var(--fs-primary-fg);
   --color-brand-soft: var(--fs-primary-soft);
   --color-brand-soft-2: var(--fs-primary-soft-2);
+  --color-bg-main: var(--bg-main);
+  --color-bg-soft: var(--bg-soft);
+  --color-text-main: var(--text-main);
+  --color-text-muted: var(--text-muted);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-indigo: var(--brand-indigo);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-violet: var(--brand-violet);
   --color-ochre: var(--fs-accent);
   --color-ochre-soft: var(--fs-accent-soft);
 
@@ -116,6 +125,20 @@
 }
 
 :root {
+  /* ── LingXi Light Aurora brand tokens ────────────────────── */
+  --bg-main: #f5f2ea;
+  --bg-soft: #faf8f2;
+  --text-main: #101827;
+  --text-muted: #6b7280;
+  --brand-navy: #17275f;
+  --brand-indigo: #283a8c;
+  --brand-blue: #4d8cff;
+  --brand-cyan: #12d6d6;
+  --brand-violet: #7b61ff;
+  --line-soft: rgba(23, 39, 95, 0.12);
+  --glow-cyan: rgba(18, 214, 214, 0.18);
+  --glow-violet: rgba(123, 97, 255, 0.16);
+
   /* ── FinSim canonical tokens (light) ──────────────────────── */
   /* Canvas */
   --fs-bg: #f7f4ec;
@@ -189,8 +212,9 @@
     0 2px 4px rgba(15, 22, 35, 0.04);
 
   /* Type stack */
-  --fs-font-sans: "PingFang SC", "HarmonyOS Sans", "Microsoft YaHei", "Inter",
-    -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --fs-font-sans: "Noto Sans SC", "HarmonyOS Sans SC", "PingFang SC",
+    "Microsoft YaHei", "Inter", "Geist", -apple-system, BlinkMacSystemFont,
+    system-ui, sans-serif;
   --fs-font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace,
     monospace;
   --fs-font-serif: "PingFang SC", "Source Han Serif CN", "Songti SC", Georgia,
@@ -352,5 +376,87 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@keyframes auth-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-star-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(22px, -14px, 0);
+  }
+}
+
+@keyframes auth-orbit-star {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.56;
+  }
+  48% {
+    transform: translate3d(34px, -18px, 0) scale(1.08);
+    opacity: 0.9;
+  }
+}
+
+@keyframes auth-path-pulse {
+  0%,
+  100% {
+    stroke-opacity: 0.22;
+  }
+  50% {
+    stroke-opacity: 0.46;
+  }
+}
+
+.auth-fade-up {
+  animation: auth-fade-up 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.auth-fade-up-delay {
+  animation-delay: 120ms;
+}
+
+.auth-fade-up-delay-2 {
+  animation-delay: 220ms;
+}
+
+.auth-star-dust {
+  background-image:
+    radial-gradient(circle at 12% 28%, rgba(23, 39, 95, 0.18) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 42% 76%, rgba(77, 140, 255, 0.16) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 66% 18%, rgba(18, 214, 214, 0.16) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 84% 58%, rgba(123, 97, 255, 0.13) 0 1px, transparent 1.5px);
+  background-size: 152px 152px, 196px 196px, 228px 228px, 176px 176px;
+  mask-image: linear-gradient(110deg, transparent 0%, black 18%, black 82%, transparent 100%);
+  animation: auth-star-drift 11s ease-in-out infinite alternate;
+}
+
+.auth-orbit-star {
+  animation: auth-orbit-star 10s ease-in-out infinite;
+}
+
+.auth-path-pulse {
+  animation: auth-path-pulse 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-fade-up,
+  .auth-star-dust,
+  .auth-orbit-star,
+  .auth-path-pulse {
+    animation: none !important;
   }
 }

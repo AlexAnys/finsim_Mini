@@ -8,9 +8,8 @@
  * （父组件用回调把任务直接挂到指定章节小节并发布）。
  *
  * 输入：context = { chapterId, sectionId, slot, classId, courseId }
- * 行为：4 步走完后 POST /api/tasks 创建模板 + POST /api/lms/task-instances 挂入课程节点
- *      + POST /api/lms/task-instances/:id/publish 发布。失败任意环节 toast 中文
- *      错误，成功后 onSuccess 触发（父组件 fetchCourse 刷新）。
+ * 行为：4 步走完后 POST /api/lms/task-instances/with-task 原子创建任务模板、
+ *      挂入课程节点并发布。成功后 onSuccess 触发（父组件 fetchCourse 刷新）。
  */
 
 import { useState } from "react";
@@ -561,54 +560,31 @@ export function TaskWizardModal({
         }
       }
 
-      // Step 1: Create task template
-      const taskRes = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const taskJson = await taskRes.json();
-      if (!taskJson.success) {
-        toast.error(taskJson.error?.message || "创建任务失败");
-        return;
-      }
-
-      // Step 2: Create task instance attached to the section/slot
-      const instRes = await fetch("/api/lms/task-instances", {
+      const res = await fetch("/api/lms/task-instances/with-task", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: form.taskName.trim(),
-          description: form.description.trim() || undefined,
-          taskId: taskJson.data.id,
-          taskType: form.taskType,
-          classId: context.classId,
-          courseId: context.courseId,
-          chapterId: context.chapterId,
-          sectionId: context.sectionId,
-          slot: context.slot,
-          dueAt: form.dueAt
-            ? new Date(form.dueAt).toISOString()
-            : new Date(Date.now() + 14 * 86400000).toISOString(),
+          task: body,
+          instance: {
+            title: form.taskName.trim(),
+            description: form.description.trim() || undefined,
+            classId: context.classId,
+            courseId: context.courseId,
+            chapterId: context.chapterId,
+            sectionId: context.sectionId,
+            slot: context.slot,
+            dueAt: form.dueAt
+              ? new Date(form.dueAt).toISOString()
+              : new Date(Date.now() + 14 * 86400000).toISOString(),
+          },
         }),
       });
-      const instJson = await instRes.json();
-      if (!instJson.success) {
-        toast.error(instJson.error?.message || "任务模板已创建但实例创建失败");
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "创建并发布失败");
         return;
       }
-
-      // Step 3: Publish the instance
-      const pubRes = await fetch(
-        `/api/lms/task-instances/${instJson.data.id}/publish`,
-        { method: "POST" },
-      );
-      const pubJson = await pubRes.json();
-      if (!pubJson.success) {
-        toast.error("任务已创建但发布失败，请到任务管理手动发布");
-      } else {
-        toast.success("任务已创建并发布");
-      }
+      toast.success("任务已创建并发布");
 
       resetState();
       onSuccess();

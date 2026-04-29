@@ -1,9 +1,15 @@
 import { prisma } from "@/lib/db/prisma";
 import * as aiService from "./ai.service";
 import { z } from "zod";
+import {
+  assertTaskInstanceReadable,
+  assertTaskReadable,
+} from "@/lib/auth/resource-access";
+
+type UserLike = { id: string; role: string; classId?: string | null };
 
 export async function createPost(data: {
-  studentId: string;
+  user: UserLike;
   taskId: string;
   taskInstanceId?: string;
   title: string;
@@ -11,6 +17,19 @@ export async function createPost(data: {
   mode: "socratic" | "direct";
   anonymous: boolean;
 }) {
+  if (data.user.role !== "student") throw new Error("FORBIDDEN");
+  if (data.taskInstanceId) {
+    await assertTaskInstanceReadable(data.taskInstanceId, data.user);
+    const instance = await prisma.taskInstance.findUnique({
+      where: { id: data.taskInstanceId },
+      select: { taskId: true },
+    });
+    if (!instance) throw new Error("INSTANCE_NOT_FOUND");
+    if (instance.taskId !== data.taskId) throw new Error("FORBIDDEN");
+  } else {
+    await assertTaskReadable(data.taskId, data.user);
+  }
+
   // 获取任务的学习伙伴上下文
   const task = await prisma.task.findUnique({
     where: { id: data.taskId },
@@ -19,7 +38,7 @@ export async function createPost(data: {
 
   const post = await prisma.studyBuddyPost.create({
     data: {
-      studentId: data.studentId,
+      studentId: data.user.id,
       taskId: data.taskId,
       taskInstanceId: data.taskInstanceId,
       title: data.title,
@@ -31,7 +50,7 @@ export async function createPost(data: {
   });
 
   // 异步生成 AI 回复
-  generateReply(post.id, data.studentId, task).catch(console.error);
+  generateReply(post.id, data.user.id, task).catch(console.error);
 
   return post;
 }
@@ -114,7 +133,38 @@ export async function continueConversation(postId: string, userId: string, conte
   return { success: true };
 }
 
-export async function generateSummary(taskId: string, userId: string) {
+export async function listStudyBuddyPosts(
+  user: UserLike,
+  filters: { taskId?: string; taskInstanceId?: string; take?: number },
+) {
+  if (filters.taskInstanceId) {
+    await assertTaskInstanceReadable(filters.taskInstanceId, user);
+  }
+  if (filters.taskId) {
+    await assertTaskReadable(filters.taskId, user);
+  }
+  if (user.role !== "student" && !filters.taskId && !filters.taskInstanceId) {
+    throw new Error("FORBIDDEN");
+  }
+
+  const take = Math.min(Math.max(filters.take ?? 100, 1), 100);
+  return prisma.studyBuddyPost.findMany({
+    where: {
+      ...(filters.taskId && { taskId: filters.taskId }),
+      ...(filters.taskInstanceId && { taskInstanceId: filters.taskInstanceId }),
+      ...(user.role === "student" && { studentId: user.id }),
+    },
+    include: {
+      student: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take,
+  });
+}
+
+export async function generateSummary(taskId: string, user: UserLike) {
+  await assertTaskReadable(taskId, user);
+
   const posts = await prisma.studyBuddyPost.findMany({
     where: { taskId, status: "answered" },
     select: { question: true, aiReply: true, messages: true },
@@ -142,7 +192,7 @@ export async function generateSummary(taskId: string, userId: string) {
 
   const result = await aiService.aiGenerateJSON(
     "studyBuddySummary",
-    userId,
+    user.id,
     "你是一位教育数据分析专家。请分析学生们在学习伙伴中提出的问题，找出高频问题和知识盲区。注意识别模式：相似的问题即使措辞不同也应归为同一类。",
     `以下是 ${posts.length} 个学生提问:\n\n${questionsText}\n\n请返回 JSON:
 {

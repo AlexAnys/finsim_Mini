@@ -44,6 +44,8 @@ export default function RegisterPage() {
         .then((data) => {
           if (data.success) {
             setClasses(data.data);
+          } else {
+            setInlineError(data.error?.message || "获取班级列表失败");
           }
         })
         .catch(() => {

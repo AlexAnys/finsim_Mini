@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseAccessForStudent } from "@/lib/auth/course-access";
 import { createAnnouncement, getAnnouncements } from "@/lib/services/announcement.service";
+import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       classId?: string;
       teacherId?: string;
       status?: string;
+      take?: number;
     } = { courseId };
     const { user } = result.session;
 
@@ -72,6 +74,7 @@ export async function GET(request: NextRequest) {
       }
     }
     // admin 不加 teacherId 过滤，仍可看全部（保留管理员全局视角）
+    filters.take = parseListTake(searchParams, 100, 200);
 
     const announcements = await getAnnouncements(filters);
     return success(announcements);
