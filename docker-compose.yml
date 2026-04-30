@@ -16,8 +16,11 @@ services:
       - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set (e.g. http://47.100.98.69:3000)}
       - AUTH_TRUST_HOST=true
       - ADMIN_KEY=${ADMIN_KEY:?ADMIN_KEY must be set}
-      - AI_PROVIDER=${AI_PROVIDER:-qwen}
+      - AI_PROVIDER=${AI_PROVIDER:-mimo}
       - AI_FALLBACK_PROVIDER=${AI_FALLBACK_PROVIDER:-deepseek}
+      - MIMO_API_KEY=${MIMO_API_KEY:-}
+      - MIMO_BASE_URL=${MIMO_BASE_URL:-https://api.xiaomimimo.com/v1}
+      - MIMO_MODEL=${MIMO_MODEL:-mimo-v2.5-pro}
       - QWEN_API_KEY=${QWEN_API_KEY:-}
       - QWEN_BASE_URL=${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - QWEN_MODEL=${QWEN_MODEL:-qwen-turbo}

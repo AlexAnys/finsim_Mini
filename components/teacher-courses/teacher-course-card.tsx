@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Pencil, Users } from "lucide-react";
+import { ArrowRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { courseColorForId, tagColors } from "@/lib/design/tokens";
@@ -165,7 +165,7 @@ export function TeacherCourseCard({ data: c }: TeacherCourseCardProps) {
               <span className="font-medium text-warn">
                 {c.metrics.pendingCount} 份待批改
               </span>
-              <span className="ml-1 text-ink-4">· 前往实例列表</span>
+              <span className="ml-1 text-ink-4">· 进入课程处理</span>
             </div>
           ) : (
             <div className="text-[12px] text-ink-4">
@@ -173,14 +173,8 @@ export function TeacherCourseCard({ data: c }: TeacherCourseCardProps) {
             </div>
           )}
         </div>
-        <Button size="sm" variant="secondary" asChild>
-          <Link href={`/teacher/courses/${c.id}`}>
-            <Pencil className="size-[12px]" />
-            管理
-          </Link>
-        </Button>
         <Button size="sm" asChild>
-          <Link href={`/teacher/instances?courseId=${c.id}`}>
+          <Link href={`/teacher/courses/${c.id}`}>
             进入
             <ArrowRight className="size-[12px]" />
           </Link>

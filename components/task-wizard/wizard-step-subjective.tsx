@@ -21,6 +21,7 @@ interface SubjectiveStepProps {
   requirements: string[];
   scoringCriteria: ScoringCriterion[];
   aiGenerating: boolean;
+  aiButtonLabel?: string;
   errors: Record<string, string>;
   onPrompt: (v: string) => void;
   onWordLimit: (v: string) => void;
@@ -47,6 +48,7 @@ export function WizardStepSubjective({
   requirements,
   scoringCriteria,
   aiGenerating,
+  aiButtonLabel = "AI 出题",
   errors,
   onPrompt,
   onWordLimit,
@@ -77,7 +79,7 @@ export function WizardStepSubjective({
             ) : (
               <Sparkles className="size-3 mr-1" />
             )}
-            AI 出题
+            {aiButtonLabel}
           </Button>
         }
       >

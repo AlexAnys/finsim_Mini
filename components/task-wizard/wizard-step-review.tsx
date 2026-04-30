@@ -72,6 +72,7 @@ interface ReviewProps {
   wordLimit: string;
   allowAttachment: boolean;
   maxAttachments: string;
+  draftSourceLabel?: string;
 }
 
 export function WizardStepReview(props: ReviewProps) {
@@ -81,6 +82,7 @@ export function WizardStepReview(props: ReviewProps) {
     description,
     totalPoints,
     timeLimitMinutes,
+    draftSourceLabel,
   } = props;
   const meta = TASK_TYPE_META[taskType];
 
@@ -89,6 +91,12 @@ export function WizardStepReview(props: ReviewProps) {
       title="预览并创建"
       subtitle='确认下方信息无误。点击"创建任务"后，会保存为草稿（尚未发布）。'
     >
+      {draftSourceLabel && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-900">
+          {draftSourceLabel}
+        </div>
+      )}
+
       {/* Hero preview card — 深色渐变（类型色） */}
       <div
         className={cn(

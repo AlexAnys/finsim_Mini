@@ -8,14 +8,21 @@ import type { AIFeature } from "@/lib/types";
 // ============================================
 
 interface ProviderConfig {
-  name: string;
+  name: "mimo" | "qwen" | "deepseek" | "openai";
   apiKey: string;
   baseURL: string;
   defaultModel: string;
 }
 
-function getProviderConfig(name: string): ProviderConfig | null {
+export function getProviderConfig(name: string): ProviderConfig | null {
   switch (name) {
+    case "mimo":
+      return {
+        name: "mimo",
+        apiKey: process.env.MIMO_API_KEY || "",
+        baseURL: process.env.MIMO_BASE_URL || "https://api.xiaomimimo.com/v1",
+        defaultModel: process.env.MIMO_MODEL || "mimo-v2.5-pro",
+      };
     case "qwen":
       return {
         name: "qwen",
@@ -70,13 +77,13 @@ const FEATURE_ENV_MAP: Record<AIFeature, string> = {
   weeklyInsight: "AI_WEEKLY_INSIGHT",
 };
 
-function getProviderForFeature(feature: AIFeature): { provider: ProviderConfig; model: string } {
+export function getProviderForFeature(feature: AIFeature): { provider: ProviderConfig; model: string } {
   const envPrefix = FEATURE_ENV_MAP[feature];
   const providerName =
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
-    "qwen";
-  const model = process.env[`${envPrefix}_MODEL`] || "";
+    "mimo";
+  const requestedModel = process.env[`${envPrefix}_MODEL`] || "";
 
   const provider = getProviderConfig(providerName);
   if (!provider || !provider.apiKey) {
@@ -89,10 +96,33 @@ function getProviderForFeature(feature: AIFeature): { provider: ProviderConfig; 
     if (!fallback || !fallback.apiKey) {
       throw new Error(`AI_PROVIDER_NOT_CONFIGURED: ${providerName}`);
     }
-    return { provider: fallback, model: model || fallback.defaultModel };
+    return {
+      provider: fallback,
+      model: resolveModelForProvider(fallback, requestedModel),
+    };
   }
 
-  return { provider, model: model || provider.defaultModel };
+  return { provider, model: resolveModelForProvider(provider, requestedModel) };
+}
+
+function resolveModelForProvider(provider: ProviderConfig, requestedModel: string): string {
+  if (!requestedModel) return provider.defaultModel;
+  return isModelCompatible(provider, requestedModel)
+    ? requestedModel
+    : provider.defaultModel;
+}
+
+function isModelCompatible(provider: ProviderConfig, model: string): boolean {
+  switch (provider.name) {
+    case "mimo":
+      return model.startsWith("mimo-");
+    case "qwen":
+      return model.startsWith("qwen");
+    case "deepseek":
+      return model.startsWith("deepseek");
+    case "openai":
+      return true;
+  }
 }
 
 function createProvider(config: ProviderConfig) {
@@ -100,6 +130,24 @@ function createProvider(config: ProviderConfig) {
     apiKey: config.apiKey,
     baseURL: config.baseURL,
   });
+}
+
+export function getProviderOptions(provider: ProviderConfig) {
+  if (provider.name === "mimo") {
+    return {
+      openai: {
+        thinking: { type: "disabled" },
+      },
+    };
+  }
+
+  if (provider.name === "qwen") {
+    return {
+      openai: { enable_thinking: false },
+    };
+  }
+
+  return undefined;
 }
 
 // ============================================
@@ -164,9 +212,7 @@ export async function aiGenerateText(
       prompt: userPrompt,
       temperature,
       maxOutputTokens: 4096,
-      providerOptions: {
-        openai: { enable_thinking: false },
-      },
+      providerOptions: getProviderOptions(provider),
     });
 
     return text;
@@ -202,9 +248,7 @@ export async function aiGenerateJSON<T>(
         prompt: userPrompt,
         temperature,
         maxOutputTokens: 4096,
-        providerOptions: {
-          openai: { enable_thinking: false },
-        },
+        providerOptions: getProviderOptions(provider),
       });
 
       const jsonStr = extractJSON(text);

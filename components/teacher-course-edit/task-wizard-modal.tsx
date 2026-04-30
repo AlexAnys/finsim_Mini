@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -36,6 +37,7 @@ import { WizardStepSim } from "@/components/task-wizard/wizard-step-sim";
 import { WizardStepQuiz } from "@/components/task-wizard/wizard-step-quiz";
 import { WizardStepSubjective } from "@/components/task-wizard/wizard-step-subjective";
 import { WizardStepReview } from "@/components/task-wizard/wizard-step-review";
+import { KnowledgeSourceAssistant } from "@/components/task-wizard/knowledge-source-assistant";
 import {
   AIQuizDialog,
   type GeneratedQuestion,
@@ -112,6 +114,44 @@ interface FormData {
   maxAttachments: string;
   // Instance
   dueAt: string;
+}
+
+interface ContextDraftResponse {
+  taskName: string;
+  description: string;
+  totalPoints?: number;
+  timeLimitMinutes?: number | null;
+  draftNotes?: string;
+  sourceSummary?: Array<{ id: string; fileName: string; conceptTags: string[] }>;
+  quiz?: {
+    questions: Array<{
+      type: QuizQuestionType;
+      prompt: string;
+      options?: QuizOption[];
+      correctOptionIds?: string[];
+      correctAnswer?: string;
+      points?: number;
+      explanation?: string;
+    }>;
+    quizMode?: "fixed" | "adaptive";
+    showResult?: boolean;
+  };
+  subjective?: {
+    prompt: string;
+    requirements?: string[];
+    referenceAnswer?: string;
+    scoringCriteria?: ScoringCriterion[];
+  };
+  simulation?: {
+    scenario: string;
+    openingLine: string;
+    requirements?: string[];
+    scoringCriteria?: ScoringCriterion[];
+    allocationSections?: AllocationSection[];
+    simPersona: string;
+    simDialogueStyle: string;
+    simConstraints: string;
+  };
 }
 
 const DEFAULT_SIM_PERSONA = `你是一个普通人，对理财知识了解不多，但愿意学习和听取专业建议。
@@ -204,17 +244,23 @@ export function TaskWizardModal({
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormData>(() => makeInitialForm());
   const [submitting, setSubmitting] = useState(false);
-  const [aiGenerating, setAIGenerating] = useState(false);
+  const [contextGenerating, setContextGenerating] = useState(false);
   const [aiDialogOpen, setAIDialogOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [teacherBrief, setTeacherBrief] = useState("");
+  const [draftSourceLabel, setDraftSourceLabel] = useState("");
 
   function resetState() {
     setStep(0);
     setForm(makeInitialForm());
     setErrors({});
     setSubmitting(false);
-    setAIGenerating(false);
+    setContextGenerating(false);
     setAIDialogOpen(false);
+    setSelectedSourceIds([]);
+    setTeacherBrief("");
+    setDraftSourceLabel("");
   }
 
   function handleClose() {
@@ -372,50 +418,164 @@ export function TaskWizardModal({
     toast.success(`已加入 ${generated.length} 道题目`);
   }
 
-  async function handleAIGenerateSubjective() {
-    if (!form.taskName.trim()) {
-      toast.error("请先输入任务名称");
+  async function handleGenerateFromContext() {
+    if (!context) return;
+    if (!teacherBrief.trim() && selectedSourceIds.length === 0 && !form.taskName.trim()) {
+      toast.error("请先填写教师需求、任务名称，或上传/选择课程素材");
       return;
     }
-    setAIGenerating(true);
+
+    setContextGenerating(true);
     try {
-      const res = await fetch("/api/ai/task-draft/subjective", {
+      const res = await fetch("/api/ai/task-draft/from-context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courseName: form.taskName,
-          chapterName: form.description || form.taskName,
+          taskType: form.taskType,
+          courseId: context.courseId,
+          chapterId: context.chapterId,
+          sectionId: context.sectionId,
+          taskName: form.taskName,
+          description: form.description,
+          teacherBrief,
+          sourceIds: selectedSourceIds,
         }),
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "AI 出题失败");
+        toast.error(json.error?.message || "AI 草稿生成失败");
         return;
       }
-      const data = json.data;
-      updateForm("prompt", data.prompt);
-      if (data.scoringCriteria) {
-        updateForm(
-          "scoringCriteria",
-          data.scoringCriteria.map((c: Record<string, unknown>) => ({
-            name: c.name as string,
-            maxPoints: c.maxPoints as number,
-            description: (c.description as string) || "",
-          })),
-        );
-      }
-      if (data.requirements) {
-        updateForm(
-          "requirements",
-          (data.requirements as string).split("\n").filter(Boolean),
-        );
-      }
-      toast.success("AI 已生成主观题配置");
+
+      const draft = json.data as ContextDraftResponse;
+      applyContextDraft(draft);
+      const sourceNames = draft.sourceSummary?.map((source) => source.fileName).join("、");
+      setDraftSourceLabel(
+        `AI 草稿来源：${sourceNames || "教师需求 / 课程上下文"}。${
+          draft.draftNotes || "请在创建前复核所有字段。"
+        }`,
+      );
+      if (step < 2) setStep(2);
+      toast.success("AI 已生成任务草稿，请继续复核");
     } catch {
-      toast.error("AI 出题失败，请重试");
+      toast.error("AI 草稿生成失败，请重试");
     } finally {
-      setAIGenerating(false);
+      setContextGenerating(false);
     }
+  }
+
+  function applyContextDraft(draft: ContextDraftResponse) {
+    setForm((prev) => {
+      const next: FormData = {
+        ...prev,
+        taskName: draft.taskName || prev.taskName,
+        description: draft.description || prev.description,
+        totalPoints: draft.totalPoints || prev.totalPoints,
+        timeLimitMinutes:
+          draft.timeLimitMinutes != null ? String(draft.timeLimitMinutes) : prev.timeLimitMinutes,
+      };
+
+      if (prev.taskType === "quiz" && draft.quiz) {
+        next.quizMode = draft.quiz.quizMode || prev.quizMode;
+        next.showResult = draft.quiz.showResult ?? prev.showResult;
+        next.questions = draft.quiz.questions.map(normalizeDraftQuestion);
+      }
+
+      if (prev.taskType === "subjective" && draft.subjective) {
+        next.prompt = draft.subjective.prompt || prev.prompt;
+        next.requirements = normalizeTextList(draft.subjective.requirements, prev.requirements);
+        next.scoringCriteria = normalizeCriteria(
+          draft.subjective.scoringCriteria,
+          prev.scoringCriteria,
+        );
+      }
+
+      if (prev.taskType === "simulation" && draft.simulation) {
+        next.scenario = draft.simulation.scenario || prev.scenario;
+        next.openingLine = draft.simulation.openingLine || prev.openingLine;
+        next.requirements = normalizeTextList(draft.simulation.requirements, prev.requirements);
+        next.scoringCriteria = normalizeCriteria(
+          draft.simulation.scoringCriteria,
+          prev.scoringCriteria,
+        );
+        next.allocationSections = normalizeAllocationSections(
+          draft.simulation.allocationSections,
+          prev.allocationSections,
+        );
+        next.simPersona = draft.simulation.simPersona || prev.simPersona;
+        next.simDialogueStyle = draft.simulation.simDialogueStyle || prev.simDialogueStyle;
+        next.simConstraints = draft.simulation.simConstraints || prev.simConstraints;
+      }
+
+      return next;
+    });
+    setErrors({});
+  }
+
+  function normalizeDraftQuestion(
+    question: NonNullable<ContextDraftResponse["quiz"]>["questions"][number],
+  ): QuizQuestion {
+    const options =
+      question.type === "true_false"
+        ? [
+            { id: "T", text: "对" },
+            { id: "F", text: "错" },
+          ]
+        : question.options?.length
+          ? question.options
+          : [
+              { id: "A", text: "" },
+              { id: "B", text: "" },
+              { id: "C", text: "" },
+              { id: "D", text: "" },
+            ];
+
+    return {
+      type: question.type,
+      stem: question.prompt,
+      options,
+      correctOptionIds: question.correctOptionIds || [],
+      correctAnswer: question.correctAnswer || "",
+      points: Math.min(3, Math.max(1, Number(question.points || 1))),
+      explanation: question.explanation || "",
+    };
+  }
+
+  function normalizeTextList(input: string[] | undefined, fallback: string[]) {
+    const values = (input || []).map((item) => item.trim()).filter(Boolean);
+    return values.length > 0 ? values : fallback;
+  }
+
+  function normalizeCriteria(
+    input: ScoringCriterion[] | undefined,
+    fallback: ScoringCriterion[],
+  ) {
+    const values = (input || [])
+      .map((item) => ({
+        name: item.name?.trim() || "",
+        maxPoints: Math.max(1, Number(item.maxPoints || 10)),
+        description: item.description?.trim() || "",
+      }))
+      .filter((item) => item.name);
+    return values.length > 0 ? values : fallback;
+  }
+
+  function normalizeAllocationSections(
+    input: AllocationSection[] | undefined,
+    fallback: AllocationSection[],
+  ) {
+    const values = (input || [])
+      .map((section) => ({
+        label: section.label?.trim() || "",
+        items: (section.items || [])
+          .map((item) => ({
+            label: item.label?.trim() || "",
+            defaultValue: Number(item.defaultValue || 0),
+          }))
+          .filter((item) => item.label),
+      }))
+      .filter((section) => section.label && section.items.length > 0);
+    return values.length > 0 ? values : fallback;
   }
 
   // ---------- Validation ----------
@@ -662,6 +822,9 @@ export function TaskWizardModal({
                 </span>
               </h2>
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              通过四步流程选择任务类型、填写基本信息、配置内容并确认发布。
+            </DialogDescription>
           </div>
           <Button
             variant="ghost"
@@ -695,6 +858,20 @@ export function TaskWizardModal({
             )}
             {step === 1 && (
               <>
+                {context && (
+                  <KnowledgeSourceAssistant
+                    courseId={context.courseId}
+                    chapterId={context.chapterId}
+                    sectionId={context.sectionId}
+                    taskType={form.taskType}
+                    selectedSourceIds={selectedSourceIds}
+                    teacherBrief={teacherBrief}
+                    generating={contextGenerating}
+                    onSelectedSourceIdsChange={setSelectedSourceIds}
+                    onTeacherBriefChange={setTeacherBrief}
+                    onGenerateDraft={handleGenerateFromContext}
+                  />
+                )}
                 <WizardStepBasic
                   taskName={form.taskName}
                   description={form.description}
@@ -754,6 +931,8 @@ export function TaskWizardModal({
                 onSimPersona={(v) => updateForm("simPersona", v)}
                 onSimDialogueStyle={(v) => updateForm("simDialogueStyle", v)}
                 onSimConstraints={(v) => updateForm("simConstraints", v)}
+                onGenerateFromContext={handleGenerateFromContext}
+                contextGenerating={contextGenerating}
               />
             )}
             {step === 2 && form.taskType === "quiz" && (
@@ -773,6 +952,8 @@ export function TaskWizardModal({
                 onQuestionChange={setQuestion}
                 onQuestionOption={setQuestionOption}
                 onOpenAIDialog={() => setAIDialogOpen(true)}
+                onGenerateFromContext={handleGenerateFromContext}
+                contextGenerating={contextGenerating}
               />
             )}
             {step === 2 && form.taskType === "subjective" && (
@@ -783,7 +964,8 @@ export function TaskWizardModal({
                 maxAttachments={form.maxAttachments}
                 requirements={form.requirements}
                 scoringCriteria={form.scoringCriteria}
-                aiGenerating={aiGenerating}
+                aiGenerating={contextGenerating}
+                aiButtonLabel="基于素材生成"
                 errors={errors}
                 onPrompt={(v) => updateForm("prompt", v)}
                 onWordLimit={(v) => updateForm("wordLimit", v)}
@@ -795,7 +977,7 @@ export function TaskWizardModal({
                 onCriterionAdd={addCriterion}
                 onCriterionRemove={removeCriterion}
                 onCriterionChange={setCriterion}
-                onAIGenerate={handleAIGenerateSubjective}
+                onAIGenerate={handleGenerateFromContext}
               />
             )}
             {step === 3 && (
@@ -818,6 +1000,7 @@ export function TaskWizardModal({
                 wordLimit={form.wordLimit}
                 allowAttachment={form.allowAttachment}
                 maxAttachments={form.maxAttachments}
+                draftSourceLabel={draftSourceLabel}
               />
             )}
 

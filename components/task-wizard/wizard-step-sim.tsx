@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, Sparkles } from "lucide-react";
+import { Loader2, Plus, Trash2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,8 @@ interface SimStepProps {
   onSimPersona: (v: string) => void;
   onSimDialogueStyle: (v: string) => void;
   onSimConstraints: (v: string) => void;
+  onGenerateFromContext?: () => void;
+  contextGenerating?: boolean;
 }
 
 export function WizardStepSim(props: SimStepProps) {
@@ -93,6 +95,8 @@ export function WizardStepSim(props: SimStepProps) {
     onSimPersona,
     onSimDialogueStyle,
     onSimConstraints,
+    onGenerateFromContext,
+    contextGenerating = false,
   } = props;
 
   const rubricTotal = scoringCriteria.reduce((s, c) => s + (c.maxPoints || 0), 0);
@@ -104,9 +108,26 @@ export function WizardStepSim(props: SimStepProps) {
         title="模拟对话配置"
         subtitle="场景脚本 · 评分标准 · 配套资产配置表 · AI 客户人设。"
         extra={
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-sim-soft px-2.5 py-1 text-[11px] font-semibold text-sim">
-            <Sparkles className="size-3" /> AI 客户驱动
-          </span>
+          onGenerateFromContext ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onGenerateFromContext}
+              disabled={contextGenerating}
+            >
+              {contextGenerating ? (
+                <Loader2 className="size-3 mr-1 animate-spin" />
+              ) : (
+                <Sparkles className="size-3 mr-1" />
+              )}
+              AI 生成配置
+            </Button>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-sim-soft px-2.5 py-1 text-[11px] font-semibold text-sim">
+              <Sparkles className="size-3" /> AI 客户驱动
+            </span>
+          )
         }
       >
         <div className="flex flex-col gap-1.5">

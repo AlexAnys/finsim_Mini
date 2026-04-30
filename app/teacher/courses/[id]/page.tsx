@@ -59,6 +59,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
+import { CourseInstancesTab } from "@/components/course/course-instances-tab";
 import { EditorHero } from "@/components/teacher-course-edit/editor-hero";
 import { TocSidebar } from "@/components/teacher-course-edit/toc-sidebar";
 import { ChapterSectionList } from "@/components/teacher-course-edit/chapter-section-list";
@@ -770,6 +771,7 @@ export default function TeacherCourseDetailPage() {
           <Tabs defaultValue="structure" className="w-full">
             <TabsList>
               <TabsTrigger value="structure">课程结构</TabsTrigger>
+              <TabsTrigger value="instances">任务实例</TabsTrigger>
               <TabsTrigger value="analytics">数据分析</TabsTrigger>
               <TabsTrigger value="announcements">公告管理</TabsTrigger>
             </TabsList>
@@ -827,6 +829,10 @@ export default function TeacherCourseDetailPage() {
                   onDeleteBlock={handleDeleteBlock}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="instances" className="mt-4">
+              <CourseInstancesTab courseId={courseId} />
             </TabsContent>
 
             <TabsContent value="analytics" className="mt-4">

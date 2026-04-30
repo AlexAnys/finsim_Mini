@@ -37,6 +37,20 @@ export function serverError(message = "服务器内部错误") {
 
 export function handleServiceError(err: unknown) {
   if (err instanceof Error) {
+    if (err.message.startsWith("AI_PROVIDER_NOT_CONFIGURED")) {
+      return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
+    }
+
+    const aiProviderError = getAIProviderError(err);
+    if (aiProviderError) {
+      return error(
+        aiProviderError.code,
+        aiProviderError.message,
+        aiProviderError.status,
+        aiProviderError.details,
+      );
+    }
+
     switch (err.message) {
       case "FORBIDDEN":
         return forbidden();
@@ -98,6 +112,16 @@ export function handleServiceError(err: unknown) {
         );
       case "AI_PROVIDER_NOT_CONFIGURED":
         return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
+      case "KNOWLEDGE_SOURCE_NOT_FOUND":
+        return notFound("课程素材不存在");
+      case "KNOWLEDGE_SOURCE_EMPTY":
+        return error("KNOWLEDGE_SOURCE_EMPTY", "无法从课程素材中提取文本内容", 400);
+      case "KNOWLEDGE_SOURCE_UNREADABLE":
+        return error(
+          "KNOWLEDGE_SOURCE_UNREADABLE",
+          "PDF 文本识别失败，请上传可复制文字的 PDF，或稍后接入 OCR 后再处理扫描版文件",
+          400,
+        );
       case "NO_GRADED_SUBMISSIONS":
         return error("NO_GRADED_SUBMISSIONS", "暂无已批改的提交，无法生成洞察", 400);
       case "NO_CONCEPT_TAGS":
@@ -121,4 +145,48 @@ export function handleServiceError(err: unknown) {
   }
   console.error("Unknown error:", err);
   return serverError();
+}
+
+function getAIProviderError(err: Error) {
+  const maybe = err as Error & {
+    name?: string;
+    statusCode?: number;
+    data?: {
+      error?: {
+        code?: string;
+        type?: string;
+        message?: string;
+      };
+    };
+  };
+  if (maybe.name !== "AI_APICallError" && typeof maybe.statusCode !== "number") {
+    return null;
+  }
+
+  const statusCode = maybe.statusCode || 502;
+  const providerCode = maybe.data?.error?.code || "";
+  const providerType = maybe.data?.error?.type || "";
+  const providerMessage = maybe.data?.error?.message || maybe.message;
+  const lowerMessage = providerMessage.toLowerCase();
+  const isInsufficientBalance =
+    statusCode === 402 ||
+    providerCode === "402" ||
+    providerType.includes("insufficient") ||
+    lowerMessage.includes("insufficient account balance");
+
+  if (isInsufficientBalance) {
+    return {
+      code: "AI_PROVIDER_QUOTA_EXCEEDED",
+      message: "AI 服务额度不足，请检查当前模型账号余额或切换备用模型后重试",
+      status: 402,
+      details: { statusCode, providerCode, providerType },
+    };
+  }
+
+  return {
+    code: "AI_PROVIDER_ERROR",
+    message: "AI 服务暂时不可用，请稍后重试",
+    status: statusCode >= 400 && statusCode < 500 ? 502 : 503,
+    details: { statusCode, providerCode, providerType },
+  };
 }

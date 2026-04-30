@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, Sparkles } from "lucide-react";
+import { Loader2, Plus, Trash2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -60,6 +60,8 @@ interface QuizStepProps {
   onQuestionChange: (idx: number, field: keyof QuizQuestion, value: unknown) => void;
   onQuestionOption: (qIdx: number, oIdx: number, text: string) => void;
   onOpenAIDialog: () => void;
+  onGenerateFromContext?: () => void;
+  contextGenerating?: boolean;
 }
 
 export function WizardStepQuiz({
@@ -78,6 +80,8 @@ export function WizardStepQuiz({
   onQuestionChange,
   onQuestionOption,
   onOpenAIDialog,
+  onGenerateFromContext,
+  contextGenerating = false,
 }: QuizStepProps) {
   const totalPoints = questions.reduce((s, q) => s + (q.points || 0), 0);
 
@@ -144,6 +148,21 @@ export function WizardStepQuiz({
         }
         extra={
           <div className="flex items-center gap-1.5">
+            {onGenerateFromContext && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onGenerateFromContext}
+                disabled={contextGenerating}
+              >
+                {contextGenerating ? (
+                  <Loader2 className="size-3 mr-1 animate-spin" />
+                ) : (
+                  <Sparkles className="size-3 mr-1" />
+                )}
+                素材生成
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={onOpenAIDialog}>
               <Sparkles className="size-3 mr-1" />
               AI 出题

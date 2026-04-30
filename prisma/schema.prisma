@@ -107,6 +107,18 @@ enum ImportJobStatus {
   failed
 }
 
+enum KnowledgeSourceStatus {
+  uploaded
+  processing
+  ready
+  failed
+}
+
+enum KnowledgeSourceKind {
+  pdf
+  text
+}
+
 enum ReleaseMode {
   manual
   auto
@@ -142,6 +154,7 @@ model User {
   groupMemberships   StudentGroupMember[] @relation("GroupMember")
   analysisReports    AnalysisReport[]     @relation("ReportCreator")
   importJobs         ImportJob[]          @relation("ImportTeacher")
+  knowledgeSources   CourseKnowledgeSource[] @relation("KnowledgeSourceTeacher")
   auditLogs          AuditLog[]           @relation("AuditActor")
   collaboratingCourses CourseTeacher[]    @relation("CourseCollaborator")
 
@@ -197,6 +210,7 @@ model Course {
   scheduleSlots  ScheduleSlot[]
   teachers       CourseTeacher[]
   classes        CourseClass[] @relation("CourseClasses")
+  knowledgeSources CourseKnowledgeSource[]
 
   @@index([classId])
   @@index([createdBy])
@@ -218,6 +232,7 @@ model Chapter {
   sections      Section[]
   contentBlocks ContentBlock[]
   taskInstances TaskInstance[]
+  knowledgeSources CourseKnowledgeSource[]
 
   @@unique([courseId, order])
 }
@@ -239,6 +254,7 @@ model Section {
   creator       User           @relation("SectionCreator", fields: [createdBy], references: [id])
   contentBlocks ContentBlock[]
   taskInstances TaskInstance[]
+  knowledgeSources CourseKnowledgeSource[]
 
   @@unique([chapterId, order])
 }
@@ -782,7 +798,38 @@ model ImportJob {
 }
 
 // ============================================
-// 表 31: AuditLog（审计日志）
+// 表 31: CourseKnowledgeSource（课程知识素材）
+// ============================================
+model CourseKnowledgeSource {
+  id            String                @id @default(uuid())
+  courseId      String
+  chapterId     String?
+  sectionId     String?
+  teacherId     String
+  kind          KnowledgeSourceKind   @default(pdf)
+  fileName      String                @db.VarChar(500)
+  filePath      String?               @db.VarChar(1000)
+  mimeType      String                @db.VarChar(120)
+  status        KnowledgeSourceStatus @default(uploaded)
+  extractedText String?               @db.Text
+  summary       String?               @db.Text
+  conceptTags   String[]              @default([])
+  error         String?               @db.Text
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  chapter Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  section Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  teacher User     @relation("KnowledgeSourceTeacher", fields: [teacherId], references: [id])
+
+  @@index([courseId, chapterId, sectionId])
+  @@index([teacherId])
+  @@index([status])
+}
+
+// ============================================
+// 表 32: AuditLog（审计日志）
 // ============================================
 model AuditLog {
   id         String   @id @default(uuid())
@@ -801,7 +848,7 @@ model AuditLog {
 }
 
 // ============================================
-// 表 32: CourseTeacher（课程协作教师）
+// 表 33: CourseTeacher（课程协作教师）
 // ============================================
 model CourseTeacher {
   id        String   @id @default(uuid())
@@ -817,7 +864,7 @@ model CourseTeacher {
 }
 
 // ============================================
-// 表 33: CourseClass（课程班级关联）
+// 表 34: CourseClass（课程班级关联）
 // ============================================
 model CourseClass {
   id        String   @id @default(uuid())
