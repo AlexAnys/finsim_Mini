@@ -20,7 +20,7 @@ export function getProviderConfig(name: string): ProviderConfig | null {
       return {
         name: "mimo",
         apiKey: process.env.MIMO_API_KEY || "",
-        baseURL: process.env.MIMO_BASE_URL || "https://api.xiaomimimo.com/v1",
+        baseURL: process.env.MIMO_BASE_URL || "https://token-plan-cn.xiaomimimo.com/v1",
         defaultModel: process.env.MIMO_MODEL || "mimo-v2.5-pro",
       };
     case "qwen":

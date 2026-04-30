@@ -24,12 +24,12 @@ const requestSchema = z.object({
 const questionSchema = z.object({
   type: z.enum(["single_choice", "multiple_choice", "true_false", "short_answer"]),
   prompt: z.string(),
-  options: z.array(z.object({ id: z.string(), text: z.string() })).optional(),
-  correctOptionIds: z.array(z.string()).optional(),
-  correctAnswer: z.string().optional(),
-  points: z.number().min(1).max(10).default(1),
+  options: nullishOptional(z.array(z.object({ id: z.string(), text: z.string() }))),
+  correctOptionIds: nullishOptional(z.array(z.string())),
+  correctAnswer: nullishOptional(z.string()),
+  points: z.number().min(1).max(100).default(1),
   difficulty: z.number().min(1).max(5).optional(),
-  explanation: z.string().optional(),
+  explanation: nullishOptional(z.string()),
 });
 
 const criterionSchema = z.object({
@@ -44,23 +44,23 @@ const taskDraftSchema = z.object({
   totalPoints: z.number().min(1).max(300).optional(),
   timeLimitMinutes: z.number().int().min(1).max(240).nullable().optional(),
   draftNotes: z.string().optional(),
-  quiz: z
-    .object({
+  quiz: optionalObject(
+    z.object({
       questions: z.array(questionSchema).min(1),
       quizMode: z.enum(["fixed", "adaptive"]).default("fixed").optional(),
       showResult: z.boolean().default(true).optional(),
-    })
-    .optional(),
-  subjective: z
-    .object({
+    }),
+  ),
+  subjective: optionalObject(
+    z.object({
       prompt: z.string(),
       requirements: z.array(z.string()).default([]),
-      referenceAnswer: z.string().optional(),
+      referenceAnswer: nullishOptional(z.string()),
       scoringCriteria: z.array(criterionSchema).min(1),
-    })
-    .optional(),
-  simulation: z
-    .object({
+    }),
+  ),
+  simulation: optionalObject(
+    z.object({
       scenario: z.string(),
       openingLine: z.string(),
       requirements: z.array(z.string()).default([]),
@@ -76,9 +76,23 @@ const taskDraftSchema = z.object({
       simPersona: z.string(),
       simDialogueStyle: z.string(),
       simConstraints: z.string(),
-    })
-    .optional(),
+    }),
+  ),
 });
+
+function nullishOptional<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => (value === null ? undefined : value), schema.optional());
+}
+
+function optionalObject<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0) {
+      return undefined;
+    }
+    return value;
+  }, schema.optional());
+}
 
 export async function POST(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);

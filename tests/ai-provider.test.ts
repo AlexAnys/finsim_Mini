@@ -14,7 +14,7 @@ afterEach(() => {
 describe("AI provider selection", () => {
   it("supports Xiaomi MiMo as an OpenAI-compatible provider", () => {
     process.env.MIMO_API_KEY = "test-key";
-    process.env.MIMO_BASE_URL = "https://api.xiaomimimo.com/v1";
+    process.env.MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1";
     process.env.MIMO_MODEL = "mimo-v2.5-pro";
 
     const provider = getProviderConfig("mimo");
@@ -22,7 +22,7 @@ describe("AI provider selection", () => {
     expect(provider).toMatchObject({
       name: "mimo",
       apiKey: "test-key",
-      baseURL: "https://api.xiaomimimo.com/v1",
+      baseURL: "https://token-plan-cn.xiaomimimo.com/v1",
       defaultModel: "mimo-v2.5-pro",
     });
   });
