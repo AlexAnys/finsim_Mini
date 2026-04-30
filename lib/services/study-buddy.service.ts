@@ -5,6 +5,7 @@ import {
   assertTaskInstanceReadable,
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
+import { getKnowledgeSourcesForStudyBuddy } from "@/lib/services/course-knowledge-source.service";
 
 type UserLike = { id: string; role: string; classId?: string | null };
 
@@ -30,12 +31,6 @@ export async function createPost(data: {
     await assertTaskReadable(data.taskId, data.user);
   }
 
-  // 获取任务的学习伙伴上下文
-  const task = await prisma.task.findUnique({
-    where: { id: data.taskId },
-    include: { simulationConfig: true },
-  });
-
   const post = await prisma.studyBuddyPost.create({
     data: {
       studentId: data.user.id,
@@ -50,17 +45,29 @@ export async function createPost(data: {
   });
 
   // 异步生成 AI 回复
-  generateReply(post.id, data.user.id, task).catch(console.error);
+  generateReply(post.id, data.user.id).catch(console.error);
 
   return post;
 }
 
-async function generateReply(
-  postId: string,
-  userId: string,
-  task: { taskName: string; simulationConfig?: { studyBuddyContext?: string | null } | null } | null
-) {
-  const post = await prisma.studyBuddyPost.findUnique({ where: { id: postId } });
+async function generateReply(postId: string, userId: string) {
+  const post = await prisma.studyBuddyPost.findUnique({
+    where: { id: postId },
+    include: {
+      task: { include: { simulationConfig: true } },
+      taskInstance: {
+        select: {
+          title: true,
+          courseId: true,
+          chapterId: true,
+          sectionId: true,
+          course: { select: { courseTitle: true } },
+          chapter: { select: { title: true } },
+          section: { select: { title: true } },
+        },
+      },
+    },
+  });
   if (!post) return;
 
   const messages = (post.messages as Array<{ role: string; content: string }>) || [];
@@ -68,7 +75,29 @@ async function generateReply(
     ? "使用苏格拉底式教学法：不直接给出答案，而是每次提 1-2 个引导性问题帮助学生自己发现答案。先肯定学生思考中正确的部分，再通过提问引导其完善。"
     : "以清晰、分步骤的方式直接回答学生的问题。";
 
-  const context = task?.simulationConfig?.studyBuddyContext || "";
+  const task = post.task;
+  const taskInstance = post.taskInstance;
+  const materialSources = await getKnowledgeSourcesForStudyBuddy({
+    courseId: taskInstance?.courseId,
+    chapterId: taskInstance?.chapterId,
+    sectionId: taskInstance?.sectionId,
+  });
+  const taskContext = task?.simulationConfig?.studyBuddyContext || "";
+  const materialContext = materialSources
+    .map((source, index) => {
+      const tags = source.conceptTags.length > 0
+        ? `概念标签: ${source.conceptTags.join(" / ")}\n`
+        : "";
+      const summary = source.summary ? `摘要: ${source.summary}\n` : "";
+      return `素材 ${index + 1}: ${source.fileName}\n${tags}${summary}摘录: ${source.excerpt}`;
+    })
+    .join("\n\n");
+  const scopeLine = [
+    taskInstance?.course?.courseTitle,
+    taskInstance?.chapter?.title,
+    taskInstance?.section?.title,
+    taskInstance?.title,
+  ].filter(Boolean).join(" / ");
 
   try {
     const reply = await aiService.aiGenerateText(
@@ -76,13 +105,16 @@ async function generateReply(
       userId,
       `你是一位耐心的金融课程学习辅导助手。
 ${modePrompt}
-${context ? `背景资料:\n${context}` : ""}
+${scopeLine ? `当前学习范围: ${scopeLine}` : ""}
+${taskContext ? `任务背景资料:\n${taskContext}` : ""}
+${materialContext ? `教师补充课程素材:\n${materialContext}` : ""}
 任务: ${task?.taskName || ""}
 
 规则：
 1. 不要使用 Markdown 符号（如 **、#、-、*），如需列点请每条独立换行并用数字编号（如 1. 2. 3.）。
 2. 注意上下文连贯，回答追问时参考之前的对话内容。
-3. 围绕课程内容与 simulation 目标展开，不要发散到无关话题。`,
+3. 优先使用教师补充课程素材和任务背景资料，资料不足时再使用通用知识，并明确说明推断边界。
+4. 围绕课程内容与任务目标展开，不要发散到无关话题。`,
       `对话历史:\n${messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n")}\n\n请回复：`
     );
 
@@ -128,7 +160,7 @@ export async function continueConversation(postId: string, userId: string, conte
   });
 
   // 异步生成回复
-  generateReply(postId, userId, post.task).catch(console.error);
+  generateReply(postId, userId).catch(console.error);
 
   return { success: true };
 }

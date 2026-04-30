@@ -26,8 +26,10 @@ describe("course entry and course-scoped task instances", () => {
 
     expect(src).toContain('TabsTrigger value="structure"');
     expect(src).toContain('TabsTrigger value="instances"');
+    expect(src).toContain('TabsTrigger value="contexts"');
     expect(src).toContain('TabsTrigger value="analytics"');
     expect(src).toContain("<CourseInstancesTab courseId={courseId} />");
+    expect(src).toContain("<CourseContextSourcesTab");
   });
 
   it("global task instances page reuses the shared tab component", () => {
@@ -50,5 +52,17 @@ describe("task wizard course-material AI draft integration", () => {
     expect(modal).toContain("draftSourceLabel");
     expect(assistant).toContain("/api/lms/course-knowledge-sources");
     expect(assistant).toContain('accept="application/pdf,.pdf"');
+  });
+
+  it("adds a course detail context-materials tab for teacher managed context", () => {
+    const tab = readFile("components/course/course-context-sources-tab.tsx");
+    const service = readFile("lib/services/study-buddy.service.ts");
+
+    expect(tab).toContain("教学上下文素材");
+    expect(tab).toContain("任务定位");
+    expect(tab).toContain("/api/lms/course-knowledge-sources");
+    expect(tab).toContain('accept="application/pdf,.pdf"');
+    expect(service).toContain("getKnowledgeSourcesForStudyBuddy");
+    expect(service).toContain("教师补充课程素材");
   });
 });

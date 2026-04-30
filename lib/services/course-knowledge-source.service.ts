@@ -36,6 +36,14 @@ export interface CourseKnowledgeSourceForDraft {
   text: string;
 }
 
+export interface CourseKnowledgeSourceForStudyBuddy {
+  id: string;
+  fileName: string;
+  summary: string | null;
+  conceptTags: string[];
+  excerpt: string;
+}
+
 export async function assertKnowledgeSourceScope(input: {
   courseId: string;
   chapterId?: string | null;
@@ -235,6 +243,47 @@ export async function getKnowledgeSourcesForDraft(input: {
     summary: source.summary,
     conceptTags: source.conceptTags,
     text: source.extractedText || "",
+  }));
+}
+
+export async function getKnowledgeSourcesForStudyBuddy(input: {
+  courseId?: string | null;
+  chapterId?: string | null;
+  sectionId?: string | null;
+}): Promise<CourseKnowledgeSourceForStudyBuddy[]> {
+  if (!input.courseId) return [];
+
+  const scopeOr = [
+    { chapterId: null, sectionId: null },
+    ...(input.chapterId
+      ? [{ chapterId: input.chapterId, sectionId: null }]
+      : []),
+    ...(input.sectionId ? [{ sectionId: input.sectionId }] : []),
+  ];
+
+  const sources = await prisma.courseKnowledgeSource.findMany({
+    where: {
+      courseId: input.courseId,
+      status: "ready",
+      OR: scopeOr,
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 6,
+    select: {
+      id: true,
+      fileName: true,
+      summary: true,
+      conceptTags: true,
+      extractedText: true,
+    },
+  });
+
+  return sources.map((source) => ({
+    id: source.id,
+    fileName: source.fileName,
+    summary: source.summary,
+    conceptTags: source.conceptTags,
+    excerpt: makeExcerpt((source.extractedText || "").slice(0, 3000)),
   }));
 }
 

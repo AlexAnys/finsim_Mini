@@ -17,6 +17,7 @@ vi.mock("@/lib/services/ai.service", () => ({
 import { prisma } from "@/lib/db/prisma";
 import {
   assertKnowledgeSourceScope,
+  getKnowledgeSourcesForStudyBuddy,
   getKnowledgeSourcesForDraft,
   isReadableExtractedText,
 } from "@/lib/services/course-knowledge-source.service";
@@ -106,6 +107,54 @@ describe("getKnowledgeSourcesForDraft", () => {
         sourceIds: ["source-1"],
       }),
     ).rejects.toThrow("KNOWLEDGE_SOURCE_NOT_FOUND");
+  });
+});
+
+describe("getKnowledgeSourcesForStudyBuddy", () => {
+  it("loads ready course, chapter, and section context sources for a task scope", async () => {
+    mk(prisma.courseKnowledgeSource.findMany).mockResolvedValue([
+      {
+        id: "course-source",
+        fileName: "course.pdf",
+        summary: "课程大纲",
+        conceptTags: ["理财规划"],
+        extractedText: "整门课程的学习目标和术语说明",
+      },
+      {
+        id: "section-source",
+        fileName: "section.pdf",
+        summary: "小节教案",
+        conceptTags: ["风险偏好"],
+        extractedText: "风险偏好测评和客户沟通案例",
+      },
+    ]);
+
+    const sources = await getKnowledgeSourcesForStudyBuddy({
+      courseId: "course-1",
+      chapterId: "chapter-1",
+      sectionId: "section-1",
+    });
+
+    expect(prisma.courseKnowledgeSource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          courseId: "course-1",
+          status: "ready",
+          OR: expect.arrayContaining([
+            { chapterId: null, sectionId: null },
+            { chapterId: "chapter-1", sectionId: null },
+            { sectionId: "section-1" },
+          ]),
+        }),
+      }),
+    );
+    expect(sources).toHaveLength(2);
+    expect(sources[0].excerpt).toContain("整门课程");
+  });
+
+  it("returns no sources when the post is not course scoped", async () => {
+    await expect(getKnowledgeSourcesForStudyBuddy({ courseId: null })).resolves.toEqual([]);
+    expect(prisma.courseKnowledgeSource.findMany).not.toHaveBeenCalled();
   });
 });
 
