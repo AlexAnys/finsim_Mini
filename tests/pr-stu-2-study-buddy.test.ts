@@ -294,9 +294,9 @@ describe("PR-STU-2 · UI 文件守护（中文 / 子组件 import / token / mock
     expect(file).toContain("引导式");
     // student 气泡 deep indigo
     expect(file).toContain("bg-brand");
-    // ai 气泡 surface + ochre bot icon
+    // ai 气泡 surface + brand logo
     expect(file).toContain("bg-surface");
-    expect(file).toContain("text-ochre");
+    expect(file).toContain("/brand/lingxi-logo.png");
   });
 
   it("StudyBuddyComposer 模式切换 + 匿名 + 中文 placeholder + AI 引导提示", async () => {
@@ -328,6 +328,9 @@ describe("PR-STU-2 · UI 文件守护（中文 / 子组件 import / token / mock
       "utf-8",
     );
     expect(file).toContain("向学习伙伴提问");
+    expect(file).toContain("课程与章节");
+    expect(file).toContain("全部课程");
+    expect(file).toContain("全部章节");
     expect(file).toContain("关联任务");
     expect(file).toContain("选择要关联的任务");
     expect(file).toContain("标题");

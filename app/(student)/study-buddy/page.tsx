@@ -33,7 +33,10 @@ interface DashboardSummary {
     title?: string;
     taskName?: string;
     taskId?: string;
+    taskType?: string;
     course?: { id?: string; courseTitle?: string } | null;
+    chapter?: { id?: string; title?: string } | null;
+    section?: { id?: string; title?: string } | null;
   }>;
 }
 
@@ -89,7 +92,10 @@ export default function StudyBuddyPage() {
               title: t.title,
               taskName: t.taskName,
               taskId: t.taskId,
+              taskType: t.taskType,
               course: t.course ?? null,
+              chapter: t.chapter ?? null,
+              section: t.section ?? null,
             }));
           }
         } catch {

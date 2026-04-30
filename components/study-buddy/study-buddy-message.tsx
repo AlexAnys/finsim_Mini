@@ -2,11 +2,11 @@
 
 // PR-STU-2 · 学生 /study-buddy 单条消息气泡
 // - student：右对齐、深靛底、白字、avatar 显示用户首字
-// - ai：左对齐、白底+border、avatar 用 Bot icon
+// - ai：左对齐、白底+border、avatar 用品牌 logo
 // - 顶行：角色名 + 模式 chip（仅 socratic ai）+ 时间
 // - 气泡角：student 右下小、ai 左下小（mockup）
 
-import { Bot } from "lucide-react";
+import Image from "next/image";
 import type { StudyBuddyMode, StudyBuddyMessage } from "@/lib/utils/study-buddy-transforms";
 import { formatMessageTime } from "@/lib/utils/study-buddy-transforms";
 
@@ -35,14 +35,20 @@ export function StudyBuddyMessageBubble({
       {/* Avatar */}
       <div
         className={`grid size-9 shrink-0 place-items-center rounded-[10px] text-[13px] font-semibold text-white ${
-          isUser ? "bg-brand" : "bg-ink-2"
+          isUser ? "bg-brand" : "border border-line bg-ink"
         }`}
         aria-hidden="true"
       >
         {isUser ? (
           studentInitial
         ) : (
-          <Bot className="size-[18px] text-ochre" />
+          <Image
+            src="/brand/lingxi-logo.png"
+            alt=""
+            width={28}
+            height={28}
+            className="size-7 rounded-[7px] object-cover"
+          />
         )}
       </div>
 

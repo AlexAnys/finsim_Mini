@@ -64,7 +64,10 @@ export interface DashboardTaskLite {
   taskName?: string;
   /** task 模板 id — 用于 POST /api/study-buddy/posts.taskId（FK） */
   taskId?: string;
+  taskType?: string;
   course?: { id?: string; courseTitle?: string } | null;
+  chapter?: { id?: string; title?: string } | null;
+  section?: { id?: string; title?: string } | null;
 }
 
 /**

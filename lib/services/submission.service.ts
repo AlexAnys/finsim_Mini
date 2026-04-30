@@ -77,7 +77,6 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
     });
     if (!instance) throw new Error("TASK_INSTANCE_NOT_FOUND");
     if (instance.status !== "published") throw new Error("TASK_NOT_PUBLISHED");
-    if (new Date() > instance.dueAt) throw new Error("TASK_OVERDUE");
 
     // 检查尝试次数
     if (instance.attemptsAllowed) {

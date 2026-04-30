@@ -8,6 +8,83 @@ import { logAudit } from "./audit.service";
 // 统一批改入口
 // ============================================
 
+export const LATE_SUBMISSION_PENALTY_RATE = 0.2;
+
+export interface LatePenaltyResult {
+  applied: boolean;
+  score: number;
+  originalScore: number;
+  penaltyAmount: number;
+  rate: number;
+}
+
+export function computeLatePenalty(input: {
+  score: number;
+  maxScore: number;
+  dueAt?: Date | string | null;
+  submittedAt?: Date | string | null;
+}): LatePenaltyResult {
+  const originalScore = clampScore(input.score, input.maxScore);
+  const dueAt = input.dueAt ? new Date(input.dueAt).getTime() : null;
+  const submittedAt = input.submittedAt ? new Date(input.submittedAt).getTime() : null;
+  const shouldApply =
+    dueAt != null &&
+    submittedAt != null &&
+    Number.isFinite(dueAt) &&
+    Number.isFinite(submittedAt) &&
+    submittedAt > dueAt &&
+    originalScore > 0;
+
+  if (!shouldApply) {
+    return {
+      applied: false,
+      score: originalScore,
+      originalScore,
+      penaltyAmount: 0,
+      rate: LATE_SUBMISSION_PENALTY_RATE,
+    };
+  }
+
+  const penaltyAmount = roundScore(originalScore * LATE_SUBMISSION_PENALTY_RATE);
+  return {
+    applied: true,
+    score: clampScore(roundScore(originalScore - penaltyAmount), input.maxScore),
+    originalScore,
+    penaltyAmount,
+    rate: LATE_SUBMISSION_PENALTY_RATE,
+  };
+}
+
+function clampScore(score: number, maxScore: number) {
+  if (!Number.isFinite(score)) return 0;
+  const upper = Number.isFinite(maxScore) && maxScore > 0 ? maxScore : score;
+  return Math.min(Math.max(roundScore(score), 0), upper);
+}
+
+function roundScore(score: number) {
+  return Math.round(score * 100) / 100;
+}
+
+function latePenaltyMetadata(penalty: LatePenaltyResult) {
+  return {
+    applied: penalty.applied,
+    rate: penalty.rate,
+    originalScore: penalty.originalScore,
+    penaltyAmount: penalty.penaltyAmount,
+    adjustedScore: penalty.score,
+    label: "迟交扣分 20%",
+  };
+}
+
+function appendLatePenaltyFeedback(
+  feedback: string | null | undefined,
+  penalty: LatePenaltyResult,
+) {
+  if (!penalty.applied) return feedback || "";
+  const prefix = feedback ? `${feedback}\n` : "";
+  return `${prefix}已应用迟交扣分 20%，原始得分 ${penalty.originalScore}，扣除 ${penalty.penaltyAmount} 分，最终得分 ${penalty.score}。`;
+}
+
 /**
  * PR-SIM-1a D1: AI 批改完成时计算 releasedAt
  *
@@ -46,7 +123,7 @@ export async function gradeSubmission(submissionId: string) {
       quizSubmission: true,
       subjectiveSubmission: true,
       taskInstance: {
-        select: { id: true, releaseMode: true, autoReleaseAt: true },
+        select: { id: true, releaseMode: true, autoReleaseAt: true, dueAt: true },
       },
     },
   });
@@ -125,12 +202,22 @@ async function gradeSimulation(submission: SubmissionFull, releasedAt: Date | nu
     })),
     assets: assets as Parameters<typeof aiService.evaluateSimulation>[1]["assets"],
   });
+  const penalty = computeLatePenalty({
+    score: evaluation.totalScore,
+    maxScore: evaluation.maxScore,
+    dueAt: submission.taskInstance?.dueAt,
+    submittedAt: submission.submittedAt,
+  });
 
   await updateSubmissionGrade(submission.id, {
     status: "graded",
-    score: evaluation.totalScore,
+    score: penalty.score,
     maxScore: evaluation.maxScore,
-    evaluation: evaluation as unknown as Record<string, unknown>,
+    evaluation: {
+      ...(evaluation as unknown as Record<string, unknown>),
+      totalScore: penalty.score,
+      latePenalty: latePenaltyMetadata(penalty),
+    },
     conceptTags: evaluation.conceptTags ?? [],
     releasedAt,
   });
@@ -221,11 +308,21 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
     }
   }
 
-  const evaluation = {
-    totalScore,
+  const penalty = computeLatePenalty({
+    score: totalScore,
     maxScore,
-    feedback: `测验已完成，得分 ${totalScore}/${maxScore}`,
+    dueAt: submission.taskInstance?.dueAt,
+    submittedAt: submission.submittedAt,
+  });
+  const evaluation = {
+    totalScore: penalty.score,
+    maxScore,
+    feedback: appendLatePenaltyFeedback(
+      `测验已完成，原始得分 ${totalScore}/${maxScore}`,
+      penalty,
+    ),
     quizBreakdown: breakdown,
+    latePenalty: latePenaltyMetadata(penalty),
   };
 
   // PR-FIX-3 C4: quiz 也写 conceptTags（best-effort AI 提取，让 insights aggregate 能聚合 quiz 类）
@@ -239,7 +336,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
 
   await updateSubmissionGrade(submission.id, {
     status: "graded",
-    score: totalScore,
+    score: penalty.score,
     maxScore,
     evaluation: evaluation as unknown as Record<string, unknown>,
     conceptTags,
@@ -407,17 +504,24 @@ conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（
   const conceptTags = Array.isArray(result.conceptTags)
     ? result.conceptTags.slice(0, 5)
     : [];
+  const penalty = computeLatePenalty({
+    score: totalScore,
+    maxScore,
+    dueAt: submission.taskInstance?.dueAt,
+    submittedAt: submission.submittedAt,
+  });
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   await updateSubmissionGrade(submission.id, {
     status: "graded",
-    score: totalScore,
+    score: penalty.score,
     maxScore,
     evaluation: {
-      totalScore,
+      totalScore: penalty.score,
       maxScore,
-      feedback: result.feedback,
+      feedback: appendLatePenaltyFeedback(result.feedback, penalty),
       rubricBreakdown: breakdown,
+      latePenalty: latePenaltyMetadata(penalty),
     },
     conceptTags,
     releasedAt,

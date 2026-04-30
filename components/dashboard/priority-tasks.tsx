@@ -158,8 +158,9 @@ function TaskRow({ task }: { task: PriorityTask }) {
   const cfg = TYPE_CONFIG[task.taskType];
   const Icon = cfg.icon;
   const dueInfo = task.dueAt ? formatRelativeDue(task.dueAt) : null;
+  const isLate = task.studentStatus === "overdue";
   const isUrgent =
-    task.studentStatus === "overdue" || Boolean(dueInfo?.isUrgent);
+    isLate || Boolean(dueInfo?.isUrgent);
   const metaParts = [
     task.courseTitle,
     task.chapterTitle,
@@ -169,49 +170,56 @@ function TaskRow({ task }: { task: PriorityTask }) {
 
   const actionText =
     task.studentStatus === "graded"
-      ? "查看结果"
+      ? "结果"
       : task.studentStatus === "submitted"
-        ? "查看提交"
-        : task.taskType === "simulation"
-          ? "开始对话"
-          : "开始作答";
+        ? "查看"
+        : "开始";
   const canNavigate =
     task.canSubmit ||
+    isLate ||
     task.studentStatus === "submitted" ||
     task.studentStatus === "graded";
 
   return (
     <div
       className={cn(
-        "rounded-xl border bg-surface p-4 shadow-fs",
+        "rounded-xl border bg-surface px-3.5 py-3 shadow-fs",
         isUrgent
           ? "border-warn-soft border-l-[3px] border-l-warn"
           : "border-line",
       )}
     >
-      <div className="flex items-start gap-3.5">
+      <div className="flex items-center gap-3">
         <div
           className={cn(
-            "grid size-10 shrink-0 place-items-center rounded-[10px]",
+            "grid size-9 shrink-0 place-items-center rounded-[9px]",
             cfg.soft,
           )}
         >
-          <Icon className={cn("size-[18px]", cfg.fg)} />
+          <Icon className={cn("size-4", cfg.fg)} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline" className={cfg.chip}>
+          <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className={cn("px-1.5 py-0 text-[10.5px]", cfg.chip)}>
               {cfg.label}
             </Badge>
-            <Badge variant="secondary" className="bg-paper-alt text-ink-3">
+            <Badge variant="secondary" className="bg-paper-alt px-1.5 py-0 text-[10.5px] text-ink-3">
               {STATUS_LABELS[task.studentStatus]}
             </Badge>
+            {isLate && (
+              <Badge
+                variant="secondary"
+                className="bg-warn-soft px-1.5 py-0 text-[10.5px] text-warn"
+              >
+                扣 20%
+              </Badge>
+            )}
             {dueInfo && (
               <Badge
                 variant="secondary"
                 className={cn(
-                  "gap-1",
-                  dueInfo.isUrgent || task.studentStatus === "overdue"
+                  "gap-1 px-1.5 py-0 text-[10.5px]",
+                  dueInfo.isUrgent || isLate
                     ? "bg-warn-soft text-warn"
                     : "bg-paper-alt text-ink-3",
                 )}
@@ -221,10 +229,10 @@ function TaskRow({ task }: { task: PriorityTask }) {
               </Badge>
             )}
           </div>
-          <div className="text-[15px] font-semibold text-ink">
+          <div className="text-[13.5px] font-semibold leading-snug text-ink">
             {task.taskName}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] text-ink-3">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-ink-3">
             {metaParts.map((part, index) => (
               <span key={`${task.id}-${part}-${index}`} className={index === 0 ? "font-medium text-brand" : ""}>
                 {index > 0 && <span className="mr-1.5 text-ink-5">·</span>}
@@ -242,6 +250,15 @@ function TaskRow({ task }: { task: PriorityTask }) {
         <Button
           size="sm"
           variant={task.studentStatus === "todo" ? "default" : "secondary"}
+          className={cn(
+            "h-8 min-w-[64px] shrink-0 gap-1 rounded-lg px-3 text-[12px] font-semibold",
+            isLate &&
+              "border border-warn-soft bg-warn-soft text-warn hover:bg-warn-soft/80",
+            task.studentStatus === "submitted" &&
+              "bg-paper-alt text-ink-3 hover:bg-surface-tint",
+            task.studentStatus === "graded" &&
+              "bg-success-soft text-success hover:bg-success-soft/80",
+          )}
           disabled={!canNavigate}
           asChild={canNavigate}
         >

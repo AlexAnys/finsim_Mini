@@ -196,7 +196,6 @@ export async function getStudentDashboard(studentId: string, classId: string) {
 
     const attemptsUsed = subs.length;
     const canSubmit =
-      !isOverdue &&
       ti.status === "published" &&
       (!ti.attemptsAllowed || attemptsUsed < ti.attemptsAllowed);
 

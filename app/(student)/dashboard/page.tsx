@@ -26,10 +26,6 @@ import {
   type SubmissionAnalysisStatus,
 } from "@/components/instance-detail/submissions-utils";
 import {
-  CourseProgressSidebar,
-  type CourseProgressItem,
-} from "@/components/dashboard/course-progress-sidebar";
-import {
   AnnouncementSummary,
   type AnnouncementSummaryItem,
 } from "@/components/dashboard/announcement-summary";
@@ -333,34 +329,6 @@ export default function StudentDashboardPage() {
       });
   }, [data]);
 
-  const courseProgressItems = useMemo<CourseProgressItem[]>(() => {
-    if (!data) return [];
-    const tasksByCourse = new Map<string, { total: number; done: number }>();
-    for (const t of data.tasks) {
-      const cid = t.course?.id;
-      if (!cid) continue;
-      const bucket =
-        tasksByCourse.get(cid) ?? { total: 0, done: 0 };
-      bucket.total += 1;
-      if (t.studentStatus === "graded" || t.studentStatus === "submitted") {
-        bucket.done += 1;
-      }
-      tasksByCourse.set(cid, bucket);
-    }
-    return data.courses.map((c) => {
-      const bucket = tasksByCourse.get(c.id);
-      const progress =
-        bucket && bucket.total > 0
-          ? Math.round((bucket.done / bucket.total) * 100)
-          : 0;
-      return {
-        id: String(c.id),
-        name: c.courseTitle || "课程",
-        progress,
-      };
-    });
-  }, [data]);
-
   const announcementItems = useMemo<AnnouncementSummaryItem[]>(() => {
     if (!data) return [];
     const threeDaysAgoMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
@@ -545,7 +513,6 @@ export default function StudentDashboardPage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex min-w-0 flex-col gap-6">
-          <TodayClasses slots={todaySlots} dayLabel={todayLabel} />
           <PriorityTasks tasks={priorityTasks} />
           <RecentGrades items={recentGrades} />
         </div>
@@ -555,7 +522,7 @@ export default function StudentDashboardPage() {
             items={announcementItems}
             unreadCount={unreadAnnouncementCount}
           />
-          <CourseProgressSidebar items={courseProgressItems} />
+          <TodayClasses slots={todaySlots} dayLabel={todayLabel} />
         </div>
       </div>
     </div>

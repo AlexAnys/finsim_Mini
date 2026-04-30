@@ -8,6 +8,7 @@
 // 视觉对照 mockup：白底卡 + 顶部标题 + 4 段 form 控件 + 底部主按钮
 // 不引入新表单库 — 用 Input/Textarea/Select/Switch 与 grades 风格保持一致。
 
+import { useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import {
   Dialog,
@@ -66,6 +67,9 @@ const MODES: { key: StudyBuddyMode; label: string; desc: string }[] = [
   },
 ];
 
+const ALL_COURSES = "__all_courses";
+const ALL_CHAPTERS = "__all_chapters";
+
 export function StudyBuddyNewPostDialog({
   open,
   onOpenChange,
@@ -83,8 +87,51 @@ export function StudyBuddyNewPostDialog({
   onSelectedTaskInstanceIdChange,
   onSubmit,
 }: StudyBuddyNewPostDialogProps) {
-  const canSubmit =
+  const [courseFilter, setCourseFilter] = useState(ALL_COURSES);
+  const [chapterFilter, setChapterFilter] = useState(ALL_CHAPTERS);
+
+  const courseOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const task of tasks) {
+      const id = task.course?.id;
+      if (!id) continue;
+      map.set(id, task.course?.courseTitle || "未命名课程");
+    }
+    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+  }, [tasks]);
+
+  const chapterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const task of tasks) {
+      if (courseFilter !== ALL_COURSES && task.course?.id !== courseFilter) {
+        continue;
+      }
+      const id = task.chapter?.id;
+      if (!id) continue;
+      map.set(id, task.chapter?.title || "未命名章节");
+    }
+    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+  }, [courseFilter, tasks]);
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (courseFilter !== ALL_COURSES && task.course?.id !== courseFilter) {
+        return false;
+      }
+      if (chapterFilter !== ALL_CHAPTERS && task.chapter?.id !== chapterFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [chapterFilter, courseFilter, tasks]);
+
+  const selectedTaskStillVisible =
     selectedTaskInstanceId.length > 0 &&
+    filteredTasks.some((task) => task.id === selectedTaskInstanceId);
+  const taskSelectValue = selectedTaskStillVisible ? selectedTaskInstanceId : "";
+
+  const canSubmit =
+    selectedTaskStillVisible &&
     title.trim().length > 0 &&
     question.trim().length > 0 &&
     !isSubmitting;
@@ -105,27 +152,80 @@ export function StudyBuddyNewPostDialog({
           {/* 关联任务 */}
           <div className="space-y-1.5">
             <Label className="text-[12.5px] font-medium text-ink-2">
+              课程与章节
+            </Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Select
+                value={courseFilter}
+                onValueChange={(value) => {
+                  setCourseFilter(value);
+                  setChapterFilter(ALL_CHAPTERS);
+                  onSelectedTaskInstanceIdChange("");
+                }}
+                disabled={isSubmitting || tasks.length === 0}
+              >
+                <SelectTrigger className="h-9 w-full border-line bg-paper text-[13.5px]">
+                  <SelectValue placeholder="选择课程" />
+                </SelectTrigger>
+                <SelectContent position="popper" className="max-h-72">
+                  <SelectItem value={ALL_COURSES}>全部课程</SelectItem>
+                  {courseOptions.map((course) => (
+                    <SelectItem key={course.id} value={course.id}>
+                      {course.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={chapterFilter}
+                onValueChange={(value) => {
+                  setChapterFilter(value);
+                  onSelectedTaskInstanceIdChange("");
+                }}
+                disabled={isSubmitting || tasks.length === 0}
+              >
+                <SelectTrigger className="h-9 w-full border-line bg-paper text-[13.5px]">
+                  <SelectValue placeholder="选择章节" />
+                </SelectTrigger>
+                <SelectContent position="popper" className="max-h-72">
+                  <SelectItem value={ALL_CHAPTERS}>全部章节</SelectItem>
+                  {chapterOptions.map((chapter) => (
+                    <SelectItem key={chapter.id} value={chapter.id}>
+                      {chapter.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px] font-medium text-ink-2">
               关联任务
             </Label>
             <Select
-              value={selectedTaskInstanceId}
+              value={taskSelectValue}
               onValueChange={onSelectedTaskInstanceIdChange}
-              disabled={isSubmitting || tasks.length === 0}
+              disabled={isSubmitting || filteredTasks.length === 0}
             >
               <SelectTrigger className="h-9 w-full border-line bg-paper text-[13.5px]">
                 <SelectValue
                   placeholder={
-                    tasks.length > 0 ? "选择要关联的任务" : "暂无可关联任务"
+                    filteredTasks.length > 0 ? "选择要关联的任务" : "当前筛选下暂无任务"
                   }
                 />
               </SelectTrigger>
               <SelectContent position="popper" className="max-h-72">
-                {tasks.map((task) => {
+                {filteredTasks.map((task) => {
                   const courseTitle = task.course?.courseTitle ?? "未关联课程";
+                  const chapterTitle = task.chapter?.title ?? "未关联章节";
+                  const sectionTitle = task.section?.title ?? "";
                   const taskTitle = task.taskName ?? task.title ?? "未命名任务";
                   return (
                     <SelectItem key={task.id} value={task.id}>
-                      {courseTitle} · {taskTitle}
+                      {courseTitle} · {chapterTitle}
+                      {sectionTitle ? ` · ${sectionTitle}` : ""} · {taskTitle}
                     </SelectItem>
                   );
                 })}
