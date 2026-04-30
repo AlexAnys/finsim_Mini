@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "./ai.service";
 import { z } from "zod";
 import { readFile } from "fs/promises";
-import { PDFParse } from "pdf-parse";
+import { extractDocumentText } from "@/lib/services/document-ingestion.service";
 
 const STORAGE_BASE = (process.env.FILE_STORAGE_PATH || "./public/uploads").replace(/\/+$/, "");
 
@@ -54,34 +54,20 @@ async function processImportJob(jobId: string, userId: string) {
     const job = await prisma.importJob.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("JOB_NOT_FOUND");
 
-    // Read file and extract text
     const fullPath = `${STORAGE_BASE}/${job.filePath}`;
     const buffer = await readFile(fullPath);
-    let text = "";
+    const extracted = await extractDocumentText({
+      buffer,
+      fileName: job.fileName,
+      allowOcr: true,
+    });
 
-    if (job.fileName.toLowerCase().endsWith(".pdf")) {
-      try {
-        const pdf = new PDFParse({ data: new Uint8Array(buffer) });
-        const textResult = await pdf.getText();
-        text = textResult.text;
-        await pdf.destroy();
-      } catch {
-        // Fallback: extract printable characters
-        text = buffer.toString("utf-8")
-          .replace(/[^\x20-\x7E\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\n\r\t]/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-      }
-    } else {
-      text = buffer.toString("utf-8");
-    }
-
-    if (!text.trim()) {
-      throw new Error("无法从文件中提取文本内容");
+    if (extracted.status !== "ready" || !extracted.text.trim()) {
+      throw new Error(extracted.error || "无法从文件中提取文本内容");
     }
 
     // Truncate if too long
-    const truncatedText = text.slice(0, 15000);
+    const truncatedText = extracted.text.slice(0, 15000);
 
     // Use AI to extract questions
     const result = await aiGenerateJSON(

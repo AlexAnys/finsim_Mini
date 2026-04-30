@@ -51,7 +51,10 @@ describe("task wizard course-material AI draft integration", () => {
     expect(modal).toContain("sourceIds: selectedSourceIds");
     expect(modal).toContain("draftSourceLabel");
     expect(assistant).toContain("/api/lms/course-knowledge-sources");
-    expect(assistant).toContain('accept="application/pdf,.pdf"');
+    expect(assistant).toContain("application/pdf,.pdf");
+    expect(assistant).toContain(".docx");
+    expect(assistant).toContain(".zip");
+    expect(assistant).toContain("image/png");
   });
 
   it("adds a course detail context-materials tab for teacher managed context", () => {
@@ -61,7 +64,10 @@ describe("task wizard course-material AI draft integration", () => {
     expect(tab).toContain("教学上下文素材");
     expect(tab).toContain("任务定位");
     expect(tab).toContain("/api/lms/course-knowledge-sources");
-    expect(tab).toContain('accept="application/pdf,.pdf"');
+    expect(tab).toContain("application/pdf,.pdf");
+    expect(tab).toContain(".docx");
+    expect(tab).toContain(".zip");
+    expect(tab).toContain("image/png");
     expect(service).toContain("getKnowledgeSourcesForStudyBuddy");
     expect(service).toContain("教师补充课程素材");
   });

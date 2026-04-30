@@ -21,7 +21,10 @@ services:
       - MIMO_API_KEY=${MIMO_API_KEY:-}
       - MIMO_BASE_URL=${MIMO_BASE_URL:-https://token-plan-cn.xiaomimimo.com/v1}
       - MIMO_MODEL=${MIMO_MODEL:-mimo-v2.5-pro}
+      - MIMO_OCR_MODEL=${MIMO_OCR_MODEL:-mimo-v2-omni}
       - MIMO_ANTHROPIC_BASE_URL=${MIMO_ANTHROPIC_BASE_URL:-https://token-plan-cn.xiaomimimo.com/anthropic}
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-}
+      - SEARCH_API_KEY=${SEARCH_API_KEY:-}
       - QWEN_API_KEY=${QWEN_API_KEY:-}
       - QWEN_BASE_URL=${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - QWEN_MODEL=${QWEN_MODEL:-qwen-turbo}

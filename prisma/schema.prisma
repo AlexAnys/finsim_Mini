@@ -109,14 +109,26 @@ enum ImportJobStatus {
 
 enum KnowledgeSourceStatus {
   uploaded
+  extracting
+  ocr_required
+  ocr_processing
   processing
+  ai_summary_failed
   ready
   failed
 }
 
 enum KnowledgeSourceKind {
   pdf
+  docx
   text
+  zip
+  image
+}
+
+enum AiThinkingLevel {
+  disabled
+  enabled
 }
 
 enum ReleaseMode {
@@ -155,6 +167,7 @@ model User {
   analysisReports    AnalysisReport[]     @relation("ReportCreator")
   importJobs         ImportJob[]          @relation("ImportTeacher")
   knowledgeSources   CourseKnowledgeSource[] @relation("KnowledgeSourceTeacher")
+  aiToolSettings     AiToolSetting[]      @relation("AiToolSettingTeacher")
   auditLogs          AuditLog[]           @relation("AuditActor")
   collaboratingCourses CourseTeacher[]    @relation("CourseCollaborator")
 
@@ -829,7 +842,30 @@ model CourseKnowledgeSource {
 }
 
 // ============================================
-// 表 32: AuditLog（审计日志）
+// 表 32: AiToolSetting（教师 AI 工具设置）
+// ============================================
+model AiToolSetting {
+  id                 String          @id @default(uuid())
+  teacherId          String
+  toolKey            String          @db.VarChar(80)
+  model              String?         @db.VarChar(120)
+  thinking           AiThinkingLevel @default(disabled)
+  temperature        Float?
+  systemPromptSuffix String?         @db.Text
+  enableSearch       Boolean         @default(false)
+  strictness         String?         @db.VarChar(40)
+  outputStyle        String?         @db.VarChar(80)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  teacher User @relation("AiToolSettingTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, toolKey])
+  @@index([teacherId])
+}
+
+// ============================================
+// 表 33: AuditLog（审计日志）
 // ============================================
 model AuditLog {
   id         String   @id @default(uuid())
@@ -848,7 +884,7 @@ model AuditLog {
 }
 
 // ============================================
-// 表 33: CourseTeacher（课程协作教师）
+// 表 34: CourseTeacher（课程协作教师）
 // ============================================
 model CourseTeacher {
   id        String   @id @default(uuid())
@@ -864,7 +900,7 @@ model CourseTeacher {
 }
 
 // ============================================
-// 表 34: CourseClass（课程班级关联）
+// 表 35: CourseClass（课程班级关联）
 // ============================================
 model CourseClass {
   id        String   @id @default(uuid())

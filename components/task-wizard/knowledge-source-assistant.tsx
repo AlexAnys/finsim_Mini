@@ -15,7 +15,7 @@ import { toast } from "sonner";
 interface KnowledgeSourceItem {
   id: string;
   fileName: string;
-  status: "uploaded" | "processing" | "ready" | "failed";
+  status: "uploaded" | "extracting" | "ocr_required" | "ocr_processing" | "processing" | "ai_summary_failed" | "ready" | "failed";
   summary: string | null;
   conceptTags: string[];
   error: string | null;
@@ -40,6 +40,25 @@ const TASK_LABELS: Record<TaskType, string> = {
   quiz: "测验",
   subjective: "主观题",
 };
+
+function statusLabel(status: KnowledgeSourceItem["status"]) {
+  switch (status) {
+    case "ready":
+      return "可用";
+    case "ai_summary_failed":
+      return "文本可用";
+    case "ocr_required":
+      return "需 OCR";
+    case "failed":
+      return "失败";
+    case "extracting":
+      return "抽取中";
+    case "ocr_processing":
+      return "OCR 中";
+    default:
+      return "处理中";
+  }
+}
 
 export function KnowledgeSourceAssistant({
   courseId,
@@ -98,19 +117,19 @@ export function KnowledgeSourceAssistant({
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "PDF 上传解析失败");
+        toast.error(json.error?.message || "素材上传解析失败");
         return;
       }
       const source = json.data as { id: string; status: string; error?: string | null };
       await fetchSources();
-      if (source.status === "ready") {
+      if (source.status === "ready" || source.status === "ai_summary_failed") {
         onSelectedSourceIdsChange(Array.from(new Set([...selectedSourceIds, source.id])));
-        toast.success("PDF 已解析并加入本次草稿素材");
+        toast.success("素材已解析并加入本次草稿素材");
       } else {
-        toast.warning(source.error || "PDF 解析未完成，请查看素材状态");
+        toast.warning(source.error || "素材解析未完成，请查看素材状态");
       }
     } catch {
-      toast.error("PDF 上传解析失败");
+      toast.error("素材上传解析失败");
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -125,7 +144,7 @@ export function KnowledgeSourceAssistant({
     onSelectedSourceIdsChange(selectedSourceIds.filter((sourceId) => sourceId !== id));
   }
 
-  const readySources = sources.filter((source) => source.status === "ready");
+  const readySources = sources.filter((source) => source.status === "ready" || source.status === "ai_summary_failed");
 
   return (
     <WizardCard
@@ -163,12 +182,12 @@ export function KnowledgeSourceAssistant({
         <div className="rounded-lg border border-dashed border-line bg-paper-alt p-3">
           <div className="flex items-center gap-2 text-xs font-semibold text-ink-2">
             <Upload className="size-3.5" />
-            上传 PDF 素材
+            上传课程素材
           </div>
           <Input
             ref={inputRef}
             type="file"
-            accept="application/pdf,.pdf"
+            accept="application/pdf,.pdf,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
             className="mt-2 text-xs"
             disabled={uploading || generating}
             onChange={(event) => handleUpload(event.target.files?.[0] || null)}
@@ -179,7 +198,7 @@ export function KnowledgeSourceAssistant({
           {uploading && (
             <div className="mt-2 flex items-center gap-1.5 text-xs text-ink-4">
               <Loader2 className="size-3 animate-spin" />
-              正在解析 PDF...
+              正在解析素材...
             </div>
           )}
         </div>
@@ -204,7 +223,7 @@ export function KnowledgeSourceAssistant({
           ) : (
             <div className="grid gap-2">
               {sources.slice(0, 4).map((source) => {
-                const ready = source.status === "ready";
+                const ready = source.status === "ready" || source.status === "ai_summary_failed";
                 return (
                   <label
                     key={source.id}
@@ -222,7 +241,7 @@ export function KnowledgeSourceAssistant({
                           {source.fileName}
                         </span>
                         <Badge variant={ready ? "default" : "outline"} className="text-[10px]">
-                          {ready ? "可用" : source.status === "failed" ? "失败" : "处理中"}
+                          {statusLabel(source.status)}
                         </Badge>
                       </div>
                       <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-ink-4">

@@ -1,9 +1,16 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { PDFParse } from "pdf-parse";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "@/lib/services/ai.service";
+import {
+  detectDocumentKind,
+  extractDocumentText,
+  isReadableExtractedText,
+  type IngestedDocumentKind,
+} from "@/lib/services/document-ingestion.service";
+
+export { isReadableExtractedText };
 
 const STORAGE_BASE = (process.env.FILE_STORAGE_PATH || "./public/uploads").replace(/\/+$/, "");
 const AI_SOURCE_TEXT_LIMIT = 16000;
@@ -133,6 +140,7 @@ export async function createAndProcessCourseKnowledgeSource(input: {
       courseId: input.courseId,
       chapterId: input.chapterId || null,
       sectionId: input.sectionId || null,
+      kind: detectDocumentKind(input.fileName, input.mimeType),
       fileName: input.fileName,
       filePath: input.filePath,
       mimeType: input.mimeType,
@@ -146,7 +154,7 @@ export async function createAndProcessCourseKnowledgeSource(input: {
 export async function processCourseKnowledgeSource(sourceId: string, userId: string) {
   await prisma.courseKnowledgeSource.update({
     where: { id: sourceId },
-    data: { status: "processing", error: null },
+    data: { status: "extracting", error: null },
   });
 
   try {
@@ -155,8 +163,33 @@ export async function processCourseKnowledgeSource(sourceId: string, userId: str
     });
     if (!source || !source.filePath) throw new Error("KNOWLEDGE_SOURCE_NOT_FOUND");
 
-    const extractedText = await extractSourceText(source.filePath, source.fileName);
-    if (!extractedText.trim()) throw new Error("KNOWLEDGE_SOURCE_EMPTY");
+    const buffer = await readFile(join(STORAGE_BASE, source.filePath));
+    const extracted = await extractDocumentText({
+      buffer,
+      fileName: source.fileName,
+      mimeType: source.mimeType,
+      allowOcr: true,
+    });
+
+    await prisma.courseKnowledgeSource.update({
+      where: { id: sourceId },
+      data: {
+        kind: extracted.kind as IngestedDocumentKind,
+        status:
+          extracted.status === "ready"
+            ? "processing"
+            : extracted.status === "ocr_required"
+              ? "ocr_required"
+              : "failed",
+        extractedText: extracted.text || null,
+        error: extracted.error || extracted.warnings.join("；") || null,
+      },
+    });
+
+    if (extracted.status === "ocr_required") throw new Error("DOCUMENT_OCR_REQUIRED");
+    if (extracted.status !== "ready" || !extracted.text.trim()) throw new Error("KNOWLEDGE_SOURCE_EMPTY");
+
+    const extractedText = extracted.text;
 
     let summary: string | null = null;
     let conceptTags: string[] = [];
@@ -193,7 +226,7 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
     return prisma.courseKnowledgeSource.update({
       where: { id: sourceId },
       data: {
-        status: "ready",
+        status: aiError ? "ai_summary_failed" : "ready",
         extractedText,
         summary,
         conceptTags,
@@ -204,7 +237,7 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
     await prisma.courseKnowledgeSource.update({
       where: { id: sourceId },
       data: {
-        status: "failed",
+        status: errorMessage(err) === "DOCUMENT_OCR_REQUIRED" ? "ocr_required" : "failed",
         error: errorMessage(err),
       },
     });
@@ -222,7 +255,7 @@ export async function getKnowledgeSourcesForDraft(input: {
     where: {
       id: { in: input.sourceIds },
       courseId: input.courseId,
-      status: "ready",
+      status: { in: ["ready", "ai_summary_failed"] },
     },
     select: {
       id: true,
@@ -264,7 +297,7 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
   const sources = await prisma.courseKnowledgeSource.findMany({
     where: {
       courseId: input.courseId,
-      status: "ready",
+      status: { in: ["ready", "ai_summary_failed"] },
       OR: scopeOr,
     },
     orderBy: { updatedAt: "desc" },
@@ -285,62 +318,6 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
     conceptTags: source.conceptTags,
     excerpt: makeExcerpt((source.extractedText || "").slice(0, 3000)),
   }));
-}
-
-async function extractSourceText(filePath: string, fileName: string) {
-  const buffer = await readFile(join(STORAGE_BASE, filePath));
-
-  if (!fileName.toLowerCase().endsWith(".pdf")) {
-    return buffer.toString("utf-8").trim();
-  }
-
-  try {
-    const pdf = new PDFParse({ data: new Uint8Array(buffer) });
-    try {
-      const result = await pdf.getText();
-      const text = result.text.trim();
-      if (isReadableExtractedText(text)) return text;
-      throw new Error("KNOWLEDGE_SOURCE_UNREADABLE");
-    } finally {
-      await pdf.destroy();
-    }
-  } catch {
-    const fallbackText = buffer
-      .toString("utf-8")
-      .replace(/[^\x20-\x7E\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\n\r\t]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (isReadableExtractedText(fallbackText)) return fallbackText;
-    throw new Error("KNOWLEDGE_SOURCE_UNREADABLE");
-  }
-}
-
-export function isReadableExtractedText(text: string) {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length < 20) return false;
-  if (/^%PDF-\d/.test(normalized)) return false;
-
-  const artifactPatterns = [
-    /\bobj\b/i,
-    /\bendobj\b/i,
-    /\bxref\b/i,
-    /\btrailer\b/i,
-    /\/Type\b/i,
-    /\/Filter\b/i,
-    /\/Length\b/i,
-    /\bstream\b/i,
-    /\bendstream\b/i,
-  ];
-  const artifactHits = artifactPatterns.reduce(
-    (count, pattern) => count + (pattern.test(normalized) ? 1 : 0),
-    0,
-  );
-  if (artifactHits >= 3) return false;
-
-  const readableChars =
-    normalized.match(/[A-Za-z0-9\u4e00-\u9fff，。！？；、（）《》：,.!?;:()[\]\s-]/g)
-      ?.length || 0;
-  return readableChars / normalized.length > 0.55;
 }
 
 function dedupeTags(tags: string[]) {

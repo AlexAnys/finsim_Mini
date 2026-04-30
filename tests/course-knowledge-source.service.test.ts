@@ -139,7 +139,9 @@ describe("getKnowledgeSourcesForStudyBuddy", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           courseId: "course-1",
-          status: "ready",
+          status: expect.objectContaining({
+            in: expect.arrayContaining(["ready", "ai_summary_failed"]),
+          }),
           OR: expect.arrayContaining([
             { chapterId: null, sectionId: null },
             { chapterId: "chapter-1", sectionId: null },

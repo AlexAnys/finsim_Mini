@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       return validationError("缺少 taskId");
     }
 
-    const validation = validateFile(file.type, file.size, ["pdf"]);
+    const validation = validateFile(file.type, file.size, ["document"]);
     if (!validation.valid) {
       return validationError(validation.error!);
     }

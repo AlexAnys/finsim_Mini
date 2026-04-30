@@ -43,13 +43,13 @@ export async function POST(request: NextRequest) {
     const sectionId = (formData.get("sectionId") as string | null) || null;
 
     if (!courseId) return validationError("缺少 courseId");
-    if (!file) return validationError("请选择要上传的 PDF");
+    if (!file) return validationError("请选择要上传的课程素材");
 
     const user = result.session.user;
     await assertCourseAccess(courseId, user.id, user.role);
     await assertKnowledgeSourceScope({ courseId, chapterId, sectionId });
 
-    const validation = validateFile(file.type, file.size, ["pdf"]);
+    const validation = validateFile(file.type, file.size, ["document"]);
     if (!validation.valid) return validationError(validation.error!);
 
     const buffer = Buffer.from(await file.arrayBuffer());

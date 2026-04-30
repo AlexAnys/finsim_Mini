@@ -117,9 +117,10 @@ export function handleServiceError(err: unknown) {
       case "KNOWLEDGE_SOURCE_EMPTY":
         return error("KNOWLEDGE_SOURCE_EMPTY", "无法从课程素材中提取文本内容", 400);
       case "KNOWLEDGE_SOURCE_UNREADABLE":
+      case "DOCUMENT_OCR_REQUIRED":
         return error(
-          "KNOWLEDGE_SOURCE_UNREADABLE",
-          "PDF 文本识别失败，请上传可复制文字的 PDF，或稍后接入 OCR 后再处理扫描版文件",
+          "DOCUMENT_OCR_REQUIRED",
+          "该文件需要 OCR 才能识别。当前已保留文件，请配置 OCR provider，或上传可复制文字的 PDF/DOCX/TXT。",
           400,
         );
       case "NO_GRADED_SUBMISSIONS":
@@ -136,6 +137,8 @@ export function handleServiceError(err: unknown) {
         return error("AGGREGATE_TOO_FREQUENT", "聚合操作过于频繁，请稍后再试", 429);
       case "AGGREGATE_IN_PROGRESS":
         return error("AGGREGATE_IN_PROGRESS", "聚合任务正在进行，请稍后再试", 429);
+      case "AI_TOOL_NOT_FOUND":
+        return error("AI_TOOL_NOT_FOUND", "AI 工具不存在", 404);
       case "INPUT_TOO_LARGE":
         return error("INPUT_TOO_LARGE", "输入内容超出长度限制", 400);
       default:

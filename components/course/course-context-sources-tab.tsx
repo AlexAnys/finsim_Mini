@@ -41,7 +41,7 @@ interface ContextChapter {
 interface KnowledgeSourceItem {
   id: string;
   fileName: string;
-  status: "uploaded" | "processing" | "ready" | "failed";
+  status: "uploaded" | "extracting" | "ocr_required" | "ocr_processing" | "processing" | "ai_summary_failed" | "ready" | "failed";
   summary: string | null;
   conceptTags: string[];
   error: string | null;
@@ -69,6 +69,25 @@ const SLOT_LABELS: Record<string, string> = {
   in: "课中",
   post: "课后",
 };
+
+function statusLabel(status: KnowledgeSourceItem["status"]) {
+  switch (status) {
+    case "ready":
+      return "可用";
+    case "ai_summary_failed":
+      return "文本可用";
+    case "ocr_required":
+      return "需 OCR";
+    case "failed":
+      return "失败";
+    case "extracting":
+      return "抽取中";
+    case "ocr_processing":
+      return "OCR 中";
+    default:
+      return "处理中";
+  }
+}
 
 export function CourseContextSourcesTab({
   courseId,
@@ -175,13 +194,18 @@ export function CourseContextSourcesTab({
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "PDF 上传解析失败");
+        toast.error(json.error?.message || "素材上传解析失败");
         return;
       }
-      toast.success("PDF 已解析为教学上下文素材");
+      const source = json.data as KnowledgeSourceItem;
+      if (source.status === "ready" || source.status === "ai_summary_failed") {
+        toast.success("素材已解析为教学上下文");
+      } else {
+        toast.warning(source.error || "素材已保存，但仍需处理");
+      }
       await fetchSources();
     } catch {
-      toast.error("PDF 上传解析失败");
+      toast.error("素材上传解析失败");
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -296,7 +320,7 @@ export function CourseContextSourcesTab({
               <Input
                 ref={inputRef}
                 type="file"
-                accept="application/pdf,.pdf"
+                accept="application/pdf,.pdf,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
                 className="w-full max-w-[320px] bg-surface text-xs"
                 disabled={uploading}
                 onChange={(event) => handleUpload(event.target.files?.[0] || null)}
@@ -323,7 +347,7 @@ export function CourseContextSourcesTab({
             <div className="flex flex-col items-center justify-center rounded-lg border border-line bg-paper-alt py-10 text-center">
               <BookOpen className="mb-2 size-8 text-ink-5" />
               <p className="text-sm font-medium text-ink-3">当前范围暂无素材</p>
-              <p className="mt-1 text-xs text-ink-5">上传 PDF 后，系统会抽取文本、摘要和概念标签。</p>
+              <p className="mt-1 text-xs text-ink-5">上传 PDF、Word、TXT、ZIP 或图片后，系统会抽取文本、摘要和概念标签。</p>
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -338,9 +362,15 @@ export function CourseContextSourcesTab({
                         <div className="truncate text-sm font-semibold text-ink">{source.fileName}</div>
                         <Badge
                           variant="secondary"
-                          className={source.status === "ready" ? "bg-success-soft text-success" : "bg-paper-alt text-ink-4"}
+                          className={
+                            source.status === "ready" || source.status === "ai_summary_failed"
+                              ? "bg-success-soft text-success"
+                              : source.status === "ocr_required"
+                                ? "bg-warn-soft text-warn"
+                                : "bg-paper-alt text-ink-4"
+                          }
                         >
-                          {source.status}
+                          {statusLabel(source.status)}
                         </Badge>
                       </div>
                       {source.summary && (

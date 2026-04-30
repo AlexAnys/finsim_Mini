@@ -48,6 +48,19 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
   pdf: ["application/pdf"],
   word: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  text: ["text/plain", "text/markdown"],
+  zip: ["application/zip", "application/x-zip-compressed"],
+  document: [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+    "text/markdown",
+    "application/zip",
+    "application/x-zip-compressed",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ],
 };
 
 export function validateFile(
