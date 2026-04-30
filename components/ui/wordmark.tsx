@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 interface WordmarkProps {
@@ -14,15 +15,13 @@ export function Wordmark({
   showText = true,
 }: WordmarkProps) {
   const markSize = size;
-  const svgSize = Math.round(size * 0.55);
   const fontSize = Math.round(size * 0.62);
 
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
       <div
         className={cn(
-          "relative grid place-items-center shrink-0",
-          mono ? "bg-brand" : "bg-brand",
+          "relative grid shrink-0 place-items-center overflow-hidden bg-brand",
         )}
         style={{
           width: markSize,
@@ -30,35 +29,27 @@ export function Wordmark({
           borderRadius: markSize * 0.25,
           boxShadow: mono
             ? "none"
-            : "inset 0 -2px 0 var(--fs-accent)",
+            : "0 8px 22px rgba(23,39,95,0.12), inset 0 0 0 1px rgba(255,255,255,0.12)",
         }}
       >
-        <svg
-          width={svgSize}
-          height={svgSize}
-          viewBox="0 0 20 20"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M3 14 L7 10 L11 12 L17 5"
-            stroke="#fff"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx="17" cy="5" r="1.4" fill="var(--fs-accent)" />
-        </svg>
+        <Image
+          src="/brand/lingxi-logo.png"
+          alt="灵析"
+          width={96}
+          height={96}
+          className="h-full w-full object-cover"
+          priority
+        />
       </div>
       {showText && (
         <div
           className={cn(
-            "font-bold tracking-tight leading-none",
+            "font-bold leading-none",
             mono ? "text-white" : "text-ink",
           )}
           style={{
             fontSize,
-            letterSpacing: "-0.02em",
+            letterSpacing: 0,
           }}
         >
           灵

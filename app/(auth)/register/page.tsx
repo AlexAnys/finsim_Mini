@@ -5,6 +5,9 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import { AuthLayout } from "@/components/auth/auth-layout";
+import { LoginHero } from "@/components/auth/login-hero";
+import { ValueOrbitStrip } from "@/components/auth/value-orbit-strip";
 import {
   Select,
   SelectContent,
@@ -147,112 +150,18 @@ export default function RegisterPage() {
   }
 
   const inputClass =
-    "w-full rounded-[7px] border border-line bg-paper-alt px-3.5 py-2.5 text-[13px] text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
+    "h-11 w-full rounded-[8px] border border-[rgba(23,39,95,0.16)] bg-[rgba(250,248,242,0.72)] px-3.5 text-[13px] text-[var(--text-main)] shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] outline-none transition duration-200 placeholder:text-[rgba(107,114,128,0.68)] focus:border-[var(--brand-indigo)] focus:bg-white focus:ring-[3px] focus:ring-[rgba(18,214,214,0.16)] disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
-      {/* LEFT · brand hero */}
-      <aside
-        className="relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:justify-between lg:px-16 lg:py-16"
-        style={{
-          background:
-            "linear-gradient(135deg, var(--fs-primary-deep) 0%, var(--fs-primary-lift) 100%)",
-        }}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full"
-          style={{ background: "color-mix(in oklab, var(--fs-sim) 30%, transparent)" }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full"
-          style={{ background: "color-mix(in oklab, var(--fs-primary) 25%, transparent)" }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.08]"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, #fff 1px, transparent 0)",
-            backgroundSize: "24px 24px",
-          }}
-        />
-
-        <div className="relative flex items-center gap-3">
-          <div
-            className="grid h-9 w-9 place-items-center rounded-lg text-[15px] font-bold"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
-            }}
-          >
-            灵
-          </div>
-          <div>
-            <div className="text-[15px] font-semibold">灵析 AI</div>
-            <div className="mt-0.5 text-[10.5px] text-white/55">
-              AI 把课堂的隐性问题，变成可视的行动
-            </div>
-          </div>
-        </div>
-
-        <div className="relative">
-          <h2 className="mb-4 text-4xl font-semibold leading-tight tracking-tight">
-            把每节课的隐性问题，
-            <br />
-            <span style={{ color: "var(--fs-sim)" }}>变成可视的行动</span>。
-          </h2>
-          <p className="max-w-[480px] text-sm leading-relaxed text-white/75">
-            无论你是教师还是学生，灵析都把对话、答题、提交背后的盲区与差异，转化成清晰的下一步。
-          </p>
-        </div>
-
-        <div className="relative grid grid-cols-3 gap-3.5">
-          {[
-            { n: "对话", l: "8 档情绪 · AI 客户" },
-            { n: "诊断", l: "薄弱概念聚合" },
-            { n: "中文", l: "全程本地化" },
-          ].map((s) => (
-            <div
-              key={s.l}
-              className="rounded-[10px] border border-white/10 bg-white/[0.08] px-3.5 py-3"
-            >
-              <div className="fs-num text-[22px] font-bold tracking-tight">
-                {s.n}
-              </div>
-              <div className="mt-0.5 text-[11px] text-white/60">{s.l}</div>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      {/* RIGHT · form */}
-      <main className="flex items-center justify-center px-6 py-12 lg:px-12">
-        <div className="w-full max-w-[400px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div
-              className="grid h-10 w-10 place-items-center rounded-lg text-base font-bold text-white"
-              style={{
-                background:
-                  "linear-gradient(135deg, var(--fs-sim), var(--fs-primary))",
-              }}
-            >
-              灵
-            </div>
-            <div>
-              <div className="text-base font-semibold text-ink">灵析 AI</div>
-              <div className="text-[11px] text-ink-4">
-                AI 把课堂的隐性问题，变成可视的行动
-              </div>
-            </div>
-          </div>
-
+    <AuthLayout>
+      <LoginHero />
+      <div className="w-full">
+        <section className="auth-fade-up auth-fade-up-delay mx-auto w-full max-w-[410px]">
           <div
             role="group"
             aria-label="选择注册角色"
-            className="mb-7 flex rounded-lg p-1"
-            style={{ background: "var(--fs-bg-alt)" }}
+            className="mb-7 grid grid-cols-2 rounded-[8px] border bg-[rgba(250,248,242,0.7)] p-1"
+            style={{ borderColor: "rgba(23,39,95,0.1)" }}
           >
             {[
               { k: "student" as const, label: "学生注册", sub: "加入老师的课堂" },
@@ -270,34 +179,42 @@ export default function RegisterPage() {
                     setInlineError(null);
                   }}
                   disabled={isLoading}
-                  className="flex-1 rounded-md px-3 py-2.5 text-left transition-shadow"
+                  className="rounded-[7px] px-3 py-2.5 text-left transition duration-200 disabled:opacity-60"
                   style={{
-                    background: active ? "var(--fs-surface)" : "transparent",
-                    boxShadow: active ? "var(--fs-shadow)" : "none",
+                    background: active ? "rgba(255,255,255,0.78)" : "transparent",
+                    boxShadow: active
+                      ? "0 1px 2px rgba(23,39,95,0.08), 0 8px 22px rgba(23,39,95,0.05)"
+                      : "none",
                   }}
                 >
                   <div
                     className="text-[12.5px] font-semibold"
-                    style={{ color: active ? "var(--fs-ink)" : "var(--fs-ink-4)" }}
+                    style={{
+                      color: active ? "var(--text-main)" : "rgba(107,114,128,0.82)",
+                    }}
                   >
                     {r.label}
                   </div>
-                  <div className="mt-px text-[10.5px] text-ink-5">{r.sub}</div>
+                  <div className="mt-px text-[10.5px] text-[rgba(107,114,128,0.72)]">
+                    {r.sub}
+                  </div>
                 </button>
               );
             })}
           </div>
 
-          <h1 className="text-[28px] font-semibold tracking-tight text-ink">
-            创建账号
-          </h1>
-          <p className="mb-7 mt-1.5 text-[13px] leading-relaxed text-ink-4">
-            填写下面的信息加入灵析。
-          </p>
+          <div className="mb-7">
+            <h1 className="text-[30px] font-semibold leading-tight text-[var(--text-main)]">
+              创建账号
+            </h1>
+            <p className="mt-2 text-[13px] leading-6 text-[var(--text-muted)]">
+              填写下面的信息加入灵析，账号会自动进入对应学习或教学空间。
+            </p>
+          </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
+              <div className="mb-1.5 text-[11.5px] font-semibold text-[rgba(16,24,39,0.7)]">
                 姓名
               </div>
               <input
@@ -312,7 +229,7 @@ export default function RegisterPage() {
             </label>
 
             <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
+              <div className="mb-1.5 text-[11.5px] font-semibold text-[rgba(16,24,39,0.7)]">
                 邮箱
               </div>
               <input
@@ -327,7 +244,7 @@ export default function RegisterPage() {
             </label>
 
             <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
+              <div className="mb-1.5 text-[11.5px] font-semibold text-[rgba(16,24,39,0.7)]">
                 密码
               </div>
               <input
@@ -342,7 +259,7 @@ export default function RegisterPage() {
             </label>
 
             <label className="block">
-              <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
+              <div className="mb-1.5 text-[11.5px] font-semibold text-[rgba(16,24,39,0.7)]">
                 确认密码
               </div>
               <input
@@ -358,7 +275,7 @@ export default function RegisterPage() {
 
             {role === "student" && (
               <label className="block">
-                <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
+                <div className="mb-1.5 text-[11.5px] font-semibold text-[rgba(16,24,39,0.7)]">
                   班级
                 </div>
                 <Select
@@ -366,7 +283,7 @@ export default function RegisterPage() {
                   onValueChange={setClassId}
                   disabled={isLoading || classesLoading}
                 >
-                  <SelectTrigger className="w-full rounded-[7px] border border-line bg-paper-alt px-3.5 py-2.5 text-[13px] text-ink">
+                  <SelectTrigger className="h-11 w-full rounded-[8px] border border-[rgba(23,39,95,0.16)] bg-[rgba(250,248,242,0.72)] px-3.5 text-[13px] text-[var(--text-main)] shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] focus:ring-[3px] focus:ring-[rgba(18,214,214,0.16)]">
                     <SelectValue
                       placeholder={classesLoading ? "加载中..." : "请选择班级"}
                     />
@@ -390,7 +307,7 @@ export default function RegisterPage() {
 
             {role === "teacher" && (
               <label className="block">
-                <div className="mb-1.5 text-[11.5px] font-semibold text-ink-3">
+                <div className="mb-1.5 text-[11.5px] font-semibold text-[rgba(16,24,39,0.7)]">
                   教师注册密钥
                 </div>
                 <input
@@ -421,36 +338,40 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="mt-2 w-full rounded-lg py-3 text-[13px] font-semibold text-white transition disabled:opacity-60"
-              style={{ background: "var(--fs-ink)" }}
+              className="mt-2 h-11 w-full rounded-[8px] text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(23,39,95,0.16)] transition duration-200 hover:-translate-y-px hover:shadow-[0_16px_34px_rgba(18,214,214,0.14),0_10px_28px_rgba(123,97,255,0.13)] disabled:translate-y-0 disabled:opacity-60"
+              style={{
+                background:
+                  "linear-gradient(135deg, #24357D 0%, #17275F 50%, #1D3B8F 100%)",
+              }}
             >
               {isLoading ? "注册中..." : "注册"}
             </button>
           </form>
 
           <div className="my-6 flex items-center gap-2.5">
-            <div className="h-px flex-1 bg-line" />
-            <span className="text-[11px] text-ink-5">或</span>
-            <div className="h-px flex-1 bg-line" />
+            <div className="h-px flex-1 bg-[var(--line-soft)]" />
+            <span className="text-[11px] text-[rgba(107,114,128,0.72)]">或</span>
+            <div className="h-px flex-1 bg-[var(--line-soft)]" />
           </div>
 
-          <p className="text-center text-[12.5px] text-ink-4">
+          <p className="text-center text-[12.5px] text-[var(--text-muted)]">
             已有账号？{" "}
             <Link
               href="/login"
-              className="font-medium text-brand underline-offset-4 hover:underline"
+              className="font-medium text-[var(--brand-indigo)] underline-offset-4 transition hover:text-[var(--brand-blue)] hover:underline"
             >
               立即登录
             </Link>
           </p>
 
-          <div className="mt-7 text-center text-[11px] leading-relaxed text-ink-5">
+          <div className="mt-7 text-center text-[11px] leading-relaxed text-[rgba(107,114,128,0.78)]">
             注册即代表你同意{" "}
-            <span className="text-ink-4">使用条款</span> 与{" "}
-            <span className="text-ink-4">隐私政策</span>
+            <span className="text-[rgba(16,24,39,0.62)]">使用条款</span> 与{" "}
+            <span className="text-[rgba(16,24,39,0.62)]">隐私政策</span>
           </div>
-        </div>
-      </main>
-    </div>
+        </section>
+        <ValueOrbitStrip />
+      </div>
+    </AuthLayout>
   );
 }

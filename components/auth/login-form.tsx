@@ -6,11 +6,8 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
 
-type RoleHint = "student" | "teacher";
-
 export function LoginForm() {
   const router = useRouter();
-  const [roleHint, setRoleHint] = useState<RoleHint>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -63,14 +60,12 @@ export function LoginForm() {
 
   return (
     <section className="auth-fade-up auth-fade-up-delay mx-auto w-full max-w-[410px]">
-      <RoleHintSwitch roleHint={roleHint} onChange={setRoleHint} />
-
       <div className="mb-7">
         <h2 className="text-[30px] font-semibold leading-tight text-[var(--text-main)]">
           欢迎回来
         </h2>
         <p className="mt-2 text-[13px] leading-6 text-[var(--text-muted)]">
-          继续进入课堂洞察工作台，查看学生信号与教学建议。
+          使用你的学校邮箱进入灵析，继续学习任务、课堂信号与教学建议。
         </p>
       </div>
 
@@ -170,55 +165,5 @@ export function LoginForm() {
         </a>
       </div>
     </section>
-  );
-}
-
-function RoleHintSwitch({
-  roleHint,
-  onChange,
-}: {
-  roleHint: RoleHint;
-  onChange: (value: RoleHint) => void;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label="登录身份提示"
-      className="mb-7 grid grid-cols-2 rounded-[8px] border bg-[rgba(250,248,242,0.7)] p-1"
-      style={{ borderColor: "rgba(23,39,95,0.1)" }}
-    >
-      {[
-        { k: "student" as const, label: "学生登录", sub: "使用学校邮箱登录" },
-        { k: "teacher" as const, label: "教师登录", sub: "使用工作邮箱登录" },
-      ].map((r) => {
-        const active = roleHint === r.k;
-        return (
-          <button
-            key={r.k}
-            type="button"
-            onClick={() => onChange(r.k)}
-            className="rounded-[7px] px-3 py-2.5 text-left transition duration-200"
-            style={{
-              background: active ? "rgba(255,255,255,0.78)" : "transparent",
-              boxShadow: active
-                ? "0 1px 2px rgba(23,39,95,0.08), 0 8px 22px rgba(23,39,95,0.05)"
-                : "none",
-            }}
-          >
-            <div
-              className="text-[12.5px] font-semibold"
-              style={{
-                color: active ? "var(--text-main)" : "rgba(107,114,128,0.82)",
-              }}
-            >
-              {r.label}
-            </div>
-            <div className="mt-px text-[10.5px] text-[rgba(107,114,128,0.72)]">
-              {r.sub}
-            </div>
-          </button>
-        );
-      })}
-    </div>
   );
 }

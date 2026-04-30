@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { CalendarDays, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ interface GreetingHeroProps {
   }>;
   suffix?: string;
   continueHref?: string;
+  accessory?: ReactNode;
 }
 
 function greetingWord(now: Date = new Date()): string {
@@ -37,6 +39,7 @@ export function GreetingHero({
   summaryParts,
   suffix,
   continueHref = "/courses",
+  accessory,
 }: GreetingHeroProps) {
   const greeting = greetingWord();
 
@@ -49,7 +52,7 @@ export function GreetingHero({
         </h1>
         {summaryParts.length > 0 && (
           <div className="mt-1 text-sm text-ink-3">
-            你今天{" "}
+            接下来{" "}
             {summaryParts.map((p, i) => (
               <span key={p.label}>
                 {i > 0 && "、"}
@@ -62,19 +65,22 @@ export function GreetingHero({
           </div>
         )}
       </div>
-      <div className="flex flex-shrink-0 items-center gap-2">
-        <Button variant="secondary" size="sm" asChild>
-          <Link href="/schedule">
-            <CalendarDays className="size-[13px]" />
-            我的课表
-          </Link>
-        </Button>
-        <Button variant="default" size="sm" asChild>
-          <Link href={continueHref}>
-            <Play className="size-[11px]" />
-            继续学习
-          </Link>
-        </Button>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
+        {accessory}
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <Button variant="secondary" size="sm" asChild>
+            <Link href="/schedule">
+              <CalendarDays className="size-[13px]" />
+              我的课表
+            </Link>
+          </Button>
+          <Button variant="default" size="sm" asChild>
+            <Link href={continueHref}>
+              <Play className="size-[11px]" />
+              继续学习
+            </Link>
+          </Button>
+        </div>
       </div>
     </div>
   );

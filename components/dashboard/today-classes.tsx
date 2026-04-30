@@ -11,6 +11,8 @@ interface TodaySlot {
   id: string;
   courseId: string;
   courseTitle: string;
+  dateLabel?: string;
+  dayLabel?: string;
   timeLabel: string;
   classroom?: string | null;
   teacherName?: string | null;
@@ -27,14 +29,14 @@ export function TodayClasses({ slots, dayLabel }: TodayClassesProps) {
   return (
     <section>
       <header className="mb-2.5 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-ink-2">今日课程</h2>
+        <h2 className="text-[15px] font-semibold text-ink-2">未来课程</h2>
         <span className="text-xs text-ink-4">
-          {slots.length > 0 ? `${slots.length} 节 · ${dayLabel}` : dayLabel}
+          {slots.length > 0 ? `未来 ${slots.length} 节` : dayLabel}
         </span>
       </header>
       {slots.length === 0 ? (
         <Card className="py-6">
-          <p className="text-center text-sm text-ink-4">今日无课程</p>
+          <p className="text-center text-sm text-ink-4">暂无未来课程</p>
         </Card>
       ) : (
         <Card className="py-0 gap-0 overflow-hidden">
@@ -54,7 +56,8 @@ export function TodayClasses({ slots, dayLabel }: TodayClassesProps) {
                   style={{ backgroundColor: tagColor }}
                 />
                 <div className="fs-num w-[100px] shrink-0 text-[12.5px] text-ink-2">
-                  {s.timeLabel}
+                  <div>{s.dateLabel || s.dayLabel || dayLabel}</div>
+                  <div className="mt-0.5 text-[11px] text-ink-4">{s.timeLabel}</div>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13.5px] font-medium text-ink-2">

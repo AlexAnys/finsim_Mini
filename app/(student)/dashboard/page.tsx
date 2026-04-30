@@ -77,6 +77,35 @@ function currentWeekLabel(
   return `第 ${week} 教学周`;
 }
 
+function dayLabelFromDate(date: Date): string {
+  const dayIdx = date.getDay() === 0 ? 6 : date.getDay() - 1;
+  return WEEKDAY_LABELS[dayIdx];
+}
+
+function formatScheduleDate(date: Date, now: Date): string {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+  if (diffDays === 0) return `今天 ${dayLabelFromDate(date)}`;
+  if (diffDays === 1) return `明天 ${dayLabelFromDate(date)}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${dayLabelFromDate(date)}`;
+}
+
+function timeRangeMinutes(timeLabel: unknown): { start: number; end: number } | null {
+  if (typeof timeLabel !== "string") return null;
+  const match = timeLabel.match(
+    /(\d{1,2}):(\d{2})[^\d]+(\d{1,2}):(\d{2})/,
+  );
+  if (!match) return null;
+  const [, sh, sm, eh, em] = match;
+  return {
+    start: Number(sh) * 60 + Number(sm),
+    end: Number(eh) * 60 + Number(em),
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isTaskPending(t: Record<string, any>): boolean {
   const status = t.studentStatus as string | undefined;
@@ -132,19 +161,36 @@ export default function StudentDashboardPage() {
   const todaySlots = useMemo(() => {
     if (!data) return [];
     const now = new Date();
-    const jsDay = now.getDay();
-    const todayDayOfWeek = jsDay === 0 ? 7 : jsDay;
-    const currentH = now.getHours();
-    const currentM = now.getMinutes();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+    const candidates: Array<{
+      id: string;
+      courseId: string;
+      courseTitle: string;
+      dateLabel: string;
+      dayLabel: string;
+      timeLabel: string;
+      classroom: string | null;
+      teacherName: null;
+      inProgress: boolean;
+      href: string;
+      sortKey: number;
+    }> = [];
 
-    return data.scheduleSlots
-      .filter((s) => s.dayOfWeek === todayDayOfWeek)
-      .map((s) => {
+    for (const s of data.scheduleSlots) {
+      const targetDayOfWeek = Number(s.dayOfWeek);
+      const range = timeRangeMinutes(s.timeLabel);
+      for (let offset = 0; offset <= 56; offset += 1) {
+        const date = new Date(now);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() + offset);
+        const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
+        if (dayOfWeek !== targetDayOfWeek) continue;
+
         const semesterStart = s.course?.semesterStartDate
           ? new Date(s.course.semesterStartDate)
           : null;
         const weekNumber = semesterStart
-          ? getCurrentWeekNumber(semesterStart)
+          ? getCurrentWeekNumber(semesterStart, date)
           : 0;
         const weekType = (s.weekType || "all") as "all" | "odd" | "even";
         if (
@@ -156,48 +202,67 @@ export default function StudentDashboardPage() {
             weekType,
           )
         ) {
-          return null;
+          continue;
         }
 
-        // Parse timeLabel like "08:00-09:40" for in-progress check
-        let inProgress = false;
-        if (typeof s.timeLabel === "string") {
-          const match = s.timeLabel.match(
-            /(\d{1,2}):(\d{2})[^\d]+(\d{1,2}):(\d{2})/,
-          );
-          if (match) {
-            const [, sh, sm, eh, em] = match;
-            const startMin = Number(sh) * 60 + Number(sm);
-            const endMin = Number(eh) * 60 + Number(em);
-            const nowMin = currentH * 60 + currentM;
-            inProgress = nowMin >= startMin && nowMin < endMin;
-          }
-        }
+        if (offset === 0 && range && currentMin > range.end) continue;
 
-        return {
-          id: String(s.id),
+        const sortKey =
+          date.getTime() + (range ? range.start * 60 * 1000 : Number(s.slotIndex || 0));
+        candidates.push({
+          id: `${String(s.id)}-${date.toISOString().slice(0, 10)}`,
           courseId: String(s.course?.id ?? s.courseId ?? ""),
           courseTitle: s.course?.courseTitle || "未知课程",
+          dateLabel: formatScheduleDate(date, now),
+          dayLabel: dayLabelFromDate(date),
           timeLabel: s.timeLabel || "",
           classroom: s.classroom ?? null,
           teacherName: null,
-          inProgress,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x != null)
-      .sort((a, b) => a.timeLabel.localeCompare(b.timeLabel));
+          inProgress:
+            offset === 0 &&
+            Boolean(range && currentMin >= range.start && currentMin < range.end),
+          href: `/courses/${String(s.course?.id ?? s.courseId ?? "")}`,
+          sortKey,
+        });
+        break;
+      }
+    }
+
+    return candidates
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .slice(0, 5)
+      .map((slot) => ({
+        id: slot.id,
+        courseId: slot.courseId,
+        courseTitle: slot.courseTitle,
+        dateLabel: slot.dateLabel,
+        dayLabel: slot.dayLabel,
+        timeLabel: slot.timeLabel,
+        classroom: slot.classroom,
+        teacherName: slot.teacherName,
+        inProgress: slot.inProgress,
+        href: slot.href,
+      }));
   }, [data]);
 
   const priorityTasks = useMemo<PriorityTask[]>(() => {
     if (!data) return [];
-    return data.tasks
-      .filter(isTaskPending)
+    return [...data.tasks]
       .sort((a, b) => {
+        const statusWeight = (status: string | undefined) => {
+          if (status === "overdue") return 0;
+          if (status === "todo") return 1;
+          if (status === "submitted") return 2;
+          return 3;
+        };
+        const weightDiff =
+          statusWeight(a.studentStatus as string | undefined) -
+          statusWeight(b.studentStatus as string | undefined);
+        if (weightDiff !== 0) return weightDiff;
         const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
         const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
         return aDue - bDue;
       })
-      .slice(0, 3)
       .map((t) => ({
         id: t.id,
         taskType: (t.task?.taskType ||
@@ -207,9 +272,21 @@ export default function StudentDashboardPage() {
         courseId: t.course?.id ?? null,
         courseTitle: t.course?.courseTitle || "",
         chapterTitle: t.chapter?.title ?? null,
+        sectionTitle: t.section?.title ?? null,
+        slot:
+          t.slot === "pre" || t.slot === "in" || t.slot === "post"
+            ? t.slot
+            : null,
         dueAt: t.dueAt ?? null,
         attemptsAllowed: t.attemptsAllowed ?? null,
+        attemptsUsed: t.attemptsUsed ?? null,
         canSubmit: Boolean(t.canSubmit),
+        studentStatus:
+          t.studentStatus === "submitted" ||
+          t.studentStatus === "graded" ||
+          t.studentStatus === "overdue"
+            ? t.studentStatus
+            : "todo",
         questionCount: null,
       }));
   }, [data]);
@@ -393,7 +470,7 @@ export default function StudentDashboardPage() {
   const summaryParts: React.ComponentProps<typeof GreetingHero>["summaryParts"] = [];
   if (todaySlots.length > 0) {
     summaryParts.push({
-      label: "节课",
+      label: "节未来课",
       value: todaySlots.length,
       tone: "brand",
     });
@@ -407,6 +484,7 @@ export default function StudentDashboardPage() {
   }
 
   const suffix = priorityTasks.find((t) => {
+    if (t.studentStatus !== "todo") return false;
     if (!t.dueAt) return false;
     const hoursLeft =
       (new Date(t.dueAt).getTime() - now.getTime()) / (1000 * 60 * 60);
@@ -422,6 +500,7 @@ export default function StudentDashboardPage() {
         dateLine={dateLine}
         summaryParts={summaryParts}
         suffix={suffix}
+        accessory={<AiBuddyCallout compact />}
       />
 
       <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
@@ -472,12 +551,11 @@ export default function StudentDashboardPage() {
         </div>
 
         <div className="flex flex-col gap-5">
-          <CourseProgressSidebar items={courseProgressItems} />
           <AnnouncementSummary
             items={announcementItems}
             unreadCount={unreadAnnouncementCount}
           />
-          <AiBuddyCallout />
+          <CourseProgressSidebar items={courseProgressItems} />
         </div>
       </div>
     </div>

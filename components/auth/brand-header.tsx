@@ -6,10 +6,10 @@ export function BrandHeader() {
     <header className="relative z-10 flex items-center justify-between px-5 py-5 sm:px-8 lg:px-14 lg:py-7">
       <Link href="/login" className="group flex items-center gap-3">
         <span
-          className="grid h-10 w-10 place-items-center rounded-[10px] border bg-[rgba(255,255,255,0.58)] shadow-[0_8px_28px_rgba(23,39,95,0.08)] backdrop-blur-sm"
+          className="grid h-10 w-10 place-items-center overflow-hidden rounded-[10px] shadow-[0_8px_28px_rgba(23,39,95,0.12)]"
           style={{ borderColor: "rgba(23,39,95,0.1)" }}
         >
-          <InfinityMark className="h-7 w-8" />
+          <InfinityMark className="h-full w-full object-cover" />
         </span>
         <span className="flex flex-col">
           <span className="flex items-baseline gap-2 text-[15px] font-semibold text-[var(--text-main)]">
