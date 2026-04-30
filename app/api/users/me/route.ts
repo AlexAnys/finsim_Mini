@@ -9,6 +9,31 @@ const updateProfileSchema = z.object({
   avatarUrl: z.string().max(500).optional(),
 });
 
+export async function GET() {
+  const result = await requireAuth();
+  if (result.error) return result.error;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: result.session.user.id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        classId: true,
+        avatarUrl: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!user) throw new Error("USER_NOT_FOUND");
+    return success(user);
+  } catch (err) {
+    return handleServiceError(err);
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   const result = await requireAuth();
   if (result.error) return result.error;

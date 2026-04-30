@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { Bell, Sparkles, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -119,9 +120,11 @@ export function Topbar({ initialRole, initialName }: TopbarProps = {}) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>
-              <UserIcon className="mr-2 size-4" />
-              账户设置
+            <DropdownMenuItem asChild>
+              <Link href="/settings">
+                <UserIcon className="mr-2 size-4" />
+                账户设置
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

@@ -18,6 +18,8 @@ const LABELS: Record<string, string> = {
   instances: "任务实例",
   announcements: "公告管理",
   "ai-assistant": "AI 助手",
+  "ai-settings": "AI 设置",
+  settings: "账户设置",
   new: "新建",
   insights: "洞察分析",
 };
