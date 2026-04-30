@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateText } from "ai";
 import { z } from "zod";
 import type { AIFeature } from "@/lib/types";
+import { prisma } from "@/lib/db/prisma";
 
 // ============================================
 // AI Provider 配置
@@ -12,6 +13,13 @@ interface ProviderConfig {
   apiKey: string;
   baseURL: string;
   defaultModel: string;
+}
+
+interface AiRuntimeSetting {
+  model?: string | null;
+  thinking?: "disabled" | "enabled" | null;
+  temperature?: number | null;
+  systemPromptSuffix?: string | null;
 }
 
 export function getProviderConfig(name: string): ProviderConfig | null {
@@ -61,6 +69,10 @@ const FEATURE_TEMPERATURES: Record<AIFeature, number> = {
   importParse: 0.4,
   insights: 0.4,
   weeklyInsight: 0.4,
+  lessonPolish: 0.55,
+  ideologyMining: 0.55,
+  questionAnalysis: 0.25,
+  examCheck: 0.2,
 };
 
 // Feature -> 环境变量前缀
@@ -75,15 +87,39 @@ const FEATURE_ENV_MAP: Record<AIFeature, string> = {
   importParse: "AI_IMPORT",
   insights: "AI_INSIGHTS",
   weeklyInsight: "AI_WEEKLY_INSIGHT",
+  lessonPolish: "AI_LESSON_POLISH",
+  ideologyMining: "AI_IDEOLOGY_MINING",
+  questionAnalysis: "AI_QUESTION_ANALYSIS",
+  examCheck: "AI_EXAM_CHECK",
 };
 
-export function getProviderForFeature(feature: AIFeature): { provider: ProviderConfig; model: string } {
+const FEATURE_TOOL_KEYS: Record<AIFeature, string> = {
+  simulation: "simulation",
+  evaluation: "evaluation",
+  studyBuddyReply: "studyBuddy",
+  studyBuddySummary: "studyBuddy",
+  quizGrade: "quizGrade",
+  subjectiveGrade: "subjectiveGrade",
+  taskDraft: "taskDraft",
+  importParse: "importParse",
+  insights: "insights",
+  weeklyInsight: "weeklyInsight",
+  lessonPolish: "lessonPolish",
+  ideologyMining: "ideologyMining",
+  questionAnalysis: "questionAnalysis",
+  examCheck: "examCheck",
+};
+
+export function getProviderForFeature(
+  feature: AIFeature,
+  setting?: AiRuntimeSetting | null,
+): { provider: ProviderConfig; model: string } {
   const envPrefix = FEATURE_ENV_MAP[feature];
   const providerName =
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
     "mimo";
-  const requestedModel = process.env[`${envPrefix}_MODEL`] || "";
+  const requestedModel = setting?.model || process.env[`${envPrefix}_MODEL`] || "";
 
   const provider = getProviderConfig(providerName);
   if (!provider || !provider.apiKey) {
@@ -132,11 +168,12 @@ function createProvider(config: ProviderConfig) {
   });
 }
 
-export function getProviderOptions(provider: ProviderConfig) {
+export function getProviderOptions(provider: ProviderConfig, setting?: AiRuntimeSetting | null) {
+  const thinking = setting?.thinking || "disabled";
   if (provider.name === "mimo") {
     return {
       openai: {
-        thinking: { type: "disabled" },
+        thinking: { type: thinking },
       },
     };
   }
@@ -148,6 +185,33 @@ export function getProviderOptions(provider: ProviderConfig) {
   }
 
   return undefined;
+}
+
+async function getRuntimeSetting(userId: string, feature: AIFeature): Promise<AiRuntimeSetting | null> {
+  try {
+    const setting = await prisma.aiToolSetting.findUnique({
+      where: {
+        teacherId_toolKey: {
+          teacherId: userId,
+          toolKey: FEATURE_TOOL_KEYS[feature],
+        },
+      },
+      select: {
+        model: true,
+        thinking: true,
+        temperature: true,
+        systemPromptSuffix: true,
+      },
+    });
+    return setting;
+  } catch {
+    return null;
+  }
+}
+
+function mergeSystemPrompt(systemPrompt: string, setting?: AiRuntimeSetting | null) {
+  if (!setting?.systemPromptSuffix?.trim()) return systemPrompt;
+  return `${systemPrompt}\n\n教师补充要求：\n${setting.systemPromptSuffix.trim()}`;
 }
 
 // ============================================
@@ -201,18 +265,19 @@ export async function aiGenerateText(
     throw new Error("RATE_LIMIT_EXCEEDED");
   }
 
-  const { provider, model } = getProviderForFeature(feature);
+  const setting = await getRuntimeSetting(userId, feature);
+  const { provider, model } = getProviderForFeature(feature, setting);
   const openai = createProvider(provider);
-  const temperature = FEATURE_TEMPERATURES[feature];
+  const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
 
   try {
     const { text } = await generateText({
       model: openai.chat(model),
-      system: systemPrompt,
+      system: mergeSystemPrompt(systemPrompt, setting),
       prompt: userPrompt,
       temperature,
       maxOutputTokens: 4096,
-      providerOptions: getProviderOptions(provider),
+      providerOptions: getProviderOptions(provider, setting),
     });
 
     return text;
@@ -234,9 +299,10 @@ export async function aiGenerateJSON<T>(
     throw new Error("RATE_LIMIT_EXCEEDED");
   }
 
-  const { provider, model } = getProviderForFeature(feature);
+  const setting = await getRuntimeSetting(userId, feature);
+  const { provider, model } = getProviderForFeature(feature, setting);
   const openai = createProvider(provider);
-  const temperature = FEATURE_TEMPERATURES[feature];
+  const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
 
   let lastError: Error | null = null;
 
@@ -244,11 +310,11 @@ export async function aiGenerateJSON<T>(
     try {
       const { text } = await generateText({
         model: openai.chat(model),
-        system: systemPrompt + "\n\n请严格返回 JSON 格式，不要包含其他文字。",
+        system: mergeSystemPrompt(systemPrompt, setting) + "\n\n请严格返回 JSON 格式，不要包含其他文字。",
         prompt: userPrompt,
         temperature,
         maxOutputTokens: 4096,
-        providerOptions: getProviderOptions(provider),
+        providerOptions: getProviderOptions(provider, setting),
       });
 
       const jsonStr = extractJSON(text);

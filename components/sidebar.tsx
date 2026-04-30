@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Users,
   Search,
+  Settings2,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ const teacherNav: NavItem[] = [
   { label: "课表管理", href: "/teacher/schedule", icon: CalendarDays },
   { label: "班级管理", href: "/teacher/groups", icon: Users },
   { label: "AI 助手", href: "/teacher/ai-assistant", icon: Bot },
+  { label: "AI 设置", href: "/teacher/ai-settings", icon: Settings2 },
 ];
 
 function getNavItems(role: UserRole | undefined): NavItem[] {

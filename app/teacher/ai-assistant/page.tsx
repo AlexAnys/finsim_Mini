@@ -1,553 +1,363 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useMemo, useRef, useState } from "react";
+import { BookOpenCheck, FileCheck2, Loader2, SearchCheck, Settings2, Sparkles, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
-import {
-  Loader2,
-  Sparkles,
-  FileText,
-  HelpCircle,
-  CheckCircle2,
-  Save,
-} from "lucide-react";
 
-// ---------- Types ----------
+type ToolKey = "lessonPolish" | "ideologyMining" | "questionAnalysis" | "examCheck";
 
-interface QuizOption {
-  id: string;
-  text: string;
+interface AiResult {
+  title: string;
+  summary: string;
+  sections: Array<{ heading: string; diagnosis: string; suggestions: string[]; examples: string[] }>;
+  actionItems: string[];
+  cautions: string[];
+  gradingTable: Array<{ student: string; question: string; score: string; feedback: string; uncertainty: string }>;
+  fallback?: boolean;
+  fileReports?: Array<{ fileName: string; status: string; error?: string; textLength: number }>;
+  searchStatus?: string;
 }
 
-interface QuizQuestion {
-  type: "single_choice" | "multiple_choice" | "true_false" | "short_answer";
-  prompt: string;
-  options?: QuizOption[];
-  correctOptionIds?: string[];
-  correctAnswer?: string;
-  points: number;
-  difficulty: number;
-  explanation: string;
-}
-
-interface QuizDraftResult {
-  questions: QuizQuestion[];
-}
-
-interface ScoringCriterion {
-  name: string;
-  description: string;
-  maxPoints: number;
-}
-
-interface SubjectiveDraftResult {
-  taskName: string;
-  requirements: string;
-  prompt: string;
-  referenceAnswer: string;
-  scoringCriteria: ScoringCriterion[];
-}
-
-const questionTypeLabels: Record<string, string> = {
-  single_choice: "单选题",
-  multiple_choice: "多选题",
-  true_false: "判断题",
-  short_answer: "简答题",
-};
+const TOOLS: Array<{
+  key: ToolKey;
+  label: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
+  placeholder: string;
+}> = [
+  {
+    key: "lessonPolish",
+    label: "教案完善",
+    desc: "完善目标、活动、评价和课堂话术",
+    icon: BookOpenCheck,
+    placeholder: "粘贴教案片段，或说明希望完善的课程主题、课时、学生基础...",
+  },
+  {
+    key: "ideologyMining",
+    label: "思政挖掘",
+    desc: "自然提炼专业课里的育人融合点",
+    icon: Sparkles,
+    placeholder: "粘贴课堂内容，说明专业方向和希望避免的表达边界...",
+  },
+  {
+    key: "questionAnalysis",
+    label: "搜题与解析",
+    desc: "识别题型、知识点、步骤和易错点",
+    icon: SearchCheck,
+    placeholder: "粘贴题目，或上传题目图片/试卷片段...",
+  },
+  {
+    key: "examCheck",
+    label: "试卷检查",
+    desc: "按答案和评分规则辅助批改试卷",
+    icon: FileCheck2,
+    placeholder: "粘贴标准答案、评分规则和学生作答说明，也可以上传多个文件...",
+  },
+];
 
 export default function AIAssistantPage() {
-  const router = useRouter();
+  const [activeTool, setActiveTool] = useState<ToolKey>("lessonPolish");
+  const [text, setText] = useState("");
+  const [teacherRequest, setTeacherRequest] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [outputStyle, setOutputStyle] = useState("structured");
+  const [strictness, setStrictness] = useState("balanced");
+  const [enableSearch, setEnableSearch] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<AiResult | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Quiz form state
-  const [quizCourseName, setQuizCourseName] = useState("");
-  const [quizChapterName, setQuizChapterName] = useState("");
-  const [quizPrompt, setQuizPrompt] = useState("");
-  const [quizLoading, setQuizLoading] = useState(false);
-  const [quizResult, setQuizResult] = useState<QuizDraftResult | null>(null);
-  const [quizSaving, setQuizSaving] = useState(false);
+  const active = useMemo(() => TOOLS.find((tool) => tool.key === activeTool) ?? TOOLS[0], [activeTool]);
+  const Icon = active.icon;
 
-  // Subjective form state
-  const [subCourseName, setSubCourseName] = useState("");
-  const [subChapterName, setSubChapterName] = useState("");
-  const [subPrompt, setSubPrompt] = useState("");
-  const [subLoading, setSubLoading] = useState(false);
-  const [subResult, setSubResult] = useState<SubjectiveDraftResult | null>(
-    null
-  );
-  const [subSaving, setSubSaving] = useState(false);
-
-  // ---------- Quiz generation ----------
-
-  async function handleGenerateQuiz() {
-    if (!quizCourseName.trim() || !quizChapterName.trim()) {
-      toast.error("请填写课程名称和章节名称");
+  async function runTool() {
+    if (!text.trim() && files.length === 0 && !teacherRequest.trim()) {
+      toast.error("请粘贴内容、填写需求或上传文件");
       return;
     }
-    setQuizLoading(true);
-    setQuizResult(null);
+    setLoading(true);
+    setResult(null);
     try {
-      const res = await fetch("/api/ai/task-draft/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseName: quizCourseName.trim(),
-          chapterName: quizChapterName.trim(),
-          prompt: quizPrompt.trim() || undefined,
-        }),
-      });
+      const form = new FormData();
+      form.set("toolKey", activeTool);
+      form.set("text", text);
+      form.set("teacherRequest", teacherRequest);
+      form.set("outputStyle", outputStyle);
+      form.set("strictness", strictness);
+      form.set("enableSearch", String(enableSearch));
+      files.forEach((file) => form.append("files", file));
+
+      const res = await fetch("/api/ai/work-assistant", { method: "POST", body: form });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "生成失败");
+        toast.error(json.error?.message || "AI 工具运行失败");
         return;
       }
-      setQuizResult(json.data);
-      toast.success("测验题目生成成功");
+      setResult(json.data);
+      toast.success(json.data.fallback ? "材料已识别，AI 暂不可用" : "AI 分析完成");
     } catch {
       toast.error("网络错误，请稍后重试");
     } finally {
-      setQuizLoading(false);
+      setLoading(false);
     }
   }
-
-  async function handleSaveQuiz() {
-    if (!quizResult) return;
-    setQuizSaving(true);
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskName: `AI生成测验 - ${quizChapterName.trim()}`,
-          taskType: "quiz",
-          requirements: "AI 自动生成的测验题目",
-          quizConfig: {
-            mode: "fixed",
-            timeLimitMinutes: 30,
-            showCorrectAnswer: true,
-          },
-          quizQuestions: quizResult.questions.map((q, i) => ({
-            type: q.type,
-            prompt: q.prompt,
-            options: q.options,
-            correctOptionIds: q.correctOptionIds,
-            correctAnswer: q.correctAnswer,
-            points: q.points,
-            difficulty: q.difficulty,
-            explanation: q.explanation,
-            order: i,
-          })),
-          scoringCriteria: [
-            {
-              name: "答题正确率",
-              description: "根据答题正确率评分",
-              maxPoints: 100,
-              order: 0,
-            },
-          ],
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "保存失败");
-        return;
-      }
-      toast.success("任务创建成功");
-      router.push(`/teacher/tasks/${json.data.id}`);
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setQuizSaving(false);
-    }
-  }
-
-  // ---------- Subjective generation ----------
-
-  async function handleGenerateSubjective() {
-    if (!subCourseName.trim() || !subChapterName.trim()) {
-      toast.error("请填写课程名称和章节名称");
-      return;
-    }
-    setSubLoading(true);
-    setSubResult(null);
-    try {
-      const res = await fetch("/api/ai/task-draft/subjective", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseName: subCourseName.trim(),
-          chapterName: subChapterName.trim(),
-          prompt: subPrompt.trim() || undefined,
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "生成失败");
-        return;
-      }
-      setSubResult(json.data);
-      toast.success("主观题生成成功");
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setSubLoading(false);
-    }
-  }
-
-  async function handleSaveSubjective() {
-    if (!subResult) return;
-    setSubSaving(true);
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskName: subResult.taskName,
-          taskType: "subjective",
-          requirements: subResult.requirements,
-          subjectiveConfig: {
-            prompt: subResult.prompt,
-            referenceAnswer: subResult.referenceAnswer,
-            allowTextAnswer: true,
-            allowedAttachmentTypes: [],
-          },
-          scoringCriteria: subResult.scoringCriteria.map((c, i) => ({
-            name: c.name,
-            description: c.description,
-            maxPoints: c.maxPoints,
-            order: i,
-          })),
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "保存失败");
-        return;
-      }
-      toast.success("任务创建成功");
-      router.push(`/teacher/tasks/${json.data.id}`);
-    } catch {
-      toast.error("网络错误，请稍后重试");
-    } finally {
-      setSubSaving(false);
-    }
-  }
-
-  // ---------- Render ----------
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">AI 工作助手</h1>
-        <p className="text-muted-foreground mt-1">
-          使用 AI 快速生成测验题目和主观题任务
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[12px] font-semibold text-brand">AI 工作助手</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-[-0.02em] text-ink">教师日常材料处理</h1>
+          <p className="mt-2 max-w-2xl text-sm text-ink-4">
+            上传或粘贴课堂材料，灵析会先识别文本，再生成可供教师审核的参考建议。
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <a href="/teacher/ai-settings">
+            <Settings2 className="mr-2 size-4" />
+            AI 设置
+          </a>
+        </Button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Quiz generation card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <HelpCircle className="size-5" />
-              AI 生成测验
-            </CardTitle>
-            <CardDescription>
-              输入课程和章节信息，AI 自动生成混合题型测验
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="quiz-course">课程名称 *</Label>
-              <Input
-                id="quiz-course"
-                placeholder="例如：金融理财学"
-                value={quizCourseName}
-                onChange={(e) => setQuizCourseName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="quiz-chapter">章节名称 *</Label>
-              <Input
-                id="quiz-chapter"
-                placeholder="例如：第三章 资产配置"
-                value={quizChapterName}
-                onChange={(e) => setQuizChapterName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="quiz-prompt">额外要求</Label>
-              <Textarea
-                id="quiz-prompt"
-                placeholder="对生成内容的额外要求（选填）"
-                value={quizPrompt}
-                onChange={(e) => setQuizPrompt(e.target.value)}
-                rows={3}
-              />
-            </div>
-            <Button
-              onClick={handleGenerateQuiz}
-              disabled={quizLoading}
-              className="w-full"
-            >
-              {quizLoading ? (
-                <>
-                  <Loader2 className="size-4 mr-2 animate-spin" />
-                  生成中...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-4 mr-2" />
-                  生成
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+      <Tabs value={activeTool} onValueChange={(value) => setActiveTool(value as ToolKey)}>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 lg:grid-cols-4">
+          {TOOLS.map((tool) => {
+            const ToolIcon = tool.icon;
+            return (
+              <TabsTrigger
+                key={tool.key}
+                value={tool.key}
+                className="h-auto justify-start gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-left data-[state=active]:border-brand data-[state=active]:bg-brand-soft"
+              >
+                <ToolIcon className="size-4 shrink-0" />
+                <span>
+                  <span className="block text-sm font-semibold">{tool.label}</span>
+                  <span className="mt-0.5 block text-[11px] font-normal text-ink-4">{tool.desc}</span>
+                </span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </Tabs>
 
-        {/* Subjective generation card */}
-        <Card>
+      <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+        <Card className="border-line bg-surface shadow-fs">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="size-5" />
-              AI 生成主观题
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Icon className="size-5 text-brand" />
+              {active.label}
             </CardTitle>
-            <CardDescription>
-              输入课程和章节信息，AI 自动生成主观题任务
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="sub-course">课程名称 *</Label>
-              <Input
-                id="sub-course"
-                placeholder="例如：金融理财学"
-                value={subCourseName}
-                onChange={(e) => setSubCourseName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sub-chapter">章节名称 *</Label>
-              <Input
-                id="sub-chapter"
-                placeholder="例如：第三章 资产配置"
-                value={subChapterName}
-                onChange={(e) => setSubChapterName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sub-prompt">额外要求</Label>
-              <Textarea
-                id="sub-prompt"
-                placeholder="对生成内容的额外要求（选填）"
-                value={subPrompt}
-                onChange={(e) => setSubPrompt(e.target.value)}
-                rows={3}
-              />
-            </div>
-            <Button
-              onClick={handleGenerateSubjective}
-              disabled={subLoading}
-              className="w-full"
-            >
-              {subLoading ? (
-                <>
-                  <Loader2 className="size-4 mr-2 animate-spin" />
-                  生成中...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-4 mr-2" />
-                  生成
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Quiz preview */}
-      {quizResult && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle2 className="size-5 text-green-600" />
-                测验预览
-              </CardTitle>
-              <Button onClick={handleSaveQuiz} disabled={quizSaving}>
-                {quizSaving ? (
-                  <>
-                    <Loader2 className="size-4 mr-2 animate-spin" />
-                    保存中...
-                  </>
-                ) : (
-                  <>
-                    <Save className="size-4 mr-2" />
-                    保存为任务
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {quizResult.questions.map((q, i) => (
-              <div key={i} className="rounded-lg border p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">第 {i + 1} 题</span>
-                  <Badge variant="secondary">
-                    {questionTypeLabels[q.type] || q.type}
-                  </Badge>
-                  <Badge variant="outline">{q.points} 分</Badge>
+            <div className="rounded-lg border border-dashed border-line bg-paper-alt p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-ink-2">
+                    <Upload className="size-4 text-brand" />
+                    上传材料
+                  </div>
+                  <p className="mt-1 text-xs text-ink-4">支持 PDF、DOCX、TXT/MD、ZIP、图片；扫描件需 OCR provider。</p>
                 </div>
-                <p className="text-sm">{q.prompt}</p>
-                {q.options && q.options.length > 0 && (
-                  <div className="space-y-1 pl-2">
-                    {q.options.map((opt) => {
-                      const isCorrect = q.correctOptionIds?.includes(opt.id);
-                      return (
-                        <div
-                          key={opt.id}
-                          className={`flex items-center gap-2 text-sm rounded px-2 py-0.5 ${
-                            isCorrect
-                              ? "bg-green-50 text-green-700 font-medium"
-                              : ""
-                          }`}
-                        >
-                          <span className="font-mono w-5">{opt.id}.</span>
-                          <span>{opt.text}</span>
-                          {isCorrect && (
-                            <CheckCircle2 className="size-3.5 ml-auto shrink-0" />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {q.type === "short_answer" && q.correctAnswer && (
-                  <div className="text-sm bg-green-50 text-green-700 rounded px-3 py-1.5">
-                    <span className="font-medium">参考答案：</span>
-                    {q.correctAnswer}
-                  </div>
-                )}
-                {q.explanation && (
-                  <div className="text-sm text-muted-foreground bg-muted/50 rounded px-3 py-1.5">
-                    <span className="font-medium">解析：</span>
-                    {q.explanation}
-                  </div>
-                )}
+                <Input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  accept="application/pdf,.pdf,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
+                  className="w-full max-w-[360px] bg-surface text-xs"
+                  disabled={loading}
+                  onChange={(event) => setFiles(Array.from(event.target.files || []))}
+                />
               </div>
-            ))}
+              {files.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {files.map((file) => (
+                    <Badge key={`${file.name}-${file.size}`} variant="outline" className="bg-surface">
+                      {file.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>粘贴内容</Label>
+              <Textarea
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder={active.placeholder}
+                rows={8}
+                disabled={loading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>教师补充要求</Label>
+              <Textarea
+                value={teacherRequest}
+                onChange={(event) => setTeacherRequest(event.target.value)}
+                placeholder="例如：面向中职二年级，语言更口语化；试卷按 100 分制；思政点避免生硬口号。"
+                rows={3}
+                disabled={loading}
+              />
+            </div>
+
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button type="button" variant="outline" className="w-full">
+                  <Settings2 className="mr-2 size-4" />
+                  本次工具设置
+                </Button>
+              </SheetTrigger>
+              <SheetContent>
+                <SheetHeader>
+                  <SheetTitle>本次输出设置</SheetTitle>
+                </SheetHeader>
+                <div className="mt-6 space-y-5">
+                  <div className="space-y-2">
+                    <Label>输出风格</Label>
+                    <Select value={outputStyle} onValueChange={setOutputStyle}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="structured">结构化清单</SelectItem>
+                        <SelectItem value="lesson-ready">可直接放进教案</SelectItem>
+                        <SelectItem value="brief">简洁摘要</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>严格度</Label>
+                    <Select value={strictness} onValueChange={setStrictness}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="lenient">宽松</SelectItem>
+                        <SelectItem value="balanced">均衡</SelectItem>
+                        <SelectItem value="strict">严格</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-line p-3">
+                    <div>
+                      <div className="text-sm font-medium text-ink-2">请求搜索增强</div>
+                      <div className="text-xs text-ink-4">未配置搜索 provider 时不会伪造联网结果。</div>
+                    </div>
+                    <Switch checked={enableSearch} onCheckedChange={setEnableSearch} />
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <Button onClick={runTool} disabled={loading} className="w-full">
+              {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}
+              开始分析
+            </Button>
           </CardContent>
         </Card>
-      )}
 
-      {/* Subjective preview */}
-      {subResult && (
-        <Card>
+        <Card className="min-h-[620px] border-line bg-surface shadow-fs">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle2 className="size-5 text-green-600" />
-                主观题预览
-              </CardTitle>
-              <Button onClick={handleSaveSubjective} disabled={subSaving}>
-                {subSaving ? (
-                  <>
-                    <Loader2 className="size-4 mr-2 animate-spin" />
-                    保存中...
-                  </>
-                ) : (
-                  <>
-                    <Save className="size-4 mr-2" />
-                    保存为任务
-                  </>
-                )}
-              </Button>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-lg">分析结果</CardTitle>
+              {result?.fallback && <Badge className="bg-warn-soft text-warn">AI fallback</Badge>}
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <span className="text-sm text-muted-foreground">任务名称</span>
-              <p className="font-medium">{subResult.taskName}</p>
-            </div>
-
-            <Separator />
-
-            <div>
-              <span className="text-sm text-muted-foreground">任务要求</span>
-              <p className="text-sm whitespace-pre-wrap">
-                {subResult.requirements}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-sm text-muted-foreground">题目提示</span>
-              <p className="text-sm whitespace-pre-wrap">{subResult.prompt}</p>
-            </div>
-
-            <div>
-              <span className="text-sm text-muted-foreground">参考答案</span>
-              <p className="text-sm whitespace-pre-wrap bg-green-50 text-green-700 rounded px-3 py-2">
-                {subResult.referenceAnswer}
-              </p>
-            </div>
-
-            <Separator />
-
-            <div>
-              <span className="text-sm font-medium">评分标准</span>
-              <div className="mt-2 border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-muted/50">
-                      <th className="text-left px-3 py-2 font-medium">名称</th>
-                      <th className="text-left px-3 py-2 font-medium">描述</th>
-                      <th className="text-right px-3 py-2 font-medium">
-                        分值
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subResult.scoringCriteria.map((c, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-3 py-2 font-medium">{c.name}</td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {c.description}
-                        </td>
-                        <td className="px-3 py-2 text-right">{c.maxPoints}</td>
-                      </tr>
-                    ))}
-                    <tr className="border-t bg-muted/50">
-                      <td className="px-3 py-2 font-medium" colSpan={2}>
-                        总分
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium">
-                        {subResult.scoringCriteria.reduce(
-                          (sum, c) => sum + c.maxPoints,
-                          0
-                        )}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+          <CardContent>
+            {!result ? (
+              <div className="flex min-h-[480px] flex-col items-center justify-center rounded-lg border border-line bg-paper-alt text-center text-ink-4">
+                <Sparkles className="mb-3 size-9 text-brand" />
+                <p className="text-sm font-medium text-ink-3">选择工具并输入材料后开始分析</p>
+                <p className="mt-1 text-xs">结果会按教师可审核的结构展示。</p>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-ink">{result.title}</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-3">{result.summary}</p>
+                </div>
+
+                {result.fileReports && result.fileReports.length > 0 && (
+                  <div className="rounded-lg border border-line bg-paper-alt p-3">
+                    <div className="text-xs font-semibold text-ink-2">文件识别</div>
+                    <div className="mt-2 grid gap-1.5">
+                      {result.fileReports.map((file) => (
+                        <div key={file.fileName} className="flex items-center justify-between gap-3 text-xs">
+                          <span className="truncate text-ink-3">{file.fileName}</span>
+                          <span className={file.status === "ready" ? "text-success" : "text-warn"}>
+                            {file.status} · {file.textLength} 字
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {result.sections.map((section, index) => (
+                    <div key={`${section.heading}-${index}`} className="rounded-lg border border-line bg-paper p-4">
+                      <h3 className="font-semibold text-ink">{section.heading}</h3>
+                      {section.diagnosis && <p className="mt-2 text-sm leading-relaxed text-ink-3">{section.diagnosis}</p>}
+                      {section.suggestions.length > 0 && (
+                        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-3">
+                          {section.suggestions.map((item) => <li key={item}>{item}</li>)}
+                        </ul>
+                      )}
+                      {section.examples.length > 0 && (
+                        <div className="mt-3 rounded-md bg-surface px-3 py-2 text-sm text-ink-3">
+                          {section.examples.map((item) => <p key={item}>{item}</p>)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {result.gradingTable.length > 0 && (
+                  <div className="overflow-hidden rounded-lg border border-line">
+                    <table className="w-full text-sm">
+                      <thead className="bg-paper-alt text-left text-ink-4">
+                        <tr>
+                          <th className="px-3 py-2">学生</th>
+                          <th className="px-3 py-2">题号</th>
+                          <th className="px-3 py-2">得分</th>
+                          <th className="px-3 py-2">反馈</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.gradingTable.map((row, index) => (
+                          <tr key={index} className="border-t border-line">
+                            <td className="px-3 py-2">{row.student || "-"}</td>
+                            <td className="px-3 py-2">{row.question || "-"}</td>
+                            <td className="px-3 py-2">{row.score || "-"}</td>
+                            <td className="px-3 py-2">{row.feedback || row.uncertainty || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {result.actionItems.length > 0 && (
+                  <div className="rounded-lg border border-line bg-success-soft/40 p-3">
+                    <div className="text-xs font-semibold text-success">下一步动作</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-3">
+                      {result.actionItems.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
-      )}
+      </div>
     </div>
   );
 }

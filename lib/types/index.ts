@@ -83,7 +83,11 @@ export type AIFeature =
   | "taskDraft"
   | "importParse"
   | "insights"
-  | "weeklyInsight";
+  | "weeklyInsight"
+  | "lessonPolish"
+  | "ideologyMining"
+  | "questionAnalysis"
+  | "examCheck";
 
 // 评估结果
 export interface RubricBreakdown {
