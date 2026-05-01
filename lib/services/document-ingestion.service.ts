@@ -1,6 +1,11 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import JSZip from "jszip";
+import { execFile } from "child_process";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { promisify } from "util";
 
 export type IngestedDocumentKind = "pdf" | "docx" | "text" | "zip" | "image";
 export type IngestedDocumentStatus = "ready" | "ocr_required" | "failed";
@@ -31,6 +36,8 @@ interface ExtractDocumentInput {
 
 const MAX_ZIP_FILES = 30;
 const MAX_TEXT_CHARS = 120_000;
+const DEFAULT_OCR_MAX_PAGES = 20;
+const execFileAsync = promisify(execFile);
 
 export async function extractDocumentText(input: ExtractDocumentInput): Promise<IngestedDocumentResult> {
   const kind = detectDocumentKind(input.fileName, input.mimeType);
@@ -79,6 +86,25 @@ export async function extractDocumentText(input: ExtractDocumentInput): Promise<
       files: [{ fileName: input.fileName, kind, status: "ready", textLength: clipped.length }],
       warnings: clipped.length < normalized.length ? ["文档较长，已截取前 120000 字用于 AI 处理"] : [],
     };
+  }
+
+  if (kind === "pdf" && input.allowOcr !== false) {
+    const ocr = await extractPdfTextWithOcr(input);
+    const ocrText = normalizeText(ocr.text);
+    if (isReadableExtractedText(ocrText)) {
+      const clipped = ocrText.slice(0, MAX_TEXT_CHARS);
+      return {
+        status: "ready",
+        kind,
+        text: clipped,
+        files: [{ fileName: input.fileName, kind, status: "ready", textLength: clipped.length }],
+        warnings: [
+          "该 PDF 通过 OCR 识别文字",
+          ...(clipped.length < ocrText.length ? ["文档较长，已截取前 120000 字用于 AI 处理"] : []),
+        ],
+      };
+    }
+    error = ocr.error || error;
   }
 
   if (kind === "pdf" || kind === "image") {
@@ -200,6 +226,76 @@ async function extractZipText(input: ExtractDocumentInput): Promise<IngestedDocu
   };
 }
 
+async function extractPdfTextWithOcr(input: ExtractDocumentInput): Promise<{ text: string; error?: string }> {
+  const provider = resolveOcrProvider();
+  if (!provider) {
+    return { text: "", error: "OCR provider 未配置：请设置 OCR_PROVIDER=qwen 和 QWEN_API_KEY" };
+  }
+
+  let tempDir: string | null = null;
+  try {
+    tempDir = await mkdtemp(join(tmpdir(), "finsim-ocr-"));
+    const pdfPath = join(tempDir, "input.pdf");
+    const outputPrefix = join(tempDir, "page");
+    await writeFile(pdfPath, input.buffer);
+    await execFileAsync("pdftoppm", [
+      "-png",
+      "-f",
+      "1",
+      "-l",
+      String(resolveOcrMaxPages()),
+      pdfPath,
+      outputPrefix,
+    ]);
+
+    const pageFiles = (await readdir(tempDir))
+      .filter((name) => /^page-\d+\.png$/.test(name) || /^page\d+\.png$/.test(name))
+      .sort((a, b) => pageNumber(a) - pageNumber(b));
+
+    if (pageFiles.length === 0) {
+      return { text: "", error: "PDF OCR 失败：未能渲染出可识别页面" };
+    }
+
+    const parts: string[] = [];
+    const errors: string[] = [];
+    for (const file of pageFiles) {
+      const pageBuffer = await readFile(join(tempDir, file));
+      const result =
+        provider === "qwen"
+          ? await extractImageTextWithQwenOcr({
+              buffer: pageBuffer,
+              fileName: file,
+              mimeType: "image/png",
+              allowOcr: input.allowOcr,
+            })
+          : await extractImageTextWithMimoOcr({
+              buffer: pageBuffer,
+              fileName: file,
+              mimeType: "image/png",
+              allowOcr: input.allowOcr,
+            });
+      if (result.text) parts.push(`【第 ${pageNumber(file)} 页】\n${result.text}`);
+      if (result.error) errors.push(`第 ${pageNumber(file)} 页：${result.error}`);
+    }
+
+    const text = normalizeText(parts.join("\n\n"));
+    return text ? { text } : { text: "", error: errors[0] || "PDF OCR 未返回可读文本" };
+  } catch (err) {
+    const message = errorMessage(err);
+    if (/ENOENT|pdftoppm/i.test(message)) {
+      return { text: "", error: "PDF OCR 需要安装 poppler-utils / pdftoppm 才能渲染扫描件页面" };
+    }
+    return { text: "", error: `PDF OCR 失败：${message}` };
+  } finally {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function pageNumber(fileName: string) {
+  const match = fileName.match(/page-?(\d+)\.png$/);
+  return match ? Number(match[1]) : 0;
+}
+
 function mimeForKind(kind: IngestedDocumentKind) {
   if (kind === "pdf") return "application/pdf";
   if (kind === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -213,6 +309,73 @@ async function extractImageTextWithOcr(input: ExtractDocumentInput): Promise<{ t
     return { text: "", error: "OCR 未启用" };
   }
 
+  const provider = resolveOcrProvider();
+  if (provider === "qwen") return extractImageTextWithQwenOcr(input);
+  if (provider === "mimo") return extractImageTextWithMimoOcr(input);
+  return { text: "", error: "OCR provider 未配置：请设置 OCR_PROVIDER=qwen 和 QWEN_API_KEY" };
+}
+
+function resolveOcrProvider(): "qwen" | "mimo" | null {
+  const configured = (process.env.OCR_PROVIDER || "").trim().toLowerCase();
+  if (configured === "qwen") return "qwen";
+  if (configured === "mimo") return "mimo";
+  if (process.env.QWEN_API_KEY) return "qwen";
+  if (process.env.MIMO_API_KEY) return "mimo";
+  return null;
+}
+
+function resolveOcrMaxPages() {
+  const parsed = Number(process.env.OCR_MAX_PAGES || DEFAULT_OCR_MAX_PAGES);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_OCR_MAX_PAGES;
+  return Math.min(Math.floor(parsed), 80);
+}
+
+async function extractImageTextWithQwenOcr(input: ExtractDocumentInput): Promise<{ text: string; error?: string }> {
+  const apiKey = process.env.QWEN_API_KEY;
+  if (!apiKey) {
+    return { text: "", error: "OCR provider 未配置：缺少 QWEN_API_KEY" };
+  }
+
+  const baseUrl = (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/+$/, "");
+  const model = process.env.QWEN_OCR_MODEL || "qwen-vl-ocr";
+  const mimeType = input.mimeType || "image/png";
+  const dataUrl = `data:${mimeType};base64,${input.buffer.toString("base64")}`;
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "请只识别图片中的可见文字，保持原文顺序。不要解释，不要补充。" },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        temperature: 0,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { text: "", error: `Qwen OCR 返回 ${res.status}: ${body.slice(0, 180)}` };
+    }
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const text = normalizeText(json.choices?.[0]?.message?.content || "");
+    return text ? { text } : { text: "", error: "Qwen OCR 未返回可读文本" };
+  } catch (err) {
+    return { text: "", error: `Qwen OCR 调用失败：${errorMessage(err)}` };
+  }
+}
+
+async function extractImageTextWithMimoOcr(input: ExtractDocumentInput): Promise<{ text: string; error?: string }> {
   const apiKey = process.env.MIMO_API_KEY;
   if (!apiKey) {
     return { text: "", error: "OCR provider 未配置：缺少 MIMO_API_KEY" };
