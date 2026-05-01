@@ -51,6 +51,8 @@ export default function TeacherGroupsPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState(ALL_GROUPS);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
+  const [bulkGroupId, setBulkGroupId] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<StudentGroup | null>(null);
@@ -103,6 +105,8 @@ export default function TeacherGroupsPage() {
 
   useEffect(() => {
     if (selectedClassId) fetchMembers(selectedClassId);
+    setSelectedMemberIds(new Set());
+    setBulkGroupId("");
   }, [fetchMembers, selectedClassId]);
 
   const selectedClass = classes.find((item) => item.id === selectedClassId) ?? null;
@@ -129,6 +133,9 @@ export default function TeacherGroupsPage() {
       groupsForMember.some((group) => group.id === groupFilter);
     return matchesSearch && matchesGroup;
   });
+  const allFilteredSelected =
+    filteredMembers.length > 0 &&
+    filteredMembers.every((member) => selectedMemberIds.has(member.id));
 
   function openCreate() {
     setDraftName("");
@@ -149,6 +156,55 @@ export default function TeacherGroupsPage() {
       else next.add(id);
       return next;
     });
+  }
+
+  function toggleSelectedMember(id: string) {
+    setSelectedMemberIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllFiltered() {
+    setSelectedMemberIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const member of filteredMembers) next.delete(member.id);
+      } else {
+        for (const member of filteredMembers) next.add(member.id);
+      }
+      return next;
+    });
+  }
+
+  async function bulkAssignMembers() {
+    if (!bulkGroupId || selectedMemberIds.size === 0) {
+      toast.error("请选择学生和目标分组");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/groups/${bulkGroupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          addStudentIds: Array.from(selectedMemberIds),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "批量分组失败");
+        return;
+      }
+      toast.success("已加入目标分组");
+      setSelectedMemberIds(new Set());
+      setBulkGroupId("");
+      await fetchGroups();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveCreate() {
@@ -368,12 +424,57 @@ export default function TeacherGroupsPage() {
               </Select>
             </div>
 
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-paper-alt px-3 py-2">
+              <Checkbox
+                checked={allFilteredSelected}
+                onCheckedChange={toggleAllFiltered}
+                aria-label="选择当前筛选学生"
+              />
+              <span className="text-xs text-ink-4">
+                已选 <b className="text-ink">{selectedMemberIds.size}</b> 人
+              </span>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Select value={bulkGroupId || undefined} onValueChange={setBulkGroupId}>
+                  <SelectTrigger className="h-8 w-[170px] bg-surface text-xs">
+                    <SelectValue placeholder="选择目标分组" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classGroups.map((group) => (
+                      <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  className="h-8"
+                  onClick={bulkAssignMembers}
+                  disabled={saving || selectedMemberIds.size === 0 || !bulkGroupId}
+                >
+                  批量加入
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8"
+                  onClick={() => setSelectedMemberIds(new Set())}
+                  disabled={selectedMemberIds.size === 0}
+                >
+                  清空
+                </Button>
+              </div>
+            </div>
+
             <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
               {filteredMembers.map((member) => {
                 const groupsForMember = memberGroupMap.get(member.id) ?? [];
                 return (
                   <div key={member.id} className="rounded-lg border border-line bg-paper p-3">
                     <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={selectedMemberIds.has(member.id)}
+                        onCheckedChange={() => toggleSelectedMember(member.id)}
+                        aria-label={`选择 ${member.name}`}
+                      />
                       <div className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-sm font-semibold text-brand">
                         {member.name.charAt(0).toUpperCase()}
                       </div>
