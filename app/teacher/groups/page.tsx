@@ -319,7 +319,7 @@ export default function TeacherGroupsPage() {
       <div className="grid gap-4 xl:grid-cols-[280px_1fr_1.2fr]">
         <Card className="border-line bg-surface shadow-fs">
           <CardHeader>
-            <CardTitle className="text-base">班级</CardTitle>
+            <CardTitle className="text-base">班级概览</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {classes.map((cls) => {

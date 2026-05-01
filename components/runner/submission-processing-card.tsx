@@ -16,6 +16,8 @@ export interface AsyncJobSnapshot {
 interface SubmissionProcessingCardProps {
   title: string;
   job?: AsyncJobSnapshot | null;
+  pendingLabel?: string;
+  pendingDescription?: string;
   onBack: () => void;
   onViewGrades?: () => void;
 }
@@ -46,6 +48,8 @@ const statusCopy: Record<AsyncJobSnapshot["status"], { label: string; descriptio
 export function SubmissionProcessingCard({
   title,
   job,
+  pendingLabel,
+  pendingDescription,
   onBack,
   onViewGrades,
 }: SubmissionProcessingCardProps) {
@@ -75,7 +79,13 @@ export function SubmissionProcessingCard({
   }, [currentJob?.id, currentJob?.status]);
 
   const status = currentJob?.status ?? "queued";
-  const copy = statusCopy[status];
+  const copy =
+    status === "queued"
+      ? {
+          label: pendingLabel ?? statusCopy.queued.label,
+          description: pendingDescription ?? statusCopy.queued.description,
+        }
+      : statusCopy[status];
   const progress = Math.max(5, Math.min(100, currentJob?.progress ?? 15));
 
   const Icon = useMemo(() => {

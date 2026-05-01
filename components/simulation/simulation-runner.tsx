@@ -796,6 +796,8 @@ function SimulationSubmittedView({
       <SubmissionProcessingCard
         title={taskName}
         job={gradingJob}
+        pendingLabel="已提交，AI 分析中"
+        pendingDescription="你将在教师公布后看到详细评估"
         onBack={onBack}
         onViewGrades={onViewGrades}
       />

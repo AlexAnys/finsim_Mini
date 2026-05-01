@@ -12,7 +12,7 @@ interface AiToolDefinition {
 export const AI_TOOL_DEFINITIONS: AiToolDefinition[] = [
   {
     key: "simulationChat",
-    label: "模拟对话 · 客户回复",
+    label: "模拟对话回复",
     category: "课堂任务 · 模拟对话",
     defaultModel: "mimo-v2.5-pro",
     description: "学生对话时的 AI 客户回复、情绪与追问提示。",
@@ -22,7 +22,7 @@ export const AI_TOOL_DEFINITIONS: AiToolDefinition[] = [
   },
   {
     key: "simulationGrading",
-    label: "模拟对话 · 批改反馈",
+    label: "模拟对话批改",
     category: "课堂任务 · 模拟对话",
     defaultModel: "mimo-v2.5",
     description: "模拟对话结束后的 rubric 评分、评语和概念标签。",
@@ -42,7 +42,7 @@ export const AI_TOOL_DEFINITIONS: AiToolDefinition[] = [
   },
   {
     key: "quizDraft",
-    label: "测验题生成",
+    label: "Quiz 生成",
     category: "课堂任务 · 出题生成",
     defaultModel: "mimo-v2.5-pro",
     description: "独立 AI 助手入口生成单选、多选、判断、简答混合测验。",
