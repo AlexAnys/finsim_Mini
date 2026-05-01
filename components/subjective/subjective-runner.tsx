@@ -71,6 +71,7 @@ interface SubjectiveRunnerProps {
   taskInstanceId: string;
   taskName: string;
   taskSubtitle?: string;
+  isPreview?: boolean;
 }
 
 interface UploadedFile {
@@ -124,6 +125,7 @@ export function SubjectiveRunner({
   taskInstanceId,
   taskName,
   taskSubtitle,
+  isPreview = false,
 }: SubjectiveRunnerProps) {
   const router = useRouter();
   const config = useMemo(() => unwrapConfig(rawTaskConfig), [rawTaskConfig]);
@@ -315,6 +317,12 @@ export function SubjectiveRunner({
     setIsSubmitting(true);
 
     try {
+      if (isPreview) {
+        setSubmitted(true);
+        toast.success("预览完成：未生成学生提交记录");
+        return;
+      }
+
       const payload = {
         taskType: "subjective" as const,
         taskId,
@@ -357,6 +365,10 @@ export function SubjectiveRunner({
       <SubmissionProcessingCard
         title={taskName}
         job={gradingJob}
+        pendingLabel={isPreview ? "预览已完成" : undefined}
+        pendingDescription={
+          isPreview ? "这是教师预览，不会生成学生提交或批改记录。" : undefined
+        }
         onBack={() => router.back()}
         onViewGrades={() => router.push("/grades")}
       />
@@ -385,12 +397,12 @@ export function SubjectiveRunner({
             variant: "secondary",
           },
           {
-            label: "提交",
+            label: isPreview ? "完成预览" : "提交",
             onClick: handleSubmit,
             icon: Check,
             variant: "primary",
             loading: isSubmitting,
-            loadingLabel: "提交中...",
+            loadingLabel: isPreview ? "处理中..." : "提交中...",
             disabled: isSubmitting || isOverLimit,
           },
         ]}

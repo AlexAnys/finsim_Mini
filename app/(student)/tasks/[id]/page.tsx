@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Loader2,
@@ -100,7 +100,7 @@ const taskTypeIcons: Record<string, React.ComponentType<{ className?: string }>>
   subjective: FileText,
 };
 
-function renderRunner(instance: TaskInstanceDetail) {
+function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
   const { task } = instance;
 
   // Simulation tasks are handled by the full-page /sim/[id] route
@@ -116,6 +116,7 @@ function renderRunner(instance: TaskInstanceDetail) {
         taskInstanceId={instance.id}
         taskName={instance.title || task.taskName}
         taskSubtitle={`测验 · ${task.quizConfig.mode === "adaptive" ? "练习模式" : "考试模式"}`}
+        isPreview={isPreview}
         taskConfig={{
           timeLimit: task.quizConfig.timeLimitMinutes,
           mode: task.quizConfig.mode === "adaptive" ? "practice" : "exam",
@@ -143,6 +144,7 @@ function renderRunner(instance: TaskInstanceDetail) {
         taskInstanceId={instance.id}
         taskName={instance.title || task.taskName}
         taskSubtitle="主观题"
+        isPreview={isPreview}
         taskConfig={{
           prompt: task.subjectiveConfig.prompt,
           wordLimit: null,
@@ -176,7 +178,9 @@ function renderRunner(instance: TaskInstanceDetail) {
 export default function StudentTaskPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const taskInstanceId = params.id as string;
+  const isPreview = searchParams.get("preview") === "true";
 
   const [instance, setInstance] = useState<TaskInstanceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,7 +200,7 @@ export default function StudentTaskPage() {
 
         // Redirect simulation tasks to full-page experience
         if (data.task.taskType === "simulation") {
-          router.replace(`/sim/${data.id}`);
+          router.replace(`/sim/${data.id}${isPreview ? "?preview=true" : ""}`);
           return;
         }
 
@@ -208,7 +212,7 @@ export default function StudentTaskPage() {
       }
     }
     fetchTask();
-  }, [taskInstanceId, router]);
+  }, [taskInstanceId, router, isPreview]);
 
   if (loading) {
     return (
@@ -286,7 +290,7 @@ export default function StudentTaskPage() {
       </Card>
 
       {/* Runner */}
-      {renderRunner(instance)}
+      {renderRunner(instance, isPreview)}
     </div>
   );
 }

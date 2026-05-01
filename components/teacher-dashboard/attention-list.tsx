@@ -266,6 +266,7 @@ interface TaskCardProps {
 }
 
 function TaskCard({ item: t, onNavigate }: TaskCardProps) {
+  const router = useRouter();
   const cfg = TYPE_CONFIG[t.taskType];
   const Icon = cfg.icon;
   const dueInfo = t.dueAt ? formatRelativeDue(t.dueAt) : null;
@@ -279,13 +280,10 @@ function TaskCard({ item: t, onNavigate }: TaskCardProps) {
 
   const handleSimulate = (e: React.MouseEvent) => {
     e.stopPropagation();
-    toast.info("模拟学生功能即将上线");
-    if (typeof console !== "undefined") {
-      console.log("[task-card] simulate-student requested", {
-        instanceId: t.id,
-        taskType: t.taskType,
-      });
-    }
+    const href = t.taskType === "simulation"
+      ? `/sim/${t.id}?preview=true`
+      : `/tasks/${t.id}?preview=true`;
+    router.push(href);
   };
 
   const handleManage = (e: React.MouseEvent) => {

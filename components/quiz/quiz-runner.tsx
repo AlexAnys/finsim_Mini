@@ -57,6 +57,7 @@ interface QuizRunnerProps {
   taskInstanceId: string;
   taskName: string;
   taskSubtitle?: string;
+  isPreview?: boolean;
 }
 
 type AnswerValue = string | string[];
@@ -99,6 +100,7 @@ export function QuizRunner({
   taskInstanceId,
   taskName,
   taskSubtitle,
+  isPreview = false,
 }: QuizRunnerProps) {
   const router = useRouter();
   const {
@@ -252,6 +254,12 @@ export function QuizRunner({
     const timeSpent = Math.floor((Date.now() - startTimeRef.current) / 1000);
 
     try {
+      if (isPreview) {
+        setSubmitted(true);
+        toast.success("预览完成：未生成学生提交记录");
+        return;
+      }
+
       const payload = {
         taskType: "quiz" as const,
         taskId,
@@ -311,7 +319,7 @@ export function QuizRunner({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <CheckCircle className="size-4 text-green-600" />
-              测验完成
+              {isPreview ? "预览完成" : "测验完成"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -370,7 +378,11 @@ export function QuizRunner({
                 </div>
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm">已成功提交</p>
+              <p className="text-muted-foreground text-sm">
+                {isPreview
+                  ? "教师预览已完成，未生成学生提交记录。"
+                  : "已成功提交"}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -383,6 +395,10 @@ export function QuizRunner({
       <SubmissionProcessingCard
         title={taskName}
         job={gradingJob}
+        pendingLabel={isPreview ? "预览已完成" : undefined}
+        pendingDescription={
+          isPreview ? "这是教师预览，不会生成学生提交或批改记录。" : undefined
+        }
         onBack={() => router.back()}
         onViewGrades={() => router.push("/grades")}
       />
@@ -429,12 +445,12 @@ export function QuizRunner({
         }
         actions={[
           {
-            label: "提交答卷",
+            label: isPreview ? "完成预览" : "提交答卷",
             onClick: handleSubmit,
             icon: Check,
             variant: "primary",
             loading: isSubmitting,
-            loadingLabel: "提交中...",
+            loadingLabel: isPreview ? "处理中..." : "提交中...",
             disabled: isSubmitting,
           },
         ]}
@@ -481,24 +497,29 @@ export function QuizRunner({
                         }
                         disabled={isConfirmed}
                       >
-                        {currentQuestion.options.map((opt) => (
-                          <div
-                            key={opt.label}
-                            className="flex items-center gap-3 rounded-md border p-3"
-                          >
-                            <RadioGroupItem
-                              value={opt.label}
-                              id={`${currentQuestion.id}-${opt.label}`}
-                            />
-                            <Label
-                              htmlFor={`${currentQuestion.id}-${opt.label}`}
-                              className="flex-1 cursor-pointer text-sm"
+                        {currentQuestion.options.map((opt, idx) => {
+                          const optionDomId = `${currentQuestion.id}-${opt.label}-${idx}`;
+                          return (
+                            <div
+                              key={`${opt.label}-${idx}`}
+                              className="flex items-center gap-3 rounded-md border p-3"
                             >
-                              <span className="font-medium">{opt.label}.</span>{" "}
-                              {opt.content}
-                            </Label>
-                          </div>
-                        ))}
+                              <RadioGroupItem
+                                value={opt.label}
+                                id={optionDomId}
+                              />
+                              <Label
+                                htmlFor={optionDomId}
+                                className="flex-1 cursor-pointer text-sm"
+                              >
+                                <span className="font-medium">
+                                  {opt.label}.
+                                </span>{" "}
+                                {opt.content}
+                              </Label>
+                            </div>
+                          );
+                        })}
                       </RadioGroup>
                     )}
 
@@ -506,13 +527,14 @@ export function QuizRunner({
                   {currentQuestion.type === "multiple_choice" &&
                     currentQuestion.options && (
                       <div className="space-y-2">
-                        {currentQuestion.options.map((opt) => {
+                        {currentQuestion.options.map((opt, idx) => {
                           const selected = (
                             (currentAnswer as string[]) || []
                           ).includes(opt.label);
+                          const optionDomId = `${currentQuestion.id}-${opt.label}-${idx}`;
                           return (
                             <div
-                              key={opt.label}
+                              key={`${opt.label}-${idx}`}
                               className="flex items-center gap-3 rounded-md border p-3"
                             >
                               <Checkbox
@@ -523,11 +545,11 @@ export function QuizRunner({
                                     opt.label
                                   )
                                 }
-                                id={`${currentQuestion.id}-${opt.label}`}
+                                id={optionDomId}
                                 disabled={isConfirmed}
                               />
                               <Label
-                                htmlFor={`${currentQuestion.id}-${opt.label}`}
+                                htmlFor={optionDomId}
                                 className="flex-1 cursor-pointer text-sm"
                               >
                                 <span className="font-medium">
