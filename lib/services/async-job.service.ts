@@ -152,9 +152,15 @@ async function performAsyncJob(job: AsyncJob): Promise<JsonInput | undefined> {
     }
     case "task_draft_generate":
     case "task_import_parse":
-    case "ai_work_assistant":
     case "analytics_recompute":
       throw new Error("ASYNC_JOB_HANDLER_NOT_IMPLEMENTED");
+    case "ai_work_assistant": {
+      await updateAsyncJobProgress(job.id, 10);
+      const { runAiWorkAssistantJob } = await import("@/lib/services/ai-work-assistant.service");
+      return await runAiWorkAssistantJob(job.input, job.createdBy, (progress) =>
+        updateAsyncJobProgress(job.id, progress).then(() => undefined),
+      );
+    }
   }
 }
 
