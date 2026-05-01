@@ -671,4 +671,68 @@ describe("getAnalyticsV2Diagnosis", () => {
       }),
     ]);
   });
+
+  it("reports data quality flags without hiding raw abnormal metrics", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 12,
+              maxScore: 10,
+              submittedAt: "2026-01-01T00:00:00Z",
+            }),
+            submission({
+              id: "sub-2",
+              studentId: "s1",
+              status: "graded",
+              score: 8,
+              maxScore: 10,
+              submittedAt: "2026-01-02T00:00:00Z",
+            }),
+          ],
+        }),
+        instance({
+          id: "inst-2",
+          title: "未绑定章节任务",
+          classId: "class-B",
+          chapterId: null,
+          submissions: [
+            submission({
+              id: "sub-3",
+              studentId: "s9",
+              status: "submitted",
+              submittedAt: "2026-01-02T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      scorePolicy: "best",
+      now: new Date("2026-01-10T00:00:00Z"),
+    });
+
+    expect(result.kpis.avgNormalizedScore).toBe(120);
+    expect(result.dataQualityFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "aggregate:avg-score-over-100", category: "score" }),
+        expect.objectContaining({ id: "inst-1:score-abnormal", category: "score" }),
+        expect.objectContaining({ id: "inst-1:normalized-score-over-100", category: "score" }),
+        expect.objectContaining({ id: "inst-1:multiple-attempts", category: "attempt" }),
+        expect.objectContaining({ id: "inst-2:unbound-chapter", category: "scope" }),
+        expect.objectContaining({ id: "inst-2:assignment-missing-with-submissions", category: "assignment" }),
+      ]),
+    );
+  });
 });

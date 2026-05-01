@@ -65,6 +65,20 @@ export interface AnalyticsV2Diagnosis {
   studentInterventions: StudentIntervention[];
   weeklyInsight: WeeklyInsight;
   trends: AnalyticsV2Trends;
+  dataQualityFlags: DataQualityFlag[];
+}
+
+export interface DataQualityFlag {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  category: "scope" | "assignment" | "score" | "attempt" | "sample" | "aggregation";
+  title: string;
+  detail: string;
+  entityType: "course" | "chapter" | "class" | "instance" | "student" | "submission";
+  entityId?: string | null;
+  entityLabel?: string | null;
+  metric?: number | null;
+  rawValue?: string | null;
 }
 
 export interface WeeklyInsight {
@@ -321,6 +335,7 @@ interface InstanceMetrics {
   passRate: number | null;
   weaknesses: Map<string, Set<string>>;
   studentAttempts: Map<string, StudentAttemptMetrics>;
+  dataQualityFlags: DataQualityFlag[];
 }
 
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
@@ -590,6 +605,7 @@ export async function getAnalyticsV2Diagnosis(
   const simulationDiagnostics = buildRubricDiagnostics(instanceMetrics);
   const studentInterventions = buildStudentInterventions(instanceMetrics);
   const trends = buildAnalyticsTrends(instanceMetrics, range, generatedAt);
+  const dataQualityFlags = buildDataQualityFlags(instanceMetrics, kpis);
 
   return {
     scope: {
@@ -623,6 +639,7 @@ export async function getAnalyticsV2Diagnosis(
       studentInterventions,
     }),
     trends,
+    dataQualityFlags,
   };
 }
 
@@ -732,6 +749,16 @@ function buildInstanceMetrics(
       weaknesses.set(signal.tag, studentSet);
     }
   }
+  const dataQualityFlags = buildInstanceDataQualityFlags({
+    instance,
+    assignedCount: assignedStudents.length,
+    submittedCount,
+    scopedSubmissions,
+    rawSubmissions: instance.submissions,
+    attempts,
+    scores,
+    scorePolicy,
+  });
 
   return {
     instance,
@@ -748,6 +775,7 @@ function buildInstanceMetrics(
     passRate: rate(scores.filter((score) => score >= PASS_THRESHOLD).length, scores.length),
     weaknesses,
     studentAttempts,
+    dataQualityFlags,
   };
 }
 
@@ -767,6 +795,248 @@ function getAssignedStudents(
   }
 
   return [...(assignmentLookup.classStudentsByClass.get(instance.classId) ?? [])].sort(compareStudentName);
+}
+
+function buildInstanceDataQualityFlags(input: {
+  instance: DiagnosisInstance;
+  assignedCount: number;
+  submittedCount: number;
+  scopedSubmissions: DiagnosisSubmission[];
+  rawSubmissions: DiagnosisSubmission[];
+  attempts: StudentAttemptMetrics[];
+  scores: number[];
+  scorePolicy: AnalyticsV2ScorePolicy;
+}): DataQualityFlag[] {
+  const flags: DataQualityFlag[] = [];
+  const { instance } = input;
+  const instanceLabel = `${instance.title} · ${instance.class.name}`;
+
+  if (!instance.chapterId) {
+    flags.push(flag({
+      id: `${instance.id}:unbound-chapter`,
+      severity: "warning",
+      category: "scope",
+      title: "任务未关联章节",
+      detail: "该任务实例没有 chapterId，只能放入“未关联章节”，章节诊断和长期趋势的教学含义会变弱。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+    }));
+  } else if (!instance.sectionId) {
+    flags.push(flag({
+      id: `${instance.id}:unbound-section`,
+      severity: "info",
+      category: "scope",
+      title: "任务未关联小节",
+      detail: "该任务实例已关联章节但未关联小节，小节级筛选和诊断无法覆盖这条数据。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+    }));
+  }
+
+  if (input.assignedCount === 0 && input.rawSubmissions.length > 0) {
+    flags.push(flag({
+      id: `${instance.id}:assignment-missing-with-submissions`,
+      severity: "critical",
+      category: "assignment",
+      title: "有提交但缺少应提交学生基线",
+      detail: "系统找不到该任务对应的班级学生或分组成员，因此完成率不能可靠计算；请检查班级、分组和任务实例绑定。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: input.rawSubmissions.length,
+      rawValue: `${input.rawSubmissions.length} 次原始提交`,
+    }));
+  } else if (input.assignedCount === 0) {
+    flags.push(flag({
+      id: `${instance.id}:assignment-missing`,
+      severity: "warning",
+      category: "assignment",
+      title: "缺少应提交学生基线",
+      detail: "系统找不到该任务对应的班级学生或分组成员，完成率和未完成名单会为空。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+    }));
+  }
+
+  if (input.assignedCount > 0 && input.submittedCount > input.assignedCount) {
+    flags.push(flag({
+      id: `${instance.id}:completion-over-100`,
+      severity: "critical",
+      category: "aggregation",
+      title: "完成率超过 100%",
+      detail: "已提交学生数超过应提交学生数，通常意味着班级/分组绑定或提交归属异常；图表会显示原始值并标记需核对。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: rate(input.submittedCount, input.assignedCount),
+      rawValue: `${input.submittedCount}/${input.assignedCount}`,
+    }));
+  }
+
+  const outOfScopeStudentCount =
+    input.assignedCount > 0
+      ? input.rawSubmissions.filter((submission) => !input.scopedSubmissions.some((scoped) => scoped.id === submission.id)).length
+      : 0;
+  if (outOfScopeStudentCount > 0) {
+    flags.push(flag({
+      id: `${instance.id}:out-of-assignment-submissions`,
+      severity: "warning",
+      category: "assignment",
+      title: "存在非分配学生提交",
+      detail: "部分提交不属于该任务实例的班级或分组学生，已从诊断统计中排除；请核对测试账号或班级绑定。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: outOfScopeStudentCount,
+      rawValue: `${outOfScopeStudentCount} 次提交`,
+    }));
+  }
+
+  const multiAttemptStudents = input.attempts.filter((attempt) => attempt.attemptCount > 1).length;
+  if (multiAttemptStudents > 0) {
+    flags.push(flag({
+      id: `${instance.id}:multiple-attempts`,
+      severity: "info",
+      category: "attempt",
+      title: "存在多次提交",
+      detail: `该实例有 ${multiAttemptStudents} 名学生多次提交；当前成绩口径使用“${scorePolicyLabel(input.scorePolicy)}”，练习效果请同时看最高分、提升幅度和尝试次数。`,
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: multiAttemptStudents,
+    }));
+  }
+
+  const abnormalScores = input.scopedSubmissions.filter((submission) => {
+    if (submission.status !== "graded") return false;
+    const score = Number(submission.score);
+    const maxScore = Number(submission.maxScore);
+    if (!Number.isFinite(score) || !Number.isFinite(maxScore) || maxScore <= 0) return true;
+    return score < 0 || score > maxScore;
+  });
+  if (abnormalScores.length > 0) {
+    const sample = abnormalScores[0];
+    flags.push(flag({
+      id: `${instance.id}:score-abnormal`,
+      severity: "critical",
+      category: "score",
+      title: "分数或满分异常",
+      detail: "存在 score/maxScore 缺失、非数字、满分小于等于 0、负分或得分超过满分的提交；均分会保留原始计算结果并标记需核对。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: abnormalScores.length,
+      rawValue: sample ? `sample ${sample.id}: ${String(sample.score)}/${String(sample.maxScore)}` : null,
+    }));
+  }
+
+  if (input.scores.some((score) => score > 100)) {
+    flags.push(flag({
+      id: `${instance.id}:normalized-score-over-100`,
+      severity: "critical",
+      category: "score",
+      title: "归一化分数超过 100%",
+      detail: "至少一条已选成绩超过满分，能力诊断会保留原始值，但进度条/热力图按 100% 封顶展示。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: Math.max(...input.scores),
+    }));
+  }
+
+  if (input.assignedCount >= 3 && input.submittedCount > 0 && input.submittedCount < 3) {
+    flags.push(flag({
+      id: `${instance.id}:sample-too-small`,
+      severity: "info",
+      category: "sample",
+      title: "样本量较小",
+      detail: "当前范围内有效提交少于 3 人，均分、题目正确率和 rubric 低分率更适合做个案参考，不宜直接下班级结论。",
+      entityType: "instance",
+      entityId: instance.id,
+      entityLabel: instanceLabel,
+      metric: input.submittedCount,
+    }));
+  }
+
+  return flags;
+}
+
+function buildDataQualityFlags(
+  metrics: InstanceMetrics[],
+  kpis: AnalyticsV2Diagnosis["kpis"],
+): DataQualityFlag[] {
+  const flags: DataQualityFlag[] = [];
+
+  if (kpis.instanceCount > 0 && kpis.assignedStudents === 0) {
+    flags.push(flag({
+      id: "aggregate:assigned-students-missing",
+      severity: "critical",
+      category: "assignment",
+      title: "当前范围缺少应提交学生基线",
+      detail: "当前筛选范围内有任务实例，但没有可用于计算完成率的班级或分组学生；请先核对课程班级和任务分配。",
+      entityType: "course",
+      entityId: null,
+      entityLabel: "当前范围",
+    }));
+  }
+
+  if (kpis.completionRate !== null && kpis.completionRate > 1) {
+    flags.push(flag({
+      id: "aggregate:completion-over-100",
+      severity: "critical",
+      category: "aggregation",
+      title: "当前范围完成率超过 100%",
+      detail: "聚合后已提交人次超过应提交人次，通常意味着任务分配或提交归属异常；请优先核对实例级提示。",
+      entityType: "course",
+      entityId: null,
+      entityLabel: "当前范围",
+      metric: kpis.completionRate,
+      rawValue: `${kpis.submittedStudents}/${kpis.assignedStudents}`,
+    }));
+  }
+
+  if (kpis.avgNormalizedScore !== null && kpis.avgNormalizedScore > 100) {
+    flags.push(flag({
+      id: "aggregate:avg-score-over-100",
+      severity: "critical",
+      category: "score",
+      title: "当前范围均分超过 100%",
+      detail: "聚合后的归一化均分超过满分，请核对已批改提交的 score/maxScore。",
+      entityType: "course",
+      entityId: null,
+      entityLabel: "当前范围",
+      metric: kpis.avgNormalizedScore,
+    }));
+  }
+
+  if (kpis.gradedStudents > 0 && kpis.gradedStudents < 3) {
+    flags.push(flag({
+      id: "aggregate:small-graded-sample",
+      severity: "info",
+      category: "sample",
+      title: "已评分样本较小",
+      detail: "当前范围已评分学生少于 3 人，均分和薄弱点建议只作为早期信号，不宜形成班级诊断结论。",
+      entityType: "course",
+      entityId: null,
+      entityLabel: "当前范围",
+      metric: kpis.gradedStudents,
+    }));
+  }
+
+  return [...flags, ...metrics.flatMap((metric) => metric.dataQualityFlags)].slice(0, 80);
+}
+
+function flag(input: DataQualityFlag): DataQualityFlag {
+  return input;
+}
+
+function scorePolicyLabel(scorePolicy: AnalyticsV2ScorePolicy) {
+  if (scorePolicy === "best") return "最高分";
+  if (scorePolicy === "first") return "首次";
+  return "最近一次";
 }
 
 function buildFilterOptions(

@@ -155,6 +155,7 @@ interface AnalyticsV2Diagnosis {
     selectedScore: number | null;
     reason: "not_submitted" | "low_score" | "declining";
   }>;
+  dataQualityFlags: DataQualityFlag[];
   weeklyInsight: {
     generatedAt: string;
     mode: "local_fallback";
@@ -201,12 +202,34 @@ interface AnalyticsV2Diagnosis {
   };
 }
 
+interface DataQualityFlag {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  category: "scope" | "assignment" | "score" | "attempt" | "sample" | "aggregation";
+  title: string;
+  detail: string;
+  entityType: "course" | "chapter" | "class" | "instance" | "student" | "submission";
+  entityId?: string | null;
+  entityLabel?: string | null;
+  metric?: number | null;
+  rawValue?: string | null;
+}
+
 interface InsightItem {
   id: string;
   title: string;
   detail: string;
   evidence: string;
   severity: "info" | "medium" | "high";
+}
+
+interface AsyncJobSnapshot {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  progress: number;
+  result?: unknown;
+  error?: string | null;
+  completedAt?: string | null;
 }
 
 const ALL = "__all__";
@@ -243,6 +266,8 @@ export function AnalyticsV2Dashboard() {
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [diagnosis, setDiagnosis] = useState<AnalyticsV2Diagnosis | null>(null);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
+  const [recomputeJob, setRecomputeJob] = useState<AsyncJobSnapshot | null>(null);
+  const [recomputeStarting, setRecomputeStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const courseId = searchParams.get("courseId") ?? "";
@@ -280,6 +305,7 @@ export function AnalyticsV2Dashboard() {
   useEffect(() => {
     if (!courseId) {
       setDiagnosis(null);
+      setRecomputeJob(null);
       return;
     }
 
@@ -311,6 +337,29 @@ export function AnalyticsV2Dashboard() {
     fetchDiagnosis();
     return () => controller.abort();
   }, [courseId, searchParams]);
+
+  useEffect(() => {
+    if (!recomputeJob || recomputeJob.status === "succeeded" || recomputeJob.status === "failed" || recomputeJob.status === "canceled") {
+      return;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await fetch(`/api/async-jobs/${recomputeJob.id}`, { cache: "no-store" });
+        const json = await res.json();
+        if (!json.success) return;
+        const job = json.data as AsyncJobSnapshot;
+        setRecomputeJob(job);
+        if (job.status === "succeeded" && isAnalyticsDiagnosis(job.result)) {
+          setDiagnosis(job.result);
+        }
+      } catch {
+        // Keep the last known job state; the next poll can recover.
+      }
+    }, 1200);
+
+    return () => window.clearInterval(timer);
+  }, [recomputeJob]);
 
   const filteredSections = useMemo(() => {
     const sections = diagnosis?.filterOptions.sections ?? [];
@@ -362,6 +411,28 @@ export function AnalyticsV2Dashboard() {
     router.replace(`${pathname}?courseId=${encodeURIComponent(courseId)}`);
   }
 
+  async function startRecompute() {
+    if (!courseId || recomputeStarting || isJobRunning(recomputeJob)) return;
+    setRecomputeStarting(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams(searchParams.toString());
+      const res = await fetch(`/api/lms/analytics-v2/recompute?${params.toString()}`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json.success) {
+        setRecomputeJob(json.data.job);
+      } else {
+        setError(json.error?.message ?? "启动重算失败");
+      }
+    } catch {
+      setError("启动重算失败");
+    } finally {
+      setRecomputeStarting(false);
+    }
+  }
+
   if (coursesLoading) {
     return <CenteredState icon={Loader2} title="正在加载课程" spinning />;
   }
@@ -379,10 +450,26 @@ export function AnalyticsV2Dashboard() {
             课程范围内的完成、掌握、题目和干预诊断
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={resetFilters} disabled={!courseId}>
-          <RefreshCw className="mr-2 size-3.5" />
-          重置筛选
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {diagnosis && (
+            <span className="text-xs text-muted-foreground">
+              最后计算 {formatDateTime(diagnosis.scope.generatedAt)}
+              {recomputeJob && ` · ${jobStatusLabel(recomputeJob)}`}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startRecompute}
+            disabled={!courseId || recomputeStarting || isJobRunning(recomputeJob)}
+          >
+            <RefreshCw className={cn("mr-2 size-3.5", isJobRunning(recomputeJob) && "animate-spin")} />
+            {isJobRunning(recomputeJob) ? `重算中 ${recomputeJob?.progress ?? 0}%` : "后台重算"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={resetFilters} disabled={!courseId}>
+            重置筛选
+          </Button>
+        </div>
       </div>
 
       <Card className="rounded-lg py-4">
@@ -506,9 +593,23 @@ export function AnalyticsV2Dashboard() {
         <CenteredState icon={Loader2} title="正在生成诊断" spinning />
       ) : diagnosis ? (
         <>
+          <DataQualityPanel flags={diagnosis.dataQualityFlags ?? []} />
+
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <KpiCard icon={CheckCircle2} label="完成率" value={formatRate(diagnosis.kpis.completionRate)} sub={`${diagnosis.kpis.submittedStudents}/${diagnosis.kpis.assignedStudents} 人次`} />
-            <KpiCard icon={Target} label="归一化均分" value={formatPercentNumber(diagnosis.kpis.avgNormalizedScore)} sub={`中位数 ${formatPercentNumber(diagnosis.kpis.medianNormalizedScore)}`} />
+            <KpiCard
+              icon={CheckCircle2}
+              label="完成率"
+              value={formatRate(diagnosis.kpis.completionRate)}
+              sub={`${diagnosis.kpis.submittedStudents}/${diagnosis.kpis.assignedStudents} 人次`}
+              warning={hasQualityCategory(diagnosis.dataQualityFlags, ["assignment", "aggregation"])}
+            />
+            <KpiCard
+              icon={Target}
+              label="归一化均分"
+              value={formatPercentNumber(diagnosis.kpis.avgNormalizedScore)}
+              sub={`中位数 ${formatPercentNumber(diagnosis.kpis.medianNormalizedScore)}`}
+              warning={hasQualityCategory(diagnosis.dataQualityFlags, ["score"])}
+            />
             <KpiCard icon={TrendingDown} label="低掌握人数" value={String(lowMasteryCount)} sub="按学生去重" />
             <KpiCard icon={Clock3} label="待批改" value={String(pendingGrading)} sub={`${diagnosis.kpis.submissionCount} 次提交`} />
             <KpiCard icon={AlertCircle} label="风险章节" value={String(riskChapterCount)} sub={`${diagnosis.kpis.instanceCount} 个实例`} />
@@ -604,21 +705,72 @@ function KpiCard({
   label,
   value,
   sub,
+  warning = false,
 }: {
   icon: typeof BarChart3;
   label: string;
   value: string;
   sub: string;
+  warning?: boolean;
 }) {
   return (
-    <Card className="rounded-lg py-4">
+    <Card className={cn("rounded-lg py-4", warning && "border-amber-200 bg-amber-50/40")}>
       <CardContent className="px-4">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sm text-muted-foreground">{label}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">{label}</span>
+            {warning && (
+              <Badge variant="outline" className="rounded-md border-amber-300 bg-amber-50 text-amber-800">
+                需核对
+              </Badge>
+            )}
+          </div>
           <Icon className="size-4 text-muted-foreground" />
         </div>
         <div className="mt-3 text-2xl font-semibold tracking-normal">{value}</div>
         <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DataQualityPanel({ flags }: { flags: DataQualityFlag[] }) {
+  if (flags.length === 0) return null;
+  const criticalCount = flags.filter((flag) => flag.severity === "critical").length;
+  const warningCount = flags.filter((flag) => flag.severity === "warning").length;
+  const topFlags = [...flags].sort(compareDataQualityFlag).slice(0, 5);
+  return (
+    <Card className="rounded-lg border-amber-200 bg-amber-50/50">
+      <CardContent className="space-y-3 px-4 py-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="size-4 text-amber-700" />
+            <div className="font-medium">数据质量提示</div>
+            <Badge variant="outline" className="rounded-md border-amber-300 bg-background">
+              {flags.length} 项
+            </Badge>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            严重 {criticalCount} · 需核对 {warningCount} · 信息 {flags.length - criticalCount - warningCount}
+          </div>
+        </div>
+        <div className="grid gap-2 lg:grid-cols-2">
+          {topFlags.map((flag) => (
+            <div key={flag.id} className="rounded-md border bg-background px-3 py-2" title={flag.detail}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 truncate text-sm font-medium">{flag.title}</div>
+                <Badge variant={flag.severity === "critical" ? "destructive" : "outline"} className="shrink-0 rounded-md">
+                  {dataQualitySeverityLabel(flag.severity)}
+                </Badge>
+              </div>
+              <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                {flag.entityLabel ? `${flag.entityLabel}：` : ""}
+                {flag.detail}
+              </div>
+              {flag.rawValue && <div className="mt-1 text-xs text-amber-700">原始值：{flag.rawValue}</div>}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -655,12 +807,21 @@ function Heatmap({ rows }: { rows: AnalyticsV2Diagnosis["chapterClassHeatmap"] }
                   {classes.map((className) => {
                     const cell = rowMap.get(`${chapter}::${className}`);
                     const score = cell?.avgNormalizedScore ?? null;
+                    const needsReview = isAbnormalMetric(score, "percent") || isAbnormalMetric(cell?.completionRate ?? null, "rate");
                     return (
                       <div
                         key={`${chapter}-${className}`}
-                        className={cn("rounded-md border px-2 py-2", heatClass(score, cell?.completionRate ?? null))}
+                        className={cn(
+                          "rounded-md border px-2 py-2",
+                          heatClass(score, cell?.completionRate ?? null),
+                          needsReview && "border-amber-300 bg-amber-50 text-amber-950",
+                        )}
+                        title={needsReview ? "该格子存在超过常规范围的原始数值，请查看数据质量提示。" : undefined}
                       >
-                        <div className="font-semibold">{formatPercentNumber(score)}</div>
+                        <div className="flex items-center gap-1 font-semibold">
+                          {formatPercentNumber(score)}
+                          {needsReview && <span className="text-[10px] text-amber-700">需核对</span>}
+                        </div>
                         <div className="mt-1 text-[11px] text-muted-foreground">
                           完成 {formatRate(cell?.completionRate ?? null)}
                         </div>
@@ -1152,11 +1313,15 @@ function TrendsTab({ diagnosis }: { diagnosis: AnalyticsV2Diagnosis }) {
 }
 
 function TrendMetric({ value, kind }: { value: number | null; kind: "rate" | "percent" }) {
-  const progressValue = value === null ? 0 : kind === "rate" ? value * 100 : value;
+  const rawProgressValue = value === null ? 0 : kind === "rate" ? value * 100 : value;
+  const needsReview = isAbnormalMetric(value, kind);
   return (
     <div className="min-w-[120px] space-y-1">
-      <div className="text-sm">{kind === "rate" ? formatRate(value) : formatPercentNumber(value)}</div>
-      <Progress value={progressValue} />
+      <div className="flex items-center gap-1 text-sm">
+        {kind === "rate" ? formatRate(value) : formatPercentNumber(value)}
+        {needsReview && <span className="text-[10px] text-amber-700">需核对</span>}
+      </div>
+      <Progress value={clampProgress(rawProgressValue)} />
     </div>
   );
 }
@@ -1196,13 +1361,16 @@ function CenteredState({
 }
 
 function MetricBar({ label, value }: { label: string; value: number | null }) {
+  const rawProgressValue = value === null ? 0 : value * 100;
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{formatRate(value)}</span>
+        <span className={cn("font-medium", isAbnormalMetric(value, "rate") && "text-amber-700")}>
+          {formatRate(value)}
+        </span>
       </div>
-      <Progress value={value === null ? 0 : value * 100} />
+      <Progress value={clampProgress(rawProgressValue)} />
     </div>
   );
 }
@@ -1264,6 +1432,56 @@ function heatClass(score: number | null, completion: number | null) {
   if (metric >= 80) return "border-emerald-200 bg-emerald-50 text-emerald-950";
   if (metric >= 60) return "border-amber-200 bg-amber-50 text-amber-950";
   return "border-rose-200 bg-rose-50 text-rose-950";
+}
+
+function clampProgress(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function isAbnormalMetric(value: number | null | undefined, kind: "rate" | "percent") {
+  if (value === null || value === undefined) return false;
+  if (!Number.isFinite(value)) return true;
+  if (kind === "rate") return value < 0 || value > 1;
+  return value < 0 || value > 100;
+}
+
+function hasQualityCategory(flags: DataQualityFlag[] | undefined, categories: DataQualityFlag["category"][]) {
+  if (!flags) return false;
+  return flags.some((flag) => flag.severity !== "info" && categories.includes(flag.category));
+}
+
+function compareDataQualityFlag(a: DataQualityFlag, b: DataQualityFlag) {
+  const severityOrder = { critical: 0, warning: 1, info: 2 };
+  return severityOrder[a.severity] - severityOrder[b.severity] || a.title.localeCompare(b.title, "zh-CN");
+}
+
+function dataQualitySeverityLabel(severity: DataQualityFlag["severity"]) {
+  if (severity === "critical") return "严重";
+  if (severity === "warning") return "需核对";
+  return "提示";
+}
+
+function isJobRunning(job: AsyncJobSnapshot | null) {
+  return job?.status === "queued" || job?.status === "running";
+}
+
+function jobStatusLabel(job: AsyncJobSnapshot) {
+  if (job.status === "queued") return "等待重算";
+  if (job.status === "running") return `重算中 ${job.progress}%`;
+  if (job.status === "succeeded") return `重算完成${job.completedAt ? ` ${formatDateTime(job.completedAt)}` : ""}`;
+  if (job.status === "failed") return `重算失败：${job.error ?? "未知错误"}`;
+  return "重算已取消";
+}
+
+function isAnalyticsDiagnosis(value: unknown): value is AnalyticsV2Diagnosis {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "scope" in value &&
+      "kpis" in value &&
+      "chapterClassHeatmap" in value,
+  );
 }
 
 function actionMetric(item: AnalyticsV2Diagnosis["actionItems"][number]) {

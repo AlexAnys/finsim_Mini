@@ -152,8 +152,25 @@ async function performAsyncJob(job: AsyncJob): Promise<JsonInput | undefined> {
     }
     case "task_draft_generate":
     case "task_import_parse":
-    case "analytics_recompute":
       throw new Error("ASYNC_JOB_HANDLER_NOT_IMPLEMENTED");
+    case "analytics_recompute": {
+      const courseId = readInputString(job, "courseId") || job.entityId;
+      if (!courseId) throw new Error("COURSE_NOT_FOUND");
+      await updateAsyncJobProgress(job.id, 20);
+      const { getAnalyticsV2Diagnosis } = await import("@/lib/services/analytics-v2.service");
+      const diagnosis = await getAnalyticsV2Diagnosis({
+        courseId,
+        chapterId: readInputString(job, "chapterId") ?? undefined,
+        sectionId: readInputString(job, "sectionId") ?? undefined,
+        classId: readInputString(job, "classId") ?? undefined,
+        taskType: readInputString(job, "taskType") as never,
+        taskInstanceId: readInputString(job, "taskInstanceId") ?? undefined,
+        scorePolicy: (readInputString(job, "scorePolicy") as never) ?? undefined,
+        range: (readInputString(job, "range") as never) ?? undefined,
+      });
+      await updateAsyncJobProgress(job.id, 90);
+      return diagnosis as unknown as JsonInput;
+    }
     case "ai_work_assistant": {
       await updateAsyncJobProgress(job.id, 10);
       const { runAiWorkAssistantJob } = await import("@/lib/services/ai-work-assistant.service");
