@@ -6,7 +6,7 @@ import {
   stripSubmissionForStudent,
   deriveAnalysisStatus,
 } from "@/lib/services/submission.service";
-import { gradeSubmission } from "@/lib/services/grading.service";
+import { enqueueAsyncJob } from "@/lib/services/async-job.service";
 import { createSubmissionSchema } from "@/lib/validators/submission.schema";
 import {
   assertTaskInstanceReadable,
@@ -52,10 +52,15 @@ export async function POST(request: NextRequest) {
 
     const submission = await createSubmission(user.id, data);
 
-    // 异步触发 AI 批改
-    gradeSubmission(submission.id).catch(console.error);
+    const gradingJob = await enqueueAsyncJob({
+      type: "submission_grade",
+      entityType: "Submission",
+      entityId: submission.id,
+      input: { submissionId: submission.id },
+      createdBy: user.id,
+    });
 
-    return created(submission);
+    return created({ ...submission, gradingJob });
   } catch (err) {
     return handleServiceError(err);
   }

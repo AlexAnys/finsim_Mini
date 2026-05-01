@@ -89,6 +89,20 @@ interface ApiTaskInstance {
   createdAt: string;
 }
 
+interface ApiTaskBuildDraft {
+  id: string;
+  taskType: string;
+  title: string;
+  description: string | null;
+  status: string;
+  progress: number;
+  slot: string | null;
+  sourceIds: string[];
+  missingFields: string[];
+  error: string | null;
+  updatedAt: string;
+}
+
 interface ApiContentBlock {
   id: string;
   blockType: string;
@@ -103,6 +117,7 @@ interface ApiSection {
   order: number;
   contentBlocks: ApiContentBlock[];
   taskInstances: ApiTaskInstance[];
+  taskBuildDrafts: ApiTaskBuildDraft[];
 }
 
 interface ApiChapter {

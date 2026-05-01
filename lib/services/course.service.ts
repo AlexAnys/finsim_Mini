@@ -221,6 +221,12 @@ export async function getCourseWithStructure(courseId: string) {
                 where: { status: { in: ["published", "draft"] } },
                 orderBy: { createdAt: "desc" },
               },
+              taskBuildDrafts: {
+                where: {
+                  status: { in: ["draft", "queued", "processing", "ready", "failed"] },
+                },
+                orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+              },
             },
           },
         },

@@ -210,6 +210,37 @@ function makeInitialForm(): FormData {
   };
 }
 
+function collectMissingFields(form: FormData): string[] {
+  const missing: string[] = [];
+  if (!form.taskName.trim()) missing.push("任务名称");
+  if (!form.description.trim()) missing.push("任务描述");
+
+  if (form.taskType === "simulation") {
+    if (!form.scenario.trim()) missing.push("模拟场景");
+    if (!form.openingLine.trim()) missing.push("客户开场白");
+    if (!form.requirements.some((item) => item.trim())) missing.push("对话要求");
+    if (!form.scoringCriteria.some((item) => item.name.trim())) missing.push("评分维度");
+  } else if (form.taskType === "quiz") {
+    const hasUsableQuestion = form.questions.some((question) => question.stem.trim());
+    if (!hasUsableQuestion) missing.push("题目");
+    if (
+      form.questions.some((question) => {
+        if (!question.stem.trim()) return true;
+        if (question.type === "short_answer") return !question.correctAnswer.trim();
+        return question.options.some((option) => !option.text.trim()) ||
+          question.correctOptionIds.length === 0;
+      })
+    ) {
+      missing.push("答案与选项");
+    }
+  } else if (form.taskType === "subjective") {
+    if (!form.prompt.trim()) missing.push("主观题题干");
+    if (!form.scoringCriteria.some((item) => item.name.trim())) missing.push("评分标准");
+  }
+
+  return Array.from(new Set(missing));
+}
+
 // ---------- Component ----------
 
 export interface WizardModalContext {
@@ -244,6 +275,7 @@ export function TaskWizardModal({
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormData>(() => makeInitialForm());
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [contextGenerating, setContextGenerating] = useState(false);
   const [aiDialogOpen, setAIDialogOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -256,6 +288,7 @@ export function TaskWizardModal({
     setForm(makeInitialForm());
     setErrors({});
     setSubmitting(false);
+    setSavingDraft(false);
     setContextGenerating(false);
     setAIDialogOpen(false);
     setSelectedSourceIds([]);
@@ -607,6 +640,52 @@ export function TaskWizardModal({
   }
 
   // ---------- Submit ----------
+
+  async function handleSaveDraft() {
+    if (!context) return;
+    setSavingDraft(true);
+    try {
+      const missingFields = collectMissingFields(form);
+      const res = await fetch("/api/lms/task-build-drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId: context.courseId,
+          chapterId: context.chapterId,
+          sectionId: context.sectionId,
+          slot: context.slot,
+          taskType: form.taskType,
+          title: form.taskName.trim() || "未命名任务草稿",
+          description: form.description.trim() || undefined,
+          sourceIds: selectedSourceIds,
+          missingFields,
+          draftPayload: {
+            form,
+            teacherBrief,
+            draftSourceLabel,
+            context: {
+              chapterTitle: context.chapterTitle,
+              sectionTitle: context.sectionTitle,
+              slot: context.slot,
+            },
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "保存草稿失败");
+        return;
+      }
+      toast.success(missingFields.length > 0 ? "草稿已保存，可稍后补全" : "草稿已保存，待审核发布");
+      resetState();
+      onSuccess();
+      onClose();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!context) return;
@@ -1009,7 +1088,7 @@ export function TaskWizardModal({
               <Button
                 variant="outline"
                 onClick={prevStep}
-                disabled={step === 0 || submitting}
+                disabled={step === 0 || submitting || savingDraft}
               >
                 <ChevronLeft className="size-3.5 mr-1" />
                 上一步
@@ -1018,26 +1097,42 @@ export function TaskWizardModal({
                 {step + 1} / {WIZARD_STEPS.length} ·{" "}
                 {WIZARD_STEPS[step].label}
               </span>
-              {step < WIZARD_STEPS.length - 1 ? (
-                <Button onClick={nextStep} disabled={submitting}>
-                  下一步
-                  <ChevronRight className="size-3.5 ml-1" />
-                </Button>
-              ) : (
-                <Button onClick={handleSubmit} disabled={submitting}>
-                  {submitting ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleSaveDraft}
+                  disabled={!context || submitting || savingDraft}
+                >
+                  {savingDraft ? (
                     <>
                       <Loader2 className="size-4 mr-2 animate-spin" />
-                      创建中...
+                      保存中...
                     </>
                   ) : (
-                    <>
-                      <Check className="size-4 mr-1" />
-                      创建并发布
-                    </>
+                    "保存草稿"
                   )}
                 </Button>
-              )}
+                {step < WIZARD_STEPS.length - 1 ? (
+                  <Button onClick={nextStep} disabled={submitting || savingDraft}>
+                    下一步
+                    <ChevronRight className="size-3.5 ml-1" />
+                  </Button>
+                ) : (
+                  <Button onClick={handleSubmit} disabled={submitting || savingDraft}>
+                    {submitting ? (
+                      <>
+                        <Loader2 className="size-4 mr-2 animate-spin" />
+                        创建中...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="size-4 mr-1" />
+                        创建并发布
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>

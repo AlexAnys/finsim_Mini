@@ -28,6 +28,7 @@ import {
   HelpCircle,
   Box,
   Link as LinkIcon,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -103,6 +104,22 @@ const STATUS_CLASS: Record<string, string> = {
   archived: "bg-danger/10 text-danger border-danger/20",
 };
 
+const DRAFT_STATUS_LABEL: Record<string, string> = {
+  draft: "草稿",
+  queued: "排队中",
+  processing: "生成中",
+  ready: "待审核",
+  failed: "失败",
+};
+
+const DRAFT_STATUS_CLASS: Record<string, string> = {
+  draft: "border-line bg-paper-alt text-ink-3",
+  queued: "border-brand/20 bg-brand-soft text-brand",
+  processing: "border-brand/20 bg-brand-soft text-brand",
+  ready: "border-success/20 bg-success/10 text-success",
+  failed: "border-danger/20 bg-danger/10 text-danger",
+};
+
 // ---------- Types ----------
 
 export interface InlineTaskInstance {
@@ -114,12 +131,26 @@ export interface InlineTaskInstance {
   dueAt: string;
 }
 
+export interface InlineTaskBuildDraft {
+  id: string;
+  title: string;
+  description: string | null;
+  taskType: string;
+  status: string;
+  progress: number;
+  slot: string | null;
+  sourceIds: string[];
+  missingFields: string[];
+  error: string | null;
+}
+
 export interface InlineSection {
   id: string;
   title: string;
   order: number;
   contentBlocks: BlockEditorBlock[];
   taskInstances: InlineTaskInstance[];
+  taskBuildDrafts?: InlineTaskBuildDraft[];
 }
 
 export interface InlineChapter {
@@ -198,6 +229,16 @@ export function InlineSectionRow({
   for (const t of section.taskInstances) {
     const s = t.slot as SlotType;
     if (s in tasksBySlot) tasksBySlot[s].push(t);
+  }
+
+  const draftsBySlot: Record<SlotType, InlineTaskBuildDraft[]> = {
+    pre: [],
+    in: [],
+    post: [],
+  };
+  for (const draft of section.taskBuildDrafts ?? []) {
+    const s = draft.slot as SlotType;
+    if (s in draftsBySlot) draftsBySlot[s].push(draft);
   }
 
   async function handleSaveTitle() {
@@ -334,6 +375,7 @@ export function InlineSectionRow({
       <div className="grid grid-cols-1 gap-3 px-4 py-3 md:grid-cols-3">
         {ALL_SLOTS.map((slot) => {
           const tasks = tasksBySlot[slot];
+          const drafts = draftsBySlot[slot];
           const blocks = blocksBySlot[slot];
           const isCreatingHere = creatingSlot === slot;
           return (
@@ -414,6 +456,54 @@ export function InlineSectionRow({
                   >
                     <X className="size-3" />
                   </Button>
+                </div>
+              )}
+
+              {drafts.length > 0 && (
+                <div className="mb-2 space-y-1.5">
+                  {drafts.map((draft) => (
+                    <div
+                      key={draft.id}
+                      className={cn(
+                        "rounded-md border px-2 py-1.5 text-left text-xs",
+                        DRAFT_STATUS_CLASS[draft.status] ??
+                          "border-line bg-paper-alt text-ink-3",
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="size-3 shrink-0" />
+                        <span className="truncate font-medium">
+                          {draft.title}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                        <Badge
+                          variant="outline"
+                          className="h-4 px-1 py-0 text-[10px]"
+                        >
+                          {TASK_TYPE_LABEL[draft.taskType] ?? draft.taskType}
+                        </Badge>
+                        <span>
+                          {DRAFT_STATUS_LABEL[draft.status] ?? draft.status}
+                        </span>
+                        {draft.progress > 0 && draft.status !== "draft" && (
+                          <span className="tabular-nums opacity-70">
+                            {draft.progress}%
+                          </span>
+                        )}
+                      </div>
+                      {draft.missingFields.length > 0 && (
+                        <p className="mt-1 line-clamp-1 text-[10px] opacity-70">
+                          待补：{draft.missingFields.slice(0, 3).join("、")}
+                        </p>
+                      )}
+                      {draft.error && (
+                        <p className="mt-1 line-clamp-1 text-[10px] text-danger">
+                          {draft.error}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -511,7 +601,10 @@ export function InlineSectionRow({
                 </ul>
               )}
 
-              {tasks.length === 0 && blocks.length === 0 && !isCreatingHere && (
+              {drafts.length === 0 &&
+                tasks.length === 0 &&
+                blocks.length === 0 &&
+                !isCreatingHere && (
                 <p className="text-center text-[10.5px] text-ink-5">
                   暂无内容
                 </p>

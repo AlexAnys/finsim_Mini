@@ -18,13 +18,15 @@ export async function GET(request: NextRequest) {
     const courseId = searchParams.get("courseId");
     const chapterId = searchParams.get("chapterId");
     const sectionId = searchParams.get("sectionId");
+    const taskId = searchParams.get("taskId");
+    const taskInstanceId = searchParams.get("taskInstanceId");
     if (!courseId) return validationError("缺少 courseId");
 
     const user = result.session.user;
     await assertCourseAccess(courseId, user.id, user.role);
-    await assertKnowledgeSourceScope({ courseId, chapterId, sectionId });
+    await assertKnowledgeSourceScope({ courseId, chapterId, sectionId, taskId, taskInstanceId });
 
-    const sources = await listCourseKnowledgeSources({ courseId, chapterId, sectionId });
+    const sources = await listCourseKnowledgeSources({ courseId, chapterId, sectionId, taskId, taskInstanceId });
     return success(sources);
   } catch (err) {
     return handleServiceError(err);
@@ -41,13 +43,15 @@ export async function POST(request: NextRequest) {
     const courseId = formData.get("courseId") as string | null;
     const chapterId = (formData.get("chapterId") as string | null) || null;
     const sectionId = (formData.get("sectionId") as string | null) || null;
+    const taskId = (formData.get("taskId") as string | null) || null;
+    const taskInstanceId = (formData.get("taskInstanceId") as string | null) || null;
 
     if (!courseId) return validationError("缺少 courseId");
     if (!file) return validationError("请选择要上传的课程素材");
 
     const user = result.session.user;
     await assertCourseAccess(courseId, user.id, user.role);
-    await assertKnowledgeSourceScope({ courseId, chapterId, sectionId });
+    await assertKnowledgeSourceScope({ courseId, chapterId, sectionId, taskId, taskInstanceId });
 
     const validation = validateFile(file.type, file.size, ["document"]);
     if (!validation.valid) return validationError(validation.error!);
@@ -61,6 +65,8 @@ export async function POST(request: NextRequest) {
       courseId,
       chapterId,
       sectionId,
+      taskId,
+      taskInstanceId,
       fileName: file.name,
       filePath,
       mimeType: file.type,

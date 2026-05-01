@@ -126,6 +126,38 @@ enum KnowledgeSourceKind {
   image
 }
 
+enum AsyncJobStatus {
+  queued
+  running
+  succeeded
+  failed
+  canceled
+}
+
+enum AsyncJobType {
+  knowledge_source_ingest
+  task_draft_generate
+  task_import_parse
+  submission_grade
+  ai_work_assistant
+  analytics_recompute
+}
+
+enum TaskBuildDraftStatus {
+  draft
+  queued
+  processing
+  ready
+  failed
+  published
+}
+
+enum AiRunStatus {
+  running
+  succeeded
+  failed
+}
+
 enum AiThinkingLevel {
   disabled
   enabled
@@ -168,6 +200,9 @@ model User {
   importJobs         ImportJob[]          @relation("ImportTeacher")
   knowledgeSources   CourseKnowledgeSource[] @relation("KnowledgeSourceTeacher")
   aiToolSettings     AiToolSetting[]      @relation("AiToolSettingTeacher")
+  asyncJobs          AsyncJob[]           @relation("AsyncJobCreator")
+  taskBuildDrafts    TaskBuildDraft[]     @relation("TaskBuildDraftCreator")
+  aiRuns             AiRun[]              @relation("AiRunUser")
   auditLogs          AuditLog[]           @relation("AuditActor")
   collaboratingCourses CourseTeacher[]    @relation("CourseCollaborator")
 
@@ -224,6 +259,7 @@ model Course {
   teachers       CourseTeacher[]
   classes        CourseClass[] @relation("CourseClasses")
   knowledgeSources CourseKnowledgeSource[]
+  taskBuildDrafts TaskBuildDraft[]
 
   @@index([classId])
   @@index([createdBy])
@@ -246,6 +282,7 @@ model Chapter {
   contentBlocks ContentBlock[]
   taskInstances TaskInstance[]
   knowledgeSources CourseKnowledgeSource[]
+  taskBuildDrafts TaskBuildDraft[]
 
   @@unique([courseId, order])
 }
@@ -268,6 +305,7 @@ model Section {
   contentBlocks ContentBlock[]
   taskInstances TaskInstance[]
   knowledgeSources CourseKnowledgeSource[]
+  taskBuildDrafts TaskBuildDraft[]
 
   @@unique([chapterId, order])
 }
@@ -324,6 +362,7 @@ model Task {
   importJobs           ImportJob[]
   analytics            TaskInstanceAnalytics[] @relation("TaskAnalytics")
   analysisReports      AnalysisReport[]        @relation("ReportTask")
+  knowledgeSources     CourseKnowledgeSource[]
 
   @@index([creatorId])
   @@index([taskType])
@@ -494,6 +533,7 @@ model TaskInstance {
   taskPosts       TaskPost[]
   studyBuddyPosts StudyBuddyPost[]
   analysisReports AnalysisReport[]       @relation("ReportInstance")
+  knowledgeSources CourseKnowledgeSource[]
 
   @@index([taskId])
   @@index([classId])
@@ -818,6 +858,8 @@ model CourseKnowledgeSource {
   courseId      String
   chapterId     String?
   sectionId     String?
+  taskId        String?
+  taskInstanceId String?
   teacherId     String
   kind          KnowledgeSourceKind   @default(pdf)
   fileName      String                @db.VarChar(500)
@@ -834,15 +876,107 @@ model CourseKnowledgeSource {
   course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   chapter Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
   section Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  taskInstance TaskInstance? @relation(fields: [taskInstanceId], references: [id], onDelete: SetNull)
   teacher User     @relation("KnowledgeSourceTeacher", fields: [teacherId], references: [id])
 
   @@index([courseId, chapterId, sectionId])
+  @@index([taskId])
+  @@index([taskInstanceId])
   @@index([teacherId])
   @@index([status])
 }
 
 // ============================================
-// 表 32: AiToolSetting（教师 AI 工具设置）
+// 表 32: AsyncJob（异步任务）
+// ============================================
+model AsyncJob {
+  id          String         @id @default(uuid())
+  type        AsyncJobType
+  status      AsyncJobStatus @default(queued)
+  entityType  String?        @db.VarChar(80)
+  entityId    String?        @db.VarChar(120)
+  progress    Int            @default(0)
+  input       Json?
+  result      Json?
+  error       String?        @db.Text
+  attempts    Int            @default(0)
+  maxAttempts Int            @default(3)
+  createdBy   String
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  creator User @relation("AsyncJobCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([type, status])
+  @@index([entityType, entityId])
+  @@index([createdBy])
+}
+
+// ============================================
+// 表 33: TaskBuildDraft（任务构建草稿）
+// ============================================
+model TaskBuildDraft {
+  id            String               @id @default(uuid())
+  courseId      String
+  chapterId     String?
+  sectionId     String?
+  slot          SlotType?
+  taskType      TaskType
+  title         String               @db.VarChar(200)
+  description   String?              @db.Text
+  status        TaskBuildDraftStatus @default(draft)
+  progress      Int                  @default(0)
+  sourceIds     String[]             @default([])
+  missingFields String[]             @default([])
+  draftPayload  Json?
+  error         String?              @db.Text
+  createdBy     String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  chapter Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  section Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  creator User     @relation("TaskBuildDraftCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([courseId, chapterId, sectionId])
+  @@index([createdBy])
+  @@index([status])
+}
+
+// ============================================
+// 表 34: AiRun（AI 调用日志）
+// ============================================
+model AiRun {
+  id            String      @id @default(uuid())
+  userId        String
+  toolKey       String      @db.VarChar(80)
+  feature       String      @db.VarChar(80)
+  provider      String      @db.VarChar(40)
+  model         String      @db.VarChar(120)
+  status        AiRunStatus @default(running)
+  promptVersion String?     @db.VarChar(80)
+  promptHash    String?     @db.VarChar(120)
+  inputSize     Int?
+  outputSize    Int?
+  latencyMs     Int?
+  error         String?     @db.Text
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user User @relation("AiRunUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, toolKey])
+  @@index([feature, status])
+  @@index([createdAt])
+}
+
+// ============================================
+// 表 35: AiToolSetting（教师 AI 工具设置）
 // ============================================
 model AiToolSetting {
   id                 String          @id @default(uuid())
@@ -865,7 +999,7 @@ model AiToolSetting {
 }
 
 // ============================================
-// 表 33: AuditLog（审计日志）
+// 表 36: AuditLog（审计日志）
 // ============================================
 model AuditLog {
   id         String   @id @default(uuid())

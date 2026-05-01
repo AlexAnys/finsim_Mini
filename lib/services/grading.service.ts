@@ -170,6 +170,7 @@ export async function gradeSubmission(submissionId: string) {
       targetType: "Submission",
       metadata: { error: error instanceof Error ? error.message : "unknown" },
     });
+    throw error;
   }
 }
 

@@ -160,6 +160,7 @@ export function CourseContextSourcesTab({
       const params = new URLSearchParams({ courseId });
       if (effectiveChapterId) params.set("chapterId", effectiveChapterId);
       if (effectiveSectionId) params.set("sectionId", effectiveSectionId);
+      if (selectedTask) params.set("taskInstanceId", selectedTask.id);
       const res = await fetch(`/api/lms/course-knowledge-sources?${params}`);
       const json = await res.json();
       if (!json.success) {
@@ -172,11 +173,20 @@ export function CourseContextSourcesTab({
     } finally {
       setLoading(false);
     }
-  }, [courseId, effectiveChapterId, effectiveSectionId]);
+  }, [courseId, effectiveChapterId, effectiveSectionId, selectedTask]);
 
   useEffect(() => {
     fetchSources();
   }, [fetchSources]);
+
+  useEffect(() => {
+    const hasProcessing = sources.some((source) =>
+      ["uploaded", "extracting", "ocr_processing", "processing"].includes(source.status),
+    );
+    if (!hasProcessing) return;
+    const timer = window.setInterval(fetchSources, 2500);
+    return () => window.clearInterval(timer);
+  }, [fetchSources, sources]);
 
   async function handleUpload(file: File | null) {
     if (!file) return;
@@ -187,6 +197,7 @@ export function CourseContextSourcesTab({
       formData.set("courseId", courseId);
       if (effectiveChapterId) formData.set("chapterId", effectiveChapterId);
       if (effectiveSectionId) formData.set("sectionId", effectiveSectionId);
+      if (selectedTask) formData.set("taskInstanceId", selectedTask.id);
 
       const res = await fetch("/api/lms/course-knowledge-sources", {
         method: "POST",

@@ -3,6 +3,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import type { AIFeature } from "@/lib/types";
 import { prisma } from "@/lib/db/prisma";
+import { createHash } from "crypto";
 
 // ============================================
 // AI Provider 配置
@@ -220,6 +221,56 @@ function mergeSystemPrompt(systemPrompt: string, setting?: AiRuntimeSetting | nu
   return `${systemPrompt}\n\n教师补充要求：\n${setting.systemPromptSuffix.trim()}`;
 }
 
+async function createAiRun(input: {
+  feature: AIFeature;
+  userId: string;
+  provider: ProviderConfig;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  try {
+    const promptHash = createHash("sha256")
+      .update(`${input.systemPrompt}\n---\n${input.userPrompt}`)
+      .digest("hex");
+    return await prisma.aiRun.create({
+      data: {
+        userId: input.userId,
+        toolKey: FEATURE_TOOL_KEYS[input.feature],
+        feature: input.feature,
+        provider: input.provider.name,
+        model: input.model,
+        status: "running",
+        promptVersion: "v1",
+        promptHash,
+        inputSize: input.systemPrompt.length + input.userPrompt.length,
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function finishAiRun(
+  runId: string | null | undefined,
+  data: { status: "succeeded" | "failed"; startedAt: number; output?: string; error?: unknown },
+) {
+  if (!runId) return;
+  try {
+    await prisma.aiRun.update({
+      where: { id: runId },
+      data: {
+        status: data.status,
+        latencyMs: Date.now() - data.startedAt,
+        outputSize: data.output?.length,
+        error: data.error ? errorMessage(data.error).slice(0, 2000) : null,
+      },
+    });
+  } catch {
+    // AI 调用日志不能影响主流程。
+  }
+}
+
 // ============================================
 // 限流
 // ============================================
@@ -257,6 +308,10 @@ function extractJSON(text: string): string {
   return match ? match[0] : cleaned;
 }
 
+function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // ============================================
 // 公共 AI 调用接口
 // ============================================
@@ -275,19 +330,31 @@ export async function aiGenerateText(
   const { provider, model } = getProviderForFeature(feature, setting);
   const openai = createProvider(provider);
   const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
+  const mergedSystemPrompt = mergeSystemPrompt(systemPrompt, setting);
+  const startedAt = Date.now();
+  const aiRun = await createAiRun({
+    feature,
+    userId,
+    provider,
+    model,
+    systemPrompt: mergedSystemPrompt,
+    userPrompt,
+  });
 
   try {
     const { text } = await generateText({
       model: openai.chat(model),
-      system: mergeSystemPrompt(systemPrompt, setting),
+      system: mergedSystemPrompt,
       prompt: userPrompt,
       temperature,
       maxOutputTokens: 4096,
       providerOptions: getProviderOptions(provider, setting),
     });
 
+    await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: text });
     return text;
   } catch (error) {
+    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error });
     console.error(`[AI ${feature}] provider=${provider.name} model=${model} error:`, error);
     throw error;
   }
@@ -309,6 +376,16 @@ export async function aiGenerateJSON<T>(
   const { provider, model } = getProviderForFeature(feature, setting);
   const openai = createProvider(provider);
   const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
+  const mergedSystemPrompt = `${mergeSystemPrompt(systemPrompt, setting)}\n\n请严格返回 JSON 格式，不要包含其他文字。`;
+  const startedAt = Date.now();
+  const aiRun = await createAiRun({
+    feature,
+    userId,
+    provider,
+    model,
+    systemPrompt: mergedSystemPrompt,
+    userPrompt,
+  });
 
   let lastError: Error | null = null;
 
@@ -316,7 +393,7 @@ export async function aiGenerateJSON<T>(
     try {
       const { text } = await generateText({
         model: openai.chat(model),
-        system: mergeSystemPrompt(systemPrompt, setting) + "\n\n请严格返回 JSON 格式，不要包含其他文字。",
+        system: mergedSystemPrompt,
         prompt: userPrompt,
         temperature,
         maxOutputTokens: 4096,
@@ -325,13 +402,16 @@ export async function aiGenerateJSON<T>(
 
       const jsonStr = extractJSON(text);
       const parsed = JSON.parse(jsonStr);
-      return schema.parse(parsed);
+      const data = schema.parse(parsed);
+      await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: text });
+      return data;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < maxRetries) continue;
     }
   }
 
+  await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: lastError });
   throw lastError || new Error("AI_GENERATE_FAILED");
 }
 

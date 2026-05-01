@@ -101,6 +101,15 @@ export function KnowledgeSourceAssistant({
     fetchSources();
   }, [fetchSources]);
 
+  useEffect(() => {
+    const hasProcessing = sources.some((source) =>
+      ["uploaded", "extracting", "ocr_processing", "processing"].includes(source.status),
+    );
+    if (!hasProcessing) return;
+    const timer = window.setInterval(fetchSources, 2500);
+    return () => window.clearInterval(timer);
+  }, [fetchSources, sources]);
+
   async function handleUpload(file: File | null) {
     if (!file) return;
     setUploading(true);
@@ -126,7 +135,7 @@ export function KnowledgeSourceAssistant({
         onSelectedSourceIdsChange(Array.from(new Set([...selectedSourceIds, source.id])));
         toast.success("素材已解析并加入本次草稿素材");
       } else {
-        toast.warning(source.error || "素材解析未完成，请查看素材状态");
+        toast.warning(source.error || "素材已入队处理，完成后会自动刷新状态");
       }
     } catch {
       toast.error("素材上传解析失败");

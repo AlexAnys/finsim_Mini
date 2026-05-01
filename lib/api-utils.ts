@@ -81,8 +81,12 @@ export function handleServiceError(err: unknown) {
       case "TASK_INSTANCE_NOT_FOUND":
       case "INSTANCE_NOT_FOUND":
         return notFound("任务实例不存在");
+      case "TASK_INSTANCE_SCOPE_MISMATCH":
+        return error("TASK_INSTANCE_SCOPE_MISMATCH", "任务实例与当前课程/章节/小节不匹配", 400);
       case "TASK_NOT_FOUND":
         return notFound("任务不存在");
+      case "TASK_SCOPE_MISMATCH":
+        return error("TASK_SCOPE_MISMATCH", "任务不属于当前课程范围", 400);
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
       case "FILE_NOT_FOUND":
@@ -97,6 +101,14 @@ export function handleServiceError(err: unknown) {
         return error("SUBMISSION_NOT_GRADED", "提交尚未完成评估，无法公布", 400);
       case "JOB_NOT_FOUND":
         return notFound("导入任务不存在");
+      case "ASYNC_JOB_NOT_FOUND":
+        return notFound("异步任务不存在");
+      case "ASYNC_JOB_IN_PROGRESS":
+        return error("ASYNC_JOB_IN_PROGRESS", "任务正在处理中，请稍后查看", 400);
+      case "ASYNC_JOB_MAX_ATTEMPTS":
+        return error("ASYNC_JOB_MAX_ATTEMPTS", "任务已达到最大重试次数", 400);
+      case "ASYNC_JOB_HANDLER_NOT_IMPLEMENTED":
+        return error("ASYNC_JOB_HANDLER_NOT_IMPLEMENTED", "该异步任务类型尚未接入处理器", 500);
       case "TASK_NOT_PUBLISHED":
         return error("TASK_NOT_PUBLISHED", "任务尚未发布", 400);
       case "TASK_OVERDUE":

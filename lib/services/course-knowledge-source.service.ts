@@ -3,6 +3,7 @@ import { join } from "path";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "@/lib/services/ai.service";
+import { enqueueAsyncJob } from "@/lib/services/async-job.service";
 import {
   detectDocumentKind,
   extractDocumentText,
@@ -25,6 +26,8 @@ export interface CourseKnowledgeSourceListItem {
   courseId: string;
   chapterId: string | null;
   sectionId: string | null;
+  taskId: string | null;
+  taskInstanceId: string | null;
   fileName: string;
   status: string;
   summary: string | null;
@@ -55,9 +58,13 @@ export async function assertKnowledgeSourceScope(input: {
   courseId: string;
   chapterId?: string | null;
   sectionId?: string | null;
+  taskId?: string | null;
+  taskInstanceId?: string | null;
 }) {
   const chapterId = input.chapterId || null;
   const sectionId = input.sectionId || null;
+  const taskId = input.taskId || null;
+  const taskInstanceId = input.taskInstanceId || null;
 
   if (chapterId) {
     const chapter = await prisma.chapter.findUnique({
@@ -77,18 +84,48 @@ export async function assertKnowledgeSourceScope(input: {
     if (section.courseId !== input.courseId) throw new Error("SECTION_PARENT_MISMATCH");
     if (chapterId && section.chapterId !== chapterId) throw new Error("SECTION_PARENT_MISMATCH");
   }
+
+  if (taskInstanceId) {
+    const instance = await prisma.taskInstance.findUnique({
+      where: { id: taskInstanceId },
+      select: { courseId: true, chapterId: true, sectionId: true, taskId: true },
+    });
+    if (!instance) throw new Error("TASK_INSTANCE_NOT_FOUND");
+    if (instance.courseId !== input.courseId) throw new Error("TASK_INSTANCE_SCOPE_MISMATCH");
+    if (chapterId && instance.chapterId !== chapterId) throw new Error("TASK_INSTANCE_SCOPE_MISMATCH");
+    if (sectionId && instance.sectionId !== sectionId) throw new Error("TASK_INSTANCE_SCOPE_MISMATCH");
+    if (taskId && instance.taskId !== taskId) throw new Error("TASK_INSTANCE_SCOPE_MISMATCH");
+    return;
+  }
+
+  if (taskId) {
+    const scopedTask = await prisma.taskInstance.findFirst({
+      where: {
+        taskId,
+        courseId: input.courseId,
+        ...(chapterId ? { chapterId } : {}),
+        ...(sectionId ? { sectionId } : {}),
+      },
+      select: { id: true },
+    });
+    if (!scopedTask) throw new Error("TASK_SCOPE_MISMATCH");
+  }
 }
 
 export async function listCourseKnowledgeSources(input: {
   courseId: string;
   chapterId?: string | null;
   sectionId?: string | null;
+  taskId?: string | null;
+  taskInstanceId?: string | null;
 }): Promise<CourseKnowledgeSourceListItem[]> {
   const sources = await prisma.courseKnowledgeSource.findMany({
     where: {
       courseId: input.courseId,
       ...(input.chapterId ? { chapterId: input.chapterId } : {}),
       ...(input.sectionId ? { sectionId: input.sectionId } : {}),
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.taskInstanceId ? { taskInstanceId: input.taskInstanceId } : {}),
     },
     orderBy: { createdAt: "desc" },
     select: {
@@ -96,6 +133,8 @@ export async function listCourseKnowledgeSources(input: {
       courseId: true,
       chapterId: true,
       sectionId: true,
+      taskId: true,
+      taskInstanceId: true,
       fileName: true,
       status: true,
       summary: true,
@@ -112,6 +151,8 @@ export async function listCourseKnowledgeSources(input: {
     courseId: source.courseId,
     chapterId: source.chapterId,
     sectionId: source.sectionId,
+    taskId: source.taskId,
+    taskInstanceId: source.taskInstanceId,
     fileName: source.fileName,
     status: source.status,
     summary: source.summary,
@@ -128,6 +169,8 @@ export async function createAndProcessCourseKnowledgeSource(input: {
   courseId: string;
   chapterId?: string | null;
   sectionId?: string | null;
+  taskId?: string | null;
+  taskInstanceId?: string | null;
   fileName: string;
   filePath: string;
   mimeType: string;
@@ -140,6 +183,8 @@ export async function createAndProcessCourseKnowledgeSource(input: {
       courseId: input.courseId,
       chapterId: input.chapterId || null,
       sectionId: input.sectionId || null,
+      taskId: input.taskId || null,
+      taskInstanceId: input.taskInstanceId || null,
       kind: detectDocumentKind(input.fileName, input.mimeType),
       fileName: input.fileName,
       filePath: input.filePath,
@@ -148,7 +193,15 @@ export async function createAndProcessCourseKnowledgeSource(input: {
     },
   });
 
-  return processCourseKnowledgeSource(source.id, input.teacherId);
+  const asyncJob = await enqueueAsyncJob({
+    type: "knowledge_source_ingest",
+    entityType: "CourseKnowledgeSource",
+    entityId: source.id,
+    input: { sourceId: source.id },
+    createdBy: input.teacherId,
+  });
+
+  return { ...source, asyncJob };
 }
 
 export async function processCourseKnowledgeSource(sourceId: string, userId: string) {
@@ -283,6 +336,8 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
   courseId?: string | null;
   chapterId?: string | null;
   sectionId?: string | null;
+  taskId?: string | null;
+  taskInstanceId?: string | null;
 }): Promise<CourseKnowledgeSourceForStudyBuddy[]> {
   if (!input.courseId) return [];
 
@@ -292,6 +347,8 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
       ? [{ chapterId: input.chapterId, sectionId: null }]
       : []),
     ...(input.sectionId ? [{ sectionId: input.sectionId }] : []),
+    ...(input.taskId ? [{ taskId: input.taskId }] : []),
+    ...(input.taskInstanceId ? [{ taskInstanceId: input.taskInstanceId }] : []),
   ];
 
   const sources = await prisma.courseKnowledgeSource.findMany({

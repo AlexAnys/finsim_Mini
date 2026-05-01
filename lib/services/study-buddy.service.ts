@@ -58,6 +58,7 @@ async function generateReply(postId: string, userId: string) {
       taskInstance: {
         select: {
           title: true,
+          taskId: true,
           courseId: true,
           chapterId: true,
           sectionId: true,
@@ -81,6 +82,8 @@ async function generateReply(postId: string, userId: string) {
     courseId: taskInstance?.courseId,
     chapterId: taskInstance?.chapterId,
     sectionId: taskInstance?.sectionId,
+    taskId: taskInstance?.taskId ?? post.taskId,
+    taskInstanceId: post.taskInstanceId,
   });
   const taskContext = task?.simulationConfig?.studyBuddyContext || "";
   const materialContext = materialSources
