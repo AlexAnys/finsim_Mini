@@ -115,17 +115,27 @@ describe("getKnowledgeSourcesForStudyBuddy", () => {
     mk(prisma.courseKnowledgeSource.findMany).mockResolvedValue([
       {
         id: "course-source",
+        chapterId: null,
+        sectionId: null,
+        taskId: null,
+        taskInstanceId: null,
         fileName: "course.pdf",
         summary: "课程大纲",
         conceptTags: ["理财规划"],
         extractedText: "整门课程的学习目标和术语说明",
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
       },
       {
         id: "section-source",
+        chapterId: "chapter-1",
+        sectionId: "section-1",
+        taskId: null,
+        taskInstanceId: null,
         fileName: "section.pdf",
         summary: "小节教案",
         conceptTags: ["风险偏好"],
         extractedText: "风险偏好测评和客户沟通案例",
+        updatedAt: new Date("2026-01-02T00:00:00Z"),
       },
     ]);
 
@@ -143,15 +153,17 @@ describe("getKnowledgeSourcesForStudyBuddy", () => {
             in: expect.arrayContaining(["ready", "ai_summary_failed"]),
           }),
           OR: expect.arrayContaining([
-            { chapterId: null, sectionId: null },
-            { chapterId: "chapter-1", sectionId: null },
-            { sectionId: "section-1" },
+            { chapterId: null, sectionId: null, taskId: null, taskInstanceId: null },
+            { chapterId: "chapter-1", sectionId: null, taskId: null, taskInstanceId: null },
+            { sectionId: "section-1", taskId: null, taskInstanceId: null },
           ]),
         }),
       }),
     );
     expect(sources).toHaveLength(2);
-    expect(sources[0].excerpt).toContain("整门课程");
+    expect(sources[0].scopeLevel).toBe("section");
+    expect(sources[0].scopeLabel).toBe("小节");
+    expect(sources[1].excerpt).toContain("整门课程");
   });
 
   it("returns no sources when the post is not course scoped", async () => {

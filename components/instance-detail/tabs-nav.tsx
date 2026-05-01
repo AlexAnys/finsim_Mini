@@ -1,8 +1,8 @@
 "use client";
 
-import { BarChart3, Users, Sparkles } from "lucide-react";
+import { BarChart3, BookOpen, Users, Sparkles } from "lucide-react";
 
-export type InstanceTabKey = "overview" | "submissions" | "insights" | "analytics";
+export type InstanceTabKey = "overview" | "submissions" | "contexts" | "insights" | "analytics";
 
 interface TabDef {
   key: InstanceTabKey;
@@ -22,6 +22,7 @@ export function InstanceTabsNav({ value, onChange, submittedCount }: InstanceTab
   const tabs: TabDef[] = [
     { key: "overview", label: "总览", Icon: BarChart3 },
     { key: "submissions", label: "提交列表", Icon: Users, count: submittedCount },
+    { key: "contexts", label: "上下文", Icon: BookOpen },
     { key: "insights", label: "AI 洞察", Icon: Sparkles, badge: "AI" },
     { key: "analytics", label: "数据分析", Icon: BarChart3 },
   ];

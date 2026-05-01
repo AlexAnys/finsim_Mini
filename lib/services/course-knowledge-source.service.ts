@@ -49,6 +49,8 @@ export interface CourseKnowledgeSourceForDraft {
 export interface CourseKnowledgeSourceForStudyBuddy {
   id: string;
   fileName: string;
+  scopeLevel: "taskInstance" | "task" | "section" | "chapter" | "course" | "unknown";
+  scopeLabel: string;
   summary: string | null;
   conceptTags: string[];
   excerpt: string;
@@ -342,12 +344,12 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
   if (!input.courseId) return [];
 
   const scopeOr = [
-    { chapterId: null, sectionId: null },
+    { chapterId: null, sectionId: null, taskId: null, taskInstanceId: null },
     ...(input.chapterId
-      ? [{ chapterId: input.chapterId, sectionId: null }]
+      ? [{ chapterId: input.chapterId, sectionId: null, taskId: null, taskInstanceId: null }]
       : []),
-    ...(input.sectionId ? [{ sectionId: input.sectionId }] : []),
-    ...(input.taskId ? [{ taskId: input.taskId }] : []),
+    ...(input.sectionId ? [{ sectionId: input.sectionId, taskId: null, taskInstanceId: null }] : []),
+    ...(input.taskId ? [{ taskId: input.taskId, taskInstanceId: null }] : []),
     ...(input.taskInstanceId ? [{ taskInstanceId: input.taskInstanceId }] : []),
   ];
 
@@ -358,27 +360,96 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
       OR: scopeOr,
     },
     orderBy: { updatedAt: "desc" },
-    take: 6,
+    take: 20,
     select: {
       id: true,
+      chapterId: true,
+      sectionId: true,
+      taskId: true,
+      taskInstanceId: true,
       fileName: true,
       summary: true,
       conceptTags: true,
       extractedText: true,
+      updatedAt: true,
     },
   });
 
-  return sources.map((source) => ({
-    id: source.id,
-    fileName: source.fileName,
-    summary: source.summary,
-    conceptTags: source.conceptTags,
-    excerpt: makeExcerpt((source.extractedText || "").slice(0, 3000)),
-  }));
+  const priority: Record<CourseKnowledgeSourceForStudyBuddy["scopeLevel"], number> = {
+    taskInstance: 0,
+    task: 1,
+    section: 2,
+    chapter: 3,
+    course: 4,
+    unknown: 5,
+  };
+
+  return sources
+    .map((source) => {
+      const scopeLevel = getStudyBuddyScopeLevel(source);
+      return {
+        id: source.id,
+        fileName: source.fileName,
+        scopeLevel,
+        scopeLabel: scopeLevelLabel(scopeLevel),
+        summary: source.summary,
+        conceptTags: source.conceptTags,
+        excerpt: makeExcerpt((source.extractedText || "").slice(0, 3000)),
+        updatedAt: source.updatedAt,
+      };
+    })
+    .sort((a, b) => {
+      const byPriority = priority[a.scopeLevel] - priority[b.scopeLevel];
+      if (byPriority !== 0) return byPriority;
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    })
+    .slice(0, 6)
+    .map((source) => ({
+      id: source.id,
+      fileName: source.fileName,
+      scopeLevel: source.scopeLevel,
+      scopeLabel: source.scopeLabel,
+      summary: source.summary,
+      conceptTags: source.conceptTags,
+      excerpt: source.excerpt,
+    }));
 }
 
 function dedupeTags(tags: string[]) {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean))).slice(0, 12);
+}
+
+function getStudyBuddyScopeLevel(source: {
+  chapterId: string | null;
+  sectionId: string | null;
+  taskId: string | null;
+  taskInstanceId: string | null;
+}): CourseKnowledgeSourceForStudyBuddy["scopeLevel"] {
+  if (source.taskInstanceId) return "taskInstance";
+  if (source.taskId) return "task";
+  if (source.sectionId) return "section";
+  if (source.chapterId) return "chapter";
+  if (!source.chapterId && !source.sectionId && !source.taskId && !source.taskInstanceId) {
+    return "course";
+  }
+  return "unknown";
+}
+
+function scopeLevelLabel(scopeLevel: CourseKnowledgeSourceForStudyBuddy["scopeLevel"]) {
+  switch (scopeLevel) {
+    case "taskInstance":
+      return "本次任务";
+    case "task":
+      return "任务模板";
+    case "section":
+      return "小节";
+    case "chapter":
+      return "章节";
+    case "course":
+      return "课程";
+    default:
+      return "上下文";
+  }
 }
 
 function makeExcerpt(text: string) {

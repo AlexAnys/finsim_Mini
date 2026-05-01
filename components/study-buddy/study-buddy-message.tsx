@@ -7,6 +7,7 @@
 // - 气泡角：student 右下小、ai 左下小（mockup）
 
 import Image from "next/image";
+import { BookOpen } from "lucide-react";
 import type { StudyBuddyMode, StudyBuddyMessage } from "@/lib/utils/study-buddy-transforms";
 import { formatMessageTime } from "@/lib/utils/study-buddy-transforms";
 
@@ -25,6 +26,7 @@ export function StudyBuddyMessageBubble({
 }: StudyBuddyMessageProps) {
   const isUser = message.role === "student";
   const showSocraticChip = !isUser && mode === "socratic";
+  const contextSources = !isUser ? message.contextSources ?? [] : [];
 
   return (
     <div
@@ -80,6 +82,31 @@ export function StudyBuddyMessageBubble({
         >
           {message.content}
         </div>
+        {contextSources.length > 0 && (
+          <div className="mt-2 rounded-lg border border-line bg-paper-alt px-3 py-2 text-[11.5px] text-ink-4">
+            <div className="mb-1 flex items-center gap-1.5 font-medium text-ink-3">
+              <BookOpen className="size-3.5 text-brand" />
+              引用上下文
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {contextSources.slice(0, 4).map((source) => (
+                <span
+                  key={source.id}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5"
+                  title={source.fileName}
+                >
+                  <span className="shrink-0 text-brand">{source.scopeLabel}</span>
+                  <span className="truncate">{source.fileName}</span>
+                </span>
+              ))}
+              {contextSources.length > 4 && (
+                <span className="rounded-full border border-line bg-surface px-2 py-0.5">
+                  +{contextSources.length - 4}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

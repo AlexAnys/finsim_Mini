@@ -12,6 +12,12 @@ export interface StudyBuddyMessage {
   role: string; // "student" | "ai"
   content: string;
   createdAt: string;
+  contextSources?: Array<{
+    id: string;
+    fileName: string;
+    scopeLevel: string;
+    scopeLabel: string;
+  }>;
 }
 
 /** GET /api/study-buddy/posts 原始 item（service 层 select 的字段集） */

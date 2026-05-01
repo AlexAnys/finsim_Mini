@@ -8,6 +8,17 @@ import {
 import { getKnowledgeSourcesForStudyBuddy } from "@/lib/services/course-knowledge-source.service";
 
 type UserLike = { id: string; role: string; classId?: string | null };
+type StudyBuddyMessageRecord = {
+  role: string;
+  content: string;
+  createdAt: string;
+  contextSources?: Array<{
+    id: string;
+    fileName: string;
+    scopeLevel: string;
+    scopeLabel: string;
+  }>;
+};
 
 export async function createPost(data: {
   user: UserLike;
@@ -71,7 +82,7 @@ async function generateReply(postId: string, userId: string) {
   });
   if (!post) return;
 
-  const messages = (post.messages as Array<{ role: string; content: string }>) || [];
+  const messages = (post.messages as StudyBuddyMessageRecord[]) || [];
   const modePrompt = post.mode === "socratic"
     ? "使用苏格拉底式教学法：不直接给出答案，而是每次提 1-2 个引导性问题帮助学生自己发现答案。先肯定学生思考中正确的部分，再通过提问引导其完善。"
     : "以清晰、分步骤的方式直接回答学生的问题。";
@@ -85,6 +96,12 @@ async function generateReply(postId: string, userId: string) {
     taskId: taskInstance?.taskId ?? post.taskId,
     taskInstanceId: post.taskInstanceId,
   });
+  const referencedSources = materialSources.map((source) => ({
+    id: source.id,
+    fileName: source.fileName,
+    scopeLevel: source.scopeLevel,
+    scopeLabel: source.scopeLabel,
+  }));
   const taskContext = task?.simulationConfig?.studyBuddyContext || "";
   const materialContext = materialSources
     .map((source, index) => {
@@ -92,7 +109,7 @@ async function generateReply(postId: string, userId: string) {
         ? `概念标签: ${source.conceptTags.join(" / ")}\n`
         : "";
       const summary = source.summary ? `摘要: ${source.summary}\n` : "";
-      return `素材 ${index + 1}: ${source.fileName}\n${tags}${summary}摘录: ${source.excerpt}`;
+      return `素材 ${index + 1}（${source.scopeLabel}）: ${source.fileName}\n${tags}${summary}摘录: ${source.excerpt}`;
     })
     .join("\n\n");
   const scopeLine = [
@@ -123,7 +140,12 @@ ${materialContext ? `教师补充课程素材:\n${materialContext}` : ""}
 
     const updatedMessages = [
       ...messages,
-      { role: "ai", content: reply, createdAt: new Date().toISOString() },
+      {
+        role: "ai",
+        content: reply,
+        createdAt: new Date().toISOString(),
+        contextSources: referencedSources,
+      },
     ];
 
     await prisma.studyBuddyPost.update({
@@ -154,7 +176,7 @@ export async function continueConversation(postId: string, userId: string, conte
     throw new Error("FORBIDDEN");
   }
 
-  const messages = (post.messages as Array<{ role: string; content: string; createdAt: string }>) || [];
+  const messages = (post.messages as StudyBuddyMessageRecord[]) || [];
   messages.push({ role: "student", content, createdAt: new Date().toISOString() });
 
   await prisma.studyBuddyPost.update({

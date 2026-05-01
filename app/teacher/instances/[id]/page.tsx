@@ -36,6 +36,7 @@ import {
   normalizeSubmission,
   type NormalizedSubmission,
 } from "@/components/instance-detail/submissions-utils";
+import { ContextSourcesPanel } from "@/components/course/context-sources-panel";
 
 interface InstanceDetail {
   id: string;
@@ -851,6 +852,26 @@ export default function InstanceDetailPage() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {tab === "contexts" && instance.course && (
+          <ContextSourcesPanel
+            courseId={instance.course.id}
+            chapterId={instance.chapter?.id ?? null}
+            sectionId={instance.section?.id ?? null}
+            taskId={instance.task.id}
+            taskInstanceId={instance.id}
+            title="本任务额外上下文"
+            description="上传只服务于本次任务实例的讲义、案例、题目解析或教师说明。学习伙伴会优先引用这些材料，再回退到任务、小节、章节和课程素材。"
+          />
+        )}
+
+        {tab === "contexts" && !instance.course && (
+          <Card className="border-line bg-surface shadow-fs">
+            <CardContent className="py-10 text-center text-sm text-ink-4">
+              当前任务实例未绑定课程，无法挂载教学上下文素材。
+            </CardContent>
+          </Card>
         )}
 
         {tab === "insights" && (
