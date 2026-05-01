@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { Prisma } from "@prisma/client";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
 import { assertSubmissionReadable } from "@/lib/auth/resource-access";
 import { clampPage, clampTake } from "@/lib/pagination";
@@ -272,6 +273,40 @@ export async function updateSubmissionGrade(
           data: updateData,
         });
       }
+    }
+
+    return submission;
+  });
+}
+
+export async function resetSubmissionForRetry(submissionId: string) {
+  return prisma.$transaction(async (tx) => {
+    const submission = await tx.submission.update({
+      where: { id: submissionId },
+      data: {
+        status: "submitted",
+        score: null,
+        maxScore: null,
+        gradedAt: null,
+        releasedAt: null,
+      },
+    });
+
+    if (submission.taskType === "simulation") {
+      await tx.simulationSubmission.updateMany({
+        where: { submissionId },
+        data: { evaluation: Prisma.DbNull, conceptTags: [] },
+      });
+    } else if (submission.taskType === "quiz") {
+      await tx.quizSubmission.updateMany({
+        where: { submissionId },
+        data: { evaluation: Prisma.DbNull, conceptTags: [] },
+      });
+    } else if (submission.taskType === "subjective") {
+      await tx.subjectiveSubmission.updateMany({
+        where: { submissionId },
+        data: { evaluation: Prisma.DbNull, conceptTags: [] },
+      });
     }
 
     return submission;

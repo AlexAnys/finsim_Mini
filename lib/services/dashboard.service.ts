@@ -151,6 +151,7 @@ export async function getStudentDashboard(studentId: string, classId: string) {
         maxScore: true,
         submittedAt: true,
         gradedAt: true,
+        releasedAt: true,
       },
       orderBy: { submittedAt: "desc" },
     }),
@@ -186,9 +187,11 @@ export async function getStudentDashboard(studentId: string, classId: string) {
     const now = new Date();
     const isOverdue = now > ti.dueAt;
 
-    let studentStatus: "todo" | "submitted" | "graded" | "overdue" = "todo";
+    let studentStatus: "todo" | "submitted" | "grading" | "graded" | "failed" | "overdue" = "todo";
     if (latestSub) {
       if (latestSub.status === "graded") studentStatus = "graded";
+      else if (latestSub.status === "grading") studentStatus = "grading";
+      else if (latestSub.status === "failed") studentStatus = "failed";
       else studentStatus = "submitted";
     } else if (isOverdue) {
       studentStatus = "overdue";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useCallback } from "react";
-import { Search, Download, Sparkles, AlertCircle, Send } from "lucide-react";
+import { Search, Download, Sparkles, AlertCircle, Send, RotateCcw } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,6 +55,7 @@ const filterTabs: Array<{ key: SubmissionFilterKey; label: string }> = [
   { key: "submitted", label: "待批改" },
   { key: "grading", label: "批改中" },
   { key: "graded", label: "已出分" },
+  { key: "failed", label: "失败" },
 ];
 
 function avatarBg(seed: string): string {
@@ -71,7 +72,9 @@ interface SubmissionRowProps {
   onToggleSelect: (id: string) => void;
   onOpenGrading: (id: string) => void;
   onRelease: (id: string, release: boolean) => void;
+  onRetryGrade: (id: string) => void;
   releasingId: string | null;
+  retryingId: string | null;
   height?: number;
 }
 
@@ -81,7 +84,9 @@ function SubmissionRow({
   onToggleSelect,
   onOpenGrading,
   onRelease,
+  onRetryGrade,
   releasingId,
+  retryingId,
   height,
 }: SubmissionRowProps) {
   const status = statusBadge[row.status] || statusBadge.submitted;
@@ -94,6 +99,7 @@ function SubmissionRow({
     minute: "2-digit",
   });
   const isThisRowReleasing = releasingId === row.id;
+  const isThisRowRetrying = retryingId === row.id;
 
   return (
     <div
@@ -183,6 +189,21 @@ function SubmissionRow({
         >
           {row.status === "graded" ? "复评" : "批改"}
         </Button>
+        {row.status === "failed" && (
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => onRetryGrade(row.id)}
+            disabled={isThisRowRetrying}
+          >
+            {isThisRowRetrying ? (
+              <span className="inline-block size-3 animate-spin rounded-full border border-current border-t-transparent" />
+            ) : (
+              <RotateCcw className="size-3" />
+            )}
+            重试
+          </Button>
+        )}
         {row.analysisStatus === "analyzed_unreleased" && (
           <Button
             size="xs"
@@ -224,7 +245,9 @@ export interface SubmissionsTabProps {
   // PR-SIM-1b · D1
   onRelease?: (submissionId: string, released: boolean) => Promise<void> | void;
   onBatchRelease?: (ids: string[]) => Promise<void> | void;
+  onRetryGrade?: (submissionId: string) => Promise<void> | void;
   releasingId?: string | null;
+  retryingId?: string | null;
   bulkReleasing?: boolean;
 }
 
@@ -236,7 +259,9 @@ export function SubmissionsTab({
   onBulkGrade,
   onRelease,
   onBatchRelease,
+  onRetryGrade,
   releasingId = null,
+  retryingId = null,
   bulkReleasing = false,
 }: SubmissionsTabProps) {
   const [filter, setFilter] = useState<SubmissionFilterKey>("all");
@@ -319,6 +344,14 @@ export function SubmissionsTab({
       void onRelease(id, release);
     },
     [onRelease]
+  );
+
+  const handleRowRetryGrade = useCallback(
+    (id: string) => {
+      if (!onRetryGrade) return;
+      void onRetryGrade(id);
+    },
+    [onRetryGrade]
   );
 
   return (
@@ -479,7 +512,9 @@ export function SubmissionsTab({
                           onToggleSelect={toggleSelect}
                           onOpenGrading={onOpenGrading}
                           onRelease={handleRowRelease}
+                          onRetryGrade={handleRowRetryGrade}
                           releasingId={releasingId}
+                          retryingId={retryingId}
                           height={ROW_HEIGHT}
                         />
                       </div>
@@ -498,7 +533,9 @@ export function SubmissionsTab({
                     onToggleSelect={toggleSelect}
                     onOpenGrading={onOpenGrading}
                     onRelease={handleRowRelease}
+                    onRetryGrade={handleRowRetryGrade}
                     releasingId={releasingId}
+                    retryingId={retryingId}
                   />
                 ))}
               </div>

@@ -143,9 +143,17 @@ export function SubmissionRow({ row, selected, onSelect, trendDelta }: Submissio
               / {row.maxScore}
             </div>
           </>
+        ) : row.status === "failed" ? (
+          <span className="inline-block rounded-md border border-danger/20 bg-danger-soft px-2 py-0.5 text-[10.5px] font-medium text-danger">
+            批改失败 · 等待教师处理
+          </span>
         ) : row.analysisStatus === "analyzed_unreleased" ? (
           <span className="inline-block rounded-md border border-ochre/20 bg-ochre/10 px-2 py-0.5 text-[10.5px] font-medium text-ochre">
             已分析 · 等待教师公布
+          </span>
+        ) : row.status === "grading" ? (
+          <span className="inline-block rounded-md border border-brand/20 bg-brand-soft px-2 py-0.5 text-[10.5px] font-medium text-brand">
+            批改中
           </span>
         ) : (
           <span className="inline-block rounded-md border border-line bg-paper-alt px-2 py-0.5 text-[10.5px] font-medium text-ink-4">

@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Save,
-  CheckCircle,
   Upload,
   X,
   FileText,
@@ -21,13 +20,17 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RunnerTopbar } from "@/components/runner/runner-topbar";
 import { RunnerMetaWordCount, RunnerMetaSavedChip } from "@/components/runner/runner-meta";
+import {
+  SubmissionProcessingCard,
+  type AsyncJobSnapshot,
+} from "@/components/runner/submission-processing-card";
 
 // ---------- Helpers ----------
 
 /** generateId() requires Secure Context (HTTPS) in Safari/Firefox. */
 function generateId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return generateId();
+    return crypto.randomUUID();
   }
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -168,6 +171,7 @@ export function SubjectiveRunner({
   const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [gradingJob, setGradingJob] = useState<AsyncJobSnapshot | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -335,9 +339,11 @@ export function SubjectiveRunner({
         throw new Error(errData?.error?.message || "提交失败");
       }
 
+      const data = await res.json();
       setSubmitted(true);
+      setGradingJob(data.data?.gradingJob ?? null);
       localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
-      toast.success("提交成功");
+      toast.success("提交成功，系统正在后台批改");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "提交失败，请重试");
     } finally {
@@ -348,17 +354,12 @@ export function SubjectiveRunner({
   // ---------- Render: submitted ----------
   if (submitted) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <CheckCircle className="mx-auto mb-4 size-12 text-green-600" />
-            <h3 className="text-lg font-semibold">已成功提交</h3>
-            <p className="text-muted-foreground mt-2 text-sm">
-              你的答案已提交，请等待批改结果。
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <SubmissionProcessingCard
+        title={taskName}
+        job={gradingJob}
+        onBack={() => router.back()}
+        onViewGrades={() => router.push("/grades")}
+      />
     );
   }
 

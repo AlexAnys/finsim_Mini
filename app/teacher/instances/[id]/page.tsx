@@ -127,6 +127,7 @@ export default function InstanceDetailPage() {
   // PR-SIM-1b · D1 公布相关 UI state
   const [releaseConfigSaving, setReleaseConfigSaving] = useState(false);
   const [releasingSubmissionId, setReleasingSubmissionId] = useState<string | null>(null);
+  const [retryingSubmissionId, setRetryingSubmissionId] = useState<string | null>(null);
   const [bulkReleasing, setBulkReleasing] = useState(false);
 
   // Drawer state
@@ -316,6 +317,17 @@ export default function InstanceDetailPage() {
     fetchPosts();
   }, [fetchPosts]);
 
+  useEffect(() => {
+    const hasInProgress = submissions?.items?.some(
+      (submission) => submission.status === "submitted" || submission.status === "grading",
+    );
+    if (!hasInProgress) return;
+    const timer = window.setInterval(() => {
+      void refreshSubmissions();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [submissions?.items, refreshSubmissions]);
+
   const handleStatusChange = useCallback(
     async (newStatus: string) => {
       setActionLoading(true);
@@ -406,6 +418,29 @@ export default function InstanceDetailPage() {
     setActiveSubmissionId(submissionId);
     setDrawerOpen(true);
   }, []);
+
+  const handleRetryGrade = useCallback(
+    async (submissionId: string) => {
+      setRetryingSubmissionId(submissionId);
+      try {
+        const res = await fetch(`/api/submissions/${submissionId}/retry-grade`, {
+          method: "POST",
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "重新批改失败");
+          return;
+        }
+        toast.success("已重新加入批改队列");
+        await refreshSubmissions();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      } finally {
+        setRetryingSubmissionId(null);
+      }
+    },
+    [refreshSubmissions],
+  );
 
   // PR-FIX-3 UX2: 批量批改"下一份"队列。教师选 A/C 不应跳到 B（之前行为是按全列表跳）。
   const [bulkQueue, setBulkQueue] = useState<string[]>([]);
@@ -640,7 +675,9 @@ export default function InstanceDetailPage() {
               onBulkGrade={handleBulkGrade}
               onRelease={handleReleaseSubmission}
               onBatchRelease={handleBatchRelease}
+              onRetryGrade={handleRetryGrade}
               releasingId={releasingSubmissionId}
+              retryingId={retryingSubmissionId}
               bulkReleasing={bulkReleasing}
             />
 

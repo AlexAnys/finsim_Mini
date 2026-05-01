@@ -1,5 +1,5 @@
 export type SubmissionStatus = "submitted" | "grading" | "graded" | "failed";
-export type SubmissionFilterKey = "all" | "submitted" | "grading" | "graded";
+export type SubmissionFilterKey = "all" | "submitted" | "grading" | "graded" | "failed";
 export type SubmissionSortKey = "score-desc" | "score-asc" | "time-desc" | "time-asc" | "name";
 
 // PR-SIM-1b · D1 教师视角的"分析状态"标签（来源 lib/services/submission.service.ts 派生函数）
@@ -153,11 +153,12 @@ export function sortSubmissions(
 }
 
 export function statusCounts(rows: NormalizedSubmission[]) {
-  const c = { all: rows.length, submitted: 0, grading: 0, graded: 0 } as Record<SubmissionFilterKey, number>;
+  const c = { all: rows.length, submitted: 0, grading: 0, graded: 0, failed: 0 } as Record<SubmissionFilterKey, number>;
   for (const r of rows) {
     if (r.status === "submitted") c.submitted++;
     else if (r.status === "grading") c.grading++;
     else if (r.status === "graded") c.graded++;
+    else if (r.status === "failed") c.failed++;
   }
   return c;
 }

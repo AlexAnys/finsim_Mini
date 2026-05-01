@@ -26,7 +26,7 @@ export interface PriorityTask {
   dueAt: string | null;
   attemptsAllowed?: number | null;
   canSubmit: boolean;
-  studentStatus: "todo" | "submitted" | "graded" | "overdue";
+  studentStatus: "todo" | "submitted" | "grading" | "graded" | "failed" | "overdue";
   attemptsUsed?: number | null;
   questionCount?: number | null;
 }
@@ -69,7 +69,9 @@ const STATUS_LABELS: Record<PriorityTask["studentStatus"], string> = {
   todo: "待办",
   overdue: "已过期",
   submitted: "已提交",
+  grading: "批改中",
   graded: "已批改",
+  failed: "批改失败",
 };
 
 const FILTERS = [
@@ -171,13 +173,17 @@ function TaskRow({ task }: { task: PriorityTask }) {
   const actionText =
     task.studentStatus === "graded"
       ? "结果"
-      : task.studentStatus === "submitted"
+      : task.studentStatus === "submitted" || task.studentStatus === "grading"
         ? "查看"
+        : task.studentStatus === "failed"
+          ? "查看"
         : "开始";
   const canNavigate =
     task.canSubmit ||
     isLate ||
     task.studentStatus === "submitted" ||
+    task.studentStatus === "grading" ||
+    task.studentStatus === "failed" ||
     task.studentStatus === "graded";
 
   return (
@@ -256,6 +262,10 @@ function TaskRow({ task }: { task: PriorityTask }) {
               "border border-warn-soft bg-warn-soft text-warn hover:bg-warn-soft/80",
             task.studentStatus === "submitted" &&
               "bg-paper-alt text-ink-3 hover:bg-surface-tint",
+            task.studentStatus === "grading" &&
+              "bg-brand-soft text-brand hover:bg-brand-soft/80",
+            task.studentStatus === "failed" &&
+              "border border-danger-soft bg-danger-soft text-danger hover:bg-danger-soft/80",
             task.studentStatus === "graded" &&
               "bg-success-soft text-success hover:bg-success-soft/80",
           )}

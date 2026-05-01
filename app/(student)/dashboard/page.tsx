@@ -248,7 +248,7 @@ export default function StudentDashboardPage() {
         const statusWeight = (status: string | undefined) => {
           if (status === "overdue") return 0;
           if (status === "todo") return 1;
-          if (status === "submitted") return 2;
+          if (status === "submitted" || status === "grading" || status === "failed") return 2;
           return 3;
         };
         const weightDiff =
@@ -279,6 +279,8 @@ export default function StudentDashboardPage() {
         canSubmit: Boolean(t.canSubmit),
         studentStatus:
           t.studentStatus === "submitted" ||
+          t.studentStatus === "grading" ||
+          t.studentStatus === "failed" ||
           t.studentStatus === "graded" ||
           t.studentStatus === "overdue"
             ? t.studentStatus
@@ -298,7 +300,7 @@ export default function StudentDashboardPage() {
     // 让 RecentGrades 卡片基于 analysisStatus chip 渲染未公布的状态
     return data.recentSubmissions
       .filter(
-        (s) => s.status === "submitted" || s.status === "grading" || s.status === "graded",
+        (s) => s.status === "submitted" || s.status === "grading" || s.status === "graded" || s.status === "failed",
       )
       .slice(0, 3)
       .map((s) => {
@@ -323,6 +325,7 @@ export default function StudentDashboardPage() {
           date: s.gradedAt || s.submittedAt,
           score: Number(s.score) || 0,
           maxScore: Number(s.maxScore) || 100,
+          status: String(s.status),
           href: s.taskInstanceId ? `/tasks/${s.taskInstanceId}` : undefined,
           analysisStatus,
         };

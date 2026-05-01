@@ -113,7 +113,10 @@ export default function StudentCoursesPage() {
       const totalTasks = courseTasks.length;
       const submittedCount = courseTasks.filter(
         (t) =>
-          t.studentStatus === "submitted" || t.studentStatus === "graded",
+          t.studentStatus === "submitted" ||
+          t.studentStatus === "grading" ||
+          t.studentStatus === "failed" ||
+          t.studentStatus === "graded",
       ).length;
       const progress =
         totalTasks > 0
@@ -187,6 +190,8 @@ export default function StudentCoursesPage() {
         due.getMonth() === now.getMonth() &&
         due.getDate() === now.getDate() &&
         t.studentStatus !== "submitted" &&
+        t.studentStatus !== "grading" &&
+        t.studentStatus !== "failed" &&
         t.studentStatus !== "graded"
       );
     }).length;

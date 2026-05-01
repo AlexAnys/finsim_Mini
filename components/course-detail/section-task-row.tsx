@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type TaskRowStatus = "todo" | "submitted" | "graded" | "overdue";
+export type TaskRowStatus = "todo" | "submitted" | "grading" | "graded" | "failed" | "overdue";
 export type TaskRowType = "simulation" | "quiz" | "subjective";
 
 const TYPE_META: Record<
@@ -98,6 +98,22 @@ export function SectionTaskRow({ task }: SectionTaskRowProps) {
           待评估
         </Badge>
       )}
+      {task.status === "grading" && (
+        <Badge
+          variant="secondary"
+          className="bg-brand-soft text-brand"
+        >
+          批改中
+        </Badge>
+      )}
+      {task.status === "failed" && (
+        <Badge
+          variant="secondary"
+          className="bg-danger-soft text-danger"
+        >
+          批改失败
+        </Badge>
+      )}
       {task.status === "overdue" && (
         <Badge variant="secondary" className="bg-danger-soft text-danger">
           已过期
@@ -112,7 +128,7 @@ export function SectionTaskRow({ task }: SectionTaskRowProps) {
         <Button size="xs" variant="ghost" asChild>
           <Link href={taskHref(task)}>回顾</Link>
         </Button>
-      ) : task.status === "submitted" ? (
+      ) : task.status === "submitted" || task.status === "grading" || task.status === "failed" ? (
         <Button size="xs" variant="ghost" asChild>
           <Link href={taskHref(task)}>查看</Link>
         </Button>

@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { RunnerTopbar } from "@/components/runner/runner-topbar";
+import {
+  SubmissionProcessingCard,
+  type AsyncJobSnapshot,
+} from "@/components/runner/submission-processing-card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   type MoodType,
@@ -215,6 +219,7 @@ export function SimulationRunner({
   const [evaluation, setEvaluation] = useState<SimulationEvaluation | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [gradingJob, setGradingJob] = useState<AsyncJobSnapshot | null>(null);
 
   // Auto-send opening line
   useEffect(() => {
@@ -564,9 +569,11 @@ export function SimulationRunner({
         const errData = await res.json().catch(() => null);
         throw new Error(errData?.error?.message || "提交失败");
       }
+      const data = await res.json();
       localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
       // PR-SIM-1c · D1 防作弊：不再立即 router.back()，展示"已提交·分析中"页面让学生看到状态确认
       setSubmitted(true);
+      setGradingJob(data.data?.gradingJob ?? null);
       toast.success("提交成功，AI 分析中");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "提交失败，请重试");
@@ -606,9 +613,11 @@ export function SimulationRunner({
         throw new Error(errData?.error?.message || "提交失败");
       }
 
+      const data = await res.json();
       setSubmitted(true);
+      setGradingJob(data.data?.gradingJob ?? null);
       localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
-      toast.success("提交成功");
+      toast.success("提交成功，AI 分析中");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "提交失败，请重试");
     } finally {
@@ -648,7 +657,12 @@ export function SimulationRunner({
   // 不显示评估细节（评估在后台异步进行，且公布由教师控制）。
   if (submitted && !isPreview && !evaluation) {
     return (
-      <SimulationSubmittedView taskName={taskName} onBack={() => router.back()} />
+      <SimulationSubmittedView
+        taskName={taskName}
+        gradingJob={gradingJob}
+        onBack={() => router.back()}
+        onViewGrades={() => router.push("/grades")}
+      />
     );
   }
 
@@ -765,37 +779,26 @@ export function SimulationRunner({
 // 这里不做 polling — 学生可关页面去 /grades 看后续状态变更。
 function SimulationSubmittedView({
   taskName,
+  gradingJob,
   onBack,
+  onViewGrades,
 }: {
   taskName: string;
+  gradingJob: AsyncJobSnapshot | null;
   onBack: () => void;
+  onViewGrades: () => void;
 }) {
   return (
     <div
       className="flex h-screen flex-col items-center justify-center gap-6"
       style={{ background: "var(--fs-bg)" }}
     >
-      <div className="flex size-16 items-center justify-center rounded-full bg-success/10">
-        <Check className="size-8 text-success" />
-      </div>
-      <div className="max-w-md space-y-2 text-center">
-        <h2 className="text-xl font-semibold text-ink-1">已提交，AI 分析中</h2>
-        <p className="text-sm text-ink-3">
-          {taskName} 的对话已提交，AI 正在后台进行评估。
-        </p>
-        <p className="text-sm text-ink-4">
-          你将在教师公布后看到详细评估。可在「我的成绩」查看分析进度。
-        </p>
-      </div>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-deep"
-        >
-          返回任务
-        </button>
-      </div>
+      <SubmissionProcessingCard
+        title={taskName}
+        job={gradingJob}
+        onBack={onBack}
+        onViewGrades={onViewGrades}
+      />
     </div>
   );
 }

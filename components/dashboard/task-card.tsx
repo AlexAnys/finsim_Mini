@@ -50,7 +50,9 @@ const studentStatusConfig: Record<
 > = {
   todo: { label: "待办", variant: "outline" },
   submitted: { label: "已提交", variant: "secondary" },
+  grading: { label: "批改中", variant: "secondary" },
   graded: { label: "已批改", variant: "default" },
+  failed: { label: "批改失败", variant: "destructive" },
   overdue: { label: "已过期", variant: "destructive" },
 };
 
@@ -125,10 +127,17 @@ export function TaskCard({ task, role }: TaskCardProps) {
           </Button>
         );
       }
-      if (status === "submitted") {
+      if (status === "submitted" || status === "grading") {
         return (
           <Button size="xs" variant="secondary" asChild>
-            <Link href={taskHref}>已提交，待评估</Link>
+            <Link href={taskHref}>{status === "grading" ? "批改中" : "已提交，待评估"}</Link>
+          </Button>
+        );
+      }
+      if (status === "failed") {
+        return (
+          <Button size="xs" variant="secondary" asChild>
+            <Link href={taskHref}>批改失败</Link>
           </Button>
         );
       }

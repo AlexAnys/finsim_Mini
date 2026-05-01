@@ -14,6 +14,7 @@ export interface RecentGradeItem {
   date: string;
   score: number;
   maxScore: number;
+  status?: string;
   href?: string;
   // PR-SIM-1c · D1 防作弊：未公布的不渲染分数，改 chip
   analysisStatus?: SubmissionAnalysisStatus;
@@ -124,7 +125,21 @@ export function RecentGrades({ items }: RecentGradesProps) {
                   </div>
                 ) : (
                   <div className="flex w-[140px] shrink-0 justify-end">
-                    {r.analysisStatus === "pending" ? (
+                    {r.status === "failed" ? (
+                      <Badge
+                        variant="outline"
+                        className="border-danger/20 bg-danger-soft text-danger"
+                      >
+                        批改失败
+                      </Badge>
+                    ) : r.status === "grading" ? (
+                      <Badge
+                        variant="outline"
+                        className="border-brand/20 bg-brand-soft text-brand"
+                      >
+                        批改中
+                      </Badge>
+                    ) : r.analysisStatus === "pending" ? (
                       <Badge
                         variant="outline"
                         className="bg-muted text-muted-foreground border-line-2"

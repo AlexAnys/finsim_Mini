@@ -99,6 +99,8 @@ export function handleServiceError(err: unknown) {
         return error("GROUP_MEMBER_CLASS_MISMATCH", "分组成员必须是本班学生", 400);
       case "SUBMISSION_NOT_GRADED":
         return error("SUBMISSION_NOT_GRADED", "提交尚未完成评估，无法公布", 400);
+      case "SUBMISSION_RETRY_NOT_ALLOWED":
+        return error("SUBMISSION_RETRY_NOT_ALLOWED", "只有未出分或批改失败的提交可以重新批改", 400);
       case "JOB_NOT_FOUND":
         return notFound("导入任务不存在");
       case "ASYNC_JOB_NOT_FOUND":
