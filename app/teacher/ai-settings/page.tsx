@@ -15,6 +15,8 @@ interface ToolSetting {
   key: string;
   label: string;
   category: string;
+  description: string;
+  basePromptPreview: string;
   defaultModel: string;
   model: string;
   thinking: "disabled" | "enabled";
@@ -128,13 +130,16 @@ export default function AiSettingsPage() {
             {items.map((tool) => (
               <Card key={tool.key} className="border-line bg-surface shadow-fs">
                 <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center justify-between gap-3 text-lg">
-                    <span className="flex items-center gap-2">
-                      <SlidersHorizontal className="size-4 text-brand" />
-                      {tool.label}
-                    </span>
-                    <Badge variant="outline">{tool.model || tool.defaultModel}</Badge>
-                  </CardTitle>
+                  <div className="space-y-2">
+                    <CardTitle className="flex items-center justify-between gap-3 text-lg">
+                      <span className="flex items-center gap-2">
+                        <SlidersHorizontal className="size-4 text-brand" />
+                        {tool.label}
+                      </span>
+                      <Badge variant="outline">{tool.model || tool.defaultModel}</Badge>
+                    </CardTitle>
+                    <p className="text-sm leading-relaxed text-ink-4">{tool.description}</p>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -185,6 +190,16 @@ export default function AiSettingsPage() {
                         onCheckedChange={(checked) => updateTool(tool.key, { enableSearch: checked })}
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>基础系统提示词</Label>
+                    <div className="max-h-44 overflow-y-auto rounded-lg border border-line bg-paper-alt p-3 text-xs leading-6 text-ink-3">
+                      <pre className="whitespace-pre-wrap font-sans">{tool.basePromptPreview}</pre>
+                    </div>
+                    <p className="text-xs text-ink-4">
+                      运行时还会叠加课程、任务、学生提交等上下文；下面的补充提示词会追加在基础模板之后。
+                    </p>
                   </div>
 
                   <div className="space-y-2">

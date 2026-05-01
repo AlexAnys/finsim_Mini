@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 type ToolKey = "lessonPolish" | "ideologyMining" | "questionAnalysis" | "examCheck";
@@ -130,26 +129,31 @@ export default function AIAssistantPage() {
         </Button>
       </div>
 
-      <Tabs value={activeTool} onValueChange={(value) => setActiveTool(value as ToolKey)}>
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 lg:grid-cols-4">
-          {TOOLS.map((tool) => {
-            const ToolIcon = tool.icon;
-            return (
-              <TabsTrigger
-                key={tool.key}
-                value={tool.key}
-                className="h-auto justify-start gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-left data-[state=active]:border-brand data-[state=active]:bg-brand-soft"
-              >
-                <ToolIcon className="size-4 shrink-0" />
-                <span>
-                  <span className="block text-sm font-semibold">{tool.label}</span>
-                  <span className="mt-0.5 block text-[11px] font-normal text-ink-4">{tool.desc}</span>
-                </span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-      </Tabs>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {TOOLS.map((tool) => {
+          const ToolIcon = tool.icon;
+          const selected = activeTool === tool.key;
+          return (
+            <button
+              key={tool.key}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => setActiveTool(tool.key)}
+              className={`flex min-h-[88px] w-full items-start gap-3 rounded-lg border px-4 py-3 text-left transition ${
+                selected
+                  ? "border-brand bg-brand-soft shadow-[0_0_0_1px_rgba(30,58,138,0.16)]"
+                  : "border-line bg-surface hover:border-brand/40 hover:bg-paper-alt"
+              }`}
+            >
+              <ToolIcon className="mt-0.5 size-4 shrink-0 text-brand" />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-ink">{tool.label}</span>
+                <span className="mt-1 block text-xs leading-5 text-ink-4">{tool.desc}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
         <Card className="border-line bg-surface shadow-fs">

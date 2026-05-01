@@ -81,6 +81,8 @@ export type AIFeature =
   | "quizGrade"
   | "subjectiveGrade"
   | "taskDraft"
+  | "quizDraft"
+  | "subjectiveDraft"
   | "importParse"
   | "insights"
   | "weeklyInsight"

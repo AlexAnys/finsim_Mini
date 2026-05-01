@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const generated = await aiGenerateJSON(
-      "taskDraft",
+      "quizDraft",
       result.session.user.id,
       "你是一位资深的金融课程出题专家。请根据课程和章节信息生成高质量的测验题目。",
       `课程: ${parsed.data.courseName}
