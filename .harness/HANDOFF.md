@@ -219,3 +219,104 @@ CLAUDE.md 明确："**You do NOT write application code. You plan, delegate, and
 - 新本地 main 计划指向 `codex/analytics-diagnosis-v2`，以 Analytics V2 / AI OCR / 异步任务 / Study Buddy 上下文实验线作为后续主开发基线。
 - 本轮只切本地 main，不推送 `origin/main`；远端仍保持 `f52ea4b`，等本地验证稳定后再决定是否更新远端。
 - 迁移时只从旧 main 移植 Harness / Claude / 部署 infra，不全量合并旧 main 的产品 UI，以免覆盖 V2 已完成的功能。
+
+## 2026-05-02 V2 baseline R1+R2 验证 PASS（coordinator + qa subagent · ~18 min）
+
+**main HEAD = `a293e18`**。V2 内容 + harness 移植后第一次真实应用闭环验证，9/9 acceptance 点全 PASS。
+
+### 静态层（coordinator review）
+- `npx tsc --noEmit` 0 errors
+- Prisma migrations 9 个完整（最新 20260501 async-jobs/task-drafts/ai-runs）
+- Dev server 3030 端口活，PID 49865
+- harness infra 完整：3 角色 + Stop/SessionStart hooks + progress.tsv 44KB
+
+### 动态层（qa subagent · gstack browse · 14 张证据截图）
+| # | 验收点 | Verdict | 关键证据 |
+|---|---|---|---|
+| R1.1 | /login V4 Aurora 渲染 | PASS | 灵析 ∞ wordmark + 深靛 hero + 3 KPI dots |
+| R1.2 | teacher1 登录 | PASS | 重定向 /teacher/dashboard |
+| R1.3 | 左侧导航完整 | PASS | 实际 7 项（仪表盘/课程/洞察/课表/班级/AI 助手/AI 设置）|
+| R1.4 | Logo 正常 | PASS | /brand/lingxi-logo.png 96x96 + next/image srcSet |
+| R1.5 | 仪表盘"测试"按钮 | PASS | 直达 `/sim/{id}?preview=true`（非 disabled）|
+| R2.6 | Sim AI chat | PASS | POST /api/ai/chat 200 3769ms · 客户角色扮演 + mood=犹豫 |
+| R2.7 | 一周洞察 AI | PASS | GET /api/lms/weekly-insight 200 120s · 5 段结构化 · 未报"AI 不可用" |
+| R2.8 | AI 助手 4 工具 | PASS | 教案完善 work-assistant 201 · async polling 15 次终态 3754B |
+| R2.9 | AI 设置分开显示 | PASS | 6 一级分类 + 13+ 子条目（模拟回复/批改/Study Buddy 全分开）|
+
+### 已识别 minor（非 BLOCKER）
+1. 一周洞察 first-run 120s 偏长（外部 provider，spec 已识别）
+2. DialogContent 缺 aria-describedby React warning（A11y phase 修）
+3. AI assistant async polling 频率 2s × 15 次（带宽偏高，可接受）
+
+### 待用户决策（R1+R2 通过后的 next-step）
+1. **codex/* 三分支清理**：codex/lab + codex/analytics-diagnosis-v2 + codex/analytics-diagnosis-insight-lab-refactor + remotes/origin/codex/lab，本地远端都还在（用户原意是"清掉"但只清了 worktree）
+2. **origin/main 同步**：local 25 ahead, remote 6 ahead diverged，要不要 force-push？
+3. **R3-R6 是否继续**：用户说"看到任何问题直接批注"——本轮无 BLOCKER，等用户拍板要不要推进 R3（课程/任务）+ R4（学生提交）+ R5（Analytics V2）+ R6（上下文）
+4. **/api/healthcheck endpoint**：v2 没引入，Docker HEALTHCHECK 若依赖会一直 unhealthy，单独修
+
+### 报告/截图路径
+- [.harness/reports/qa_v2-migration_r1.md](.harness/reports/qa_v2-migration_r1.md)
+- /tmp/qa-v2-migration-r1-{01..14}.png（14 张证据截图）
+- progress.tsv 末行：`2026-05-02T08:01:20Z v2-migration r1 PASS`
+
+## codex/* 分支保留 note（2026-05-02）
+
+用户决策：**先不清理三个 codex/* 分支**（codex/lab / codex/analytics-diagnosis-v2 / codex/analytics-diagnosis-insight-lab-refactor）。原因：codex 仍可能在用这些分支做后续工作，等他这边明确不影响再清理。
+
+→ **给 codex / 任何后续 agent 的 message**：这些分支保留是 deliberate 的，请在你这边的工作完成或确认不影响后再通知 user 清理。如需新工作开新分支，**不要** rebase 或 force-push 这三个分支。
+
+```
+codex/lab                                            ← 保留（远端 origin/codex/lab 也保留）
+codex/analytics-diagnosis-v2                         ← 保留（内容已并入 main，但分支留着）
+codex/analytics-diagnosis-insight-lab-refactor       ← 保留
+```
+
+清理时机：用户主动说"可以清了"。不要 coordinator 主动建议第二次。
+
+## v2-migration R3 PASS（2026-05-02 后续 · qa subagent · ~10 min）
+
+R3（课程与任务创建）4/4 acceptance 点全 PASS。详见 [reports/qa_v2-migration_r3.md](.harness/reports/qa_v2-migration_r3.md)。
+
+| # | 验收点 | Verdict |
+|---|---|---|
+| R3.1 | 课程详情 5 tabs | PASS（with note：实际命名 "教学上下文" ≠ spec 字面 "上下文素材"，顺序略不同，功能完整）|
+| R3.2 | 任务草稿 + AI/PDF 草稿 | PASS（文本草稿 1240ms / AI 草稿 PDF context 28.6s 同步 200，4 题预填命中提示词）|
+| R3.3 | 挂到章节/小节/课前课中课后 | PASS（API 返回 chapterId+sectionId+slot 全对齐 UI tree）|
+| R3.4 | 任务实例隔离 | PASS（5 课程 22 instances 全部 0 cross-pollution）|
+
+**R3 暴露的 R5 早期隐患**（**写下来防遗忘**）：
+- 数据分析 tab 部分 task 显示均分 `25106472 / 18871572 / 118530` —— 看起来像 timestamp 或整数累加未除人数。R5 spec 明确要求"无异常大数值、无完成率 > 100%"，这条已提前命中
+- → R5 启动前 builder/qa 必看：是 analytics-v2 后端 bug，不是 UI
+
+**R3 暴露的次要数据问题**：
+- 同一 PDF "可用" + "需 OCR DOCUMENT_OCR_REQUIRED" 两条记录共存 — ingestion 重复
+- AI 草稿 28.6s 同步阻塞（与 weekly-insight 120s 同模式）→ 后续可考虑统一异步化
+
+R4（学生提交闭环）已自动 spawn，结果待。
+
+## v2-migration R4 6/7 PASS · 1 BLOCKER（2026-05-02）
+
+R4（学生提交闭环）= 6/7 acceptance + 1 BLOCKER。详见 [reports/qa_v2-migration_r4.md](.harness/reports/qa_v2-migration_r4.md)。
+
+| # | 验收点 | Verdict |
+|---|---|---|
+| R4.1 | Quiz 提交 | ❌ **BLOCKER** Q-OPTIONS-RENDER（仅前端 mapping bug，5-15 行可修）|
+| R4.2 | Simulation 提交 | ✅ belle 端到端跑通 + AI 客户回复 + mood + score 25/100 |
+| R4.3 | Subjective 提交 | ✅ charlie 113 字 + score 20/100 |
+| R4.4 | 异步批改不阻塞 | ✅ enqueue + polling 模式正确（与 R3 weekly-insight 同步 120s 形成对比，**R4 全部正确异步**）|
+| R4.5 | 老师看提交 | ✅ filter chips + 表格行完整 |
+| R4.6 | 重试 + 发布 | ✅ retry 200 → graded 73 / release 200 → 学生侧立即可见 |
+| R4.7 | 学生成绩页 | ✅ 已发布显分数，未发布显"等待发布" |
+
+**Q-OPTIONS-RENDER bug 诊断（已写进 spec.md 修复 section）**：
+- file:line: [app/(student)/tasks/[id]/page.tsx:131](app/(student)/tasks/%5Bid%5D/page.tsx#L131)
+- 数据契约错位：DB 存 `{id, text}` / Runner 期望 `{label, content}` / page.tsx 直接 `options: q.options` 没转换
+- 影响所有 Quiz 任务，但**后端管道完好**（API 直 POST 能跑）
+- 修复方向已写到 spec.md，最小 diff 1 处 mapping
+
+**保留的真实学生数据**（不删）：
+- belle sim graded+released（25/100）
+- charlie subjective graded（20/100，未发布）
+- alex quiz submission `ce7f935d`（API 直 POST 测试，graded 0/24）
+
+builder 已 spawn 修 Q-OPTIONS-RENDER。修完 qa 回归 R4.1，其他 6 项 R4 已固化无需重测。

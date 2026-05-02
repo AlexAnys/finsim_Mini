@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Design mockups handoff from claude.ai/design (not for main)
 .harness/mockups/
+
+# 服务器接入信息卡（含 SSH 公钥指纹/IP/Instance ID 等半敏感信息，仅本地）
+.harness/server-*.md
