@@ -2,6 +2,57 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
+## ✨ 数据洞察重构 Phase 1 完成（2026-05-03 · ~40min · 1 commit · QA r1→r2）
+
+**worktree**: `claude/elastic-davinci-a0ee14` from main `e311571`，**1 commit ahead** = `0f823d0`（未 push）。
+**team**: `data-insights-refactor`（builder + qa idle 待机中，phase 2 启动时复用）。
+
+### 这一次做了什么（Phase 1 of 6）
+
+完整 6-phase 计划：`~/.claude/plans/main-session-snug-tide.md`（用户原话「重构洞察实验」→「数据洞察」，原子 git + 真实 QA）。
+
+Phase 1 = Filter Bar 重构 + 班级多选 + sidebar 改名（**未碰 KPI/recharts/schema/老 8 Tabs**，那是 phase 2-6）。
+
+| 改动面 | 内容 |
+|---|---|
+| Sidebar + 面包屑 | 「洞察实验」→「数据洞察」 |
+| Filter Bar | 新 [insights-filter-bar.tsx](components/analytics-v2/insights-filter-bar.tsx) 单行 horizontal flex；移除「测试实例」「计分口径」filter；班级 Popover + Checkbox 多选；默认全选课程所有班 |
+| Service | `AnalyticsV2DiagnosisInput.classId?: string` → `classIds?: string[]`；scope 同步；entity 字段（heatmap/intervention/instance/trend/growth）**全保持** `classId: string` |
+| API | GET/POST 接受 `?classIds=A&classIds=B` 重复参数；兼容老 `?classId=X` 单值 fallback；async-job worker 同步支持 |
+| 8 Tabs | 全保留不动（phase 3 才删） |
+
+### Dynamic exit 复盘
+- **r1 FAIL**：1 BLOCKER §E.16 — 切课程后 stale classIds 残留（race：fetchDiagnosis 异步未完成时 auto-fill effect 用旧 diagnosis 的 classes 写新 URL）；其他 29/30 PASS（含最难的 entity vs filter 边界、8 Tabs 回归、3 种 API 入参）
+- **r2 PASS**：QA 给的修复方案 B（auto-fill effect 加 `diagnosis.scope.courseId === courseId` 守卫）+ 顺手 minor 1 改面包屑。**仅 2 行 diff** 修复 BLOCKER + Minor。30/30 acceptance 全 PASS
+- **不跑 r3**（CLAUDE.md 明文禁止 churn，PR review 是更可靠的最终安全门）
+
+### 给下一个 session 的下一步选项
+
+1. **用户合并 Phase 1 PR 后** → 写 phase 2 spec（KPI 5 卡新定义 + recharts 引入 + 学生成绩分布柱状图，§3 设计约束严格执行）
+2. **用户改主意调整方向** → 改 plan 文件 `~/.claude/plans/main-session-snug-tide.md`，重启 phase
+3. **多 session 并行风险**：本 session 独立 worktree 隔离，对 main 工作 zero 影响；合并时仅 `lib/services/analytics-v2.service.ts` 可能与其他 session 冲突 — phase 2 启动前必 rebase main
+
+### 用户开 PR / 合并指引
+
+```bash
+cd /Users/alexmac/Documents/Mini\ 项目开发/finsim\ v2/finsim/.claude/worktrees/elastic-davinci-a0ee14
+git push origin claude/elastic-davinci-a0ee14
+gh pr create --title "feat(insights): phase 1 — filter bar + class multi-select" \
+  --body "See spec at .harness/spec.md and QA r2 at .harness/reports/qa_insights-phase1_r2.md"
+# 用户在 GitHub 浏览器 review → squash merge or merge commit
+```
+
+### 关键证据
+- Build r1: [build_insights-phase1_r1.md](.harness/reports/build_insights-phase1_r1.md)
+- Build r2: [build_insights-phase1_r2.md](.harness/reports/build_insights-phase1_r2.md)
+- QA r1: [qa_insights-phase1_r1.md](.harness/reports/qa_insights-phase1_r1.md)（FAIL §E.16）
+- QA r2: [qa_insights-phase1_r2.md](.harness/reports/qa_insights-phase1_r2.md)（PASS 30/30）
+- 16 张真浏览器截图 in `/tmp/qa-insights-phase1-*.png`
+- progress.tsv 末两行：r1 FAIL → r2 PASS
+
+---
+
+
 ## 🚀 部署架构切换：ghcr.io → 服务器直接构建（2026-04-29 · ~1.5h · 3 commits）
 
 main HEAD = `d8d6b03`。**main 的 deploy 现在 7-11 分钟就能跑完，旧路径常态 1.5-2h 还经常超时**。
