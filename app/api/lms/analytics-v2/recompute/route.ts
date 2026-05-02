@@ -13,6 +13,13 @@ const SCORE_POLICIES = new Set<AnalyticsV2ScorePolicy>(["latest", "best", "first
 const RANGES = new Set<AnalyticsV2Range>(["7d", "30d", "term"]);
 const TASK_TYPES = new Set<TaskType>(["simulation", "quiz", "subjective"]);
 
+function readClassIds(searchParams: URLSearchParams): string[] {
+  const multi = searchParams.getAll("classIds").map((id) => id.trim()).filter(Boolean);
+  if (multi.length > 0) return multi;
+  const legacy = searchParams.get("classId")?.trim();
+  return legacy ? [legacy] : [];
+}
+
 export async function POST(request: NextRequest) {
   const auth = await requireRole(["teacher", "admin"]);
   if (auth.error) return auth.error;
@@ -40,6 +47,7 @@ export async function POST(request: NextRequest) {
     const { user } = auth.session;
     await assertCourseAccess(courseId, user.id, user.role);
 
+    const classIds = readClassIds(searchParams);
     const job = await enqueueAsyncJob({
       type: "analytics_recompute",
       entityType: "AnalyticsV2Diagnosis",
@@ -48,7 +56,7 @@ export async function POST(request: NextRequest) {
         courseId,
         chapterId: searchParams.get("chapterId"),
         sectionId: searchParams.get("sectionId"),
-        classId: searchParams.get("classId"),
+        classIds,
         taskType: taskTypeParam,
         taskInstanceId: searchParams.get("taskInstanceId"),
         scorePolicy: scorePolicyParam,

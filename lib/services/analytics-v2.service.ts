@@ -8,7 +8,7 @@ export interface AnalyticsV2DiagnosisInput {
   courseId: string;
   chapterId?: string;
   sectionId?: string;
-  classId?: string;
+  classIds?: string[];
   taskType?: TaskType;
   taskInstanceId?: string;
   scorePolicy?: AnalyticsV2ScorePolicy;
@@ -22,7 +22,7 @@ export interface AnalyticsV2Diagnosis {
     courseTitle: string;
     chapterId: string | null;
     sectionId: string | null;
-    classId: string | null;
+    classIds: string[];
     taskType: TaskType | null;
     taskInstanceId: string | null;
     scorePolicy: AnalyticsV2ScorePolicy;
@@ -613,7 +613,7 @@ export async function getAnalyticsV2Diagnosis(
       courseTitle: course.courseTitle,
       chapterId: input.chapterId ?? null,
       sectionId: input.sectionId ?? null,
-      classId: input.classId ?? null,
+      classIds: input.classIds ?? [],
       taskType: input.taskType ?? null,
       taskInstanceId: input.taskInstanceId ?? null,
       scorePolicy,
@@ -652,7 +652,7 @@ function buildInstanceWhere(
     status: { not: "draft" },
     ...(input.chapterId && { chapterId: input.chapterId }),
     ...(input.sectionId && { sectionId: input.sectionId }),
-    ...(input.classId && { classId: input.classId }),
+    ...(input.classIds && input.classIds.length > 0 ? { classId: { in: input.classIds } } : {}),
     ...(input.taskType && { taskType: input.taskType }),
     ...(input.taskInstanceId && { id: input.taskInstanceId }),
     ...(dateFrom && {

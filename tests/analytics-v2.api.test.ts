@@ -84,7 +84,7 @@ describe("GET /api/lms/analytics-v2/diagnosis", () => {
     expect(getAnalyticsV2Diagnosis).toHaveBeenCalledWith(
       expect.objectContaining({
         courseId: "course-1",
-        classId: "class-A",
+        classIds: ["class-A"],
         taskType: "quiz",
         scorePolicy: "best",
         range: "30d",

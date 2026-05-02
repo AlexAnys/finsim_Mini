@@ -158,11 +158,19 @@ async function performAsyncJob(job: AsyncJob): Promise<JsonInput | undefined> {
       if (!courseId) throw new Error("COURSE_NOT_FOUND");
       await updateAsyncJobProgress(job.id, 20);
       const { getAnalyticsV2Diagnosis } = await import("@/lib/services/analytics-v2.service");
+      const classIdsArray = readInputStringArray(job, "classIds");
+      const legacyClassId = readInputString(job, "classId");
+      const classIds =
+        classIdsArray.length > 0
+          ? classIdsArray
+          : legacyClassId
+            ? [legacyClassId]
+            : [];
       const diagnosis = await getAnalyticsV2Diagnosis({
         courseId,
         chapterId: readInputString(job, "chapterId") ?? undefined,
         sectionId: readInputString(job, "sectionId") ?? undefined,
-        classId: readInputString(job, "classId") ?? undefined,
+        classIds: classIds.length > 0 ? classIds : undefined,
         taskType: readInputString(job, "taskType") as never,
         taskInstanceId: readInputString(job, "taskInstanceId") ?? undefined,
         scorePolicy: (readInputString(job, "scorePolicy") as never) ?? undefined,
@@ -186,6 +194,14 @@ function readInputString(job: AsyncJob, key: string) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const value = (input as Record<string, unknown>)[key];
   return typeof value === "string" ? value : null;
+}
+
+function readInputStringArray(job: AsyncJob, key: string): string[] {
+  const input = job.input;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
+  const value = (input as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
 function errorMessage(err: unknown) {

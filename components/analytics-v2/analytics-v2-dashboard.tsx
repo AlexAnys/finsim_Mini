@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -9,21 +9,13 @@ import {
   Clock3,
   ListChecks,
   Loader2,
-  RefreshCw,
   Target,
   TrendingDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { InsightsFilterBar } from "@/components/analytics-v2/insights-filter-bar";
 import {
   Table,
   TableBody,
@@ -51,7 +43,7 @@ interface AnalyticsV2Diagnosis {
     courseTitle: string;
     chapterId: string | null;
     sectionId: string | null;
-    classId: string | null;
+    classIds: string[];
     taskType: TaskType | null;
     taskInstanceId: string | null;
     scorePolicy: ScorePolicy;
@@ -271,13 +263,12 @@ export function AnalyticsV2Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const courseId = searchParams.get("courseId") ?? "";
-  const chapterId = searchParams.get("chapterId") ?? "";
-  const sectionId = searchParams.get("sectionId") ?? "";
-  const classId = searchParams.get("classId") ?? "";
-  const taskType = (searchParams.get("taskType") ?? "") as TaskType | "";
-  const taskInstanceId = searchParams.get("taskInstanceId") ?? "";
-  const scorePolicy = ((searchParams.get("scorePolicy") ?? "latest") as ScorePolicy);
-  const range = ((searchParams.get("range") ?? "term") as RangeValue);
+  const classIds = useMemo(() => {
+    const multi = searchParams.getAll("classIds");
+    if (multi.length > 0) return multi;
+    const legacy = searchParams.get("classId");
+    return legacy ? [legacy] : [];
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -361,20 +352,32 @@ export function AnalyticsV2Dashboard() {
     return () => window.clearInterval(timer);
   }, [recomputeJob]);
 
-  const filteredSections = useMemo(() => {
-    const sections = diagnosis?.filterOptions.sections ?? [];
-    return chapterId ? sections.filter((section) => section.chapterId === chapterId) : sections;
-  }, [chapterId, diagnosis]);
+  const defaultClassIdsAppliedRef = useRef<string | null>(null);
 
-  const filteredInstances = useMemo(() => {
-    return (diagnosis?.filterOptions.taskInstances ?? []).filter((instance) => {
-      if (chapterId && instance.chapterId !== chapterId) return false;
-      if (sectionId && instance.sectionId !== sectionId) return false;
-      if (classId && instance.classId !== classId) return false;
-      if (taskType && instance.taskType !== taskType) return false;
-      return true;
-    });
-  }, [chapterId, classId, diagnosis, sectionId, taskType]);
+  useEffect(() => {
+    if (!courseId) {
+      defaultClassIdsAppliedRef.current = null;
+      return;
+    }
+    if (defaultClassIdsAppliedRef.current === courseId) return;
+    if (!diagnosis) return;
+    if (diagnosis.scope.courseId !== courseId) return;
+    if (classIds.length > 0) {
+      defaultClassIdsAppliedRef.current = courseId;
+      return;
+    }
+    const allClassIds = diagnosis.filterOptions.classes.map((c) => c.id);
+    if (allClassIds.length === 0) {
+      defaultClassIdsAppliedRef.current = courseId;
+      return;
+    }
+    defaultClassIdsAppliedRef.current = courseId;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("classIds");
+    for (const id of allClassIds) next.append("classIds", id);
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }, [courseId, diagnosis, classIds, searchParams, pathname, router]);
 
   const scopeTags = useMemo(() => buildScopeTags(diagnosis), [diagnosis]);
   const lowMasteryCount = useMemo(() => {
@@ -396,11 +399,21 @@ export function AnalyticsV2Dashboard() {
       ).length
     : 0;
 
-  function replaceQuery(updates: Record<string, string | null>) {
+  function replaceQuery(updates: Record<string, string | string[] | null>) {
     const next = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(updates)) {
-      if (!value || value === ALL) next.delete(key);
-      else next.set(key, value);
+      if (value === null || value === ALL || value === "") {
+        next.delete(key);
+        continue;
+      }
+      if (Array.isArray(value)) {
+        next.delete(key);
+        for (const item of value) {
+          if (item) next.append(key, item);
+        }
+        continue;
+      }
+      next.set(key, value);
     }
     const query = next.toString();
     router.replace(query ? `${pathname}?${query}` : pathname);
@@ -408,6 +421,7 @@ export function AnalyticsV2Dashboard() {
 
   function resetFilters() {
     if (!courseId) return;
+    defaultClassIdsAppliedRef.current = null;
     router.replace(`${pathname}?courseId=${encodeURIComponent(courseId)}`);
   }
 
@@ -450,136 +464,26 @@ export function AnalyticsV2Dashboard() {
             课程范围内的完成、掌握、题目和干预诊断
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {diagnosis && (
-            <span className="text-xs text-muted-foreground">
-              最后计算 {formatDateTime(diagnosis.scope.generatedAt)}
-              {recomputeJob && ` · ${jobStatusLabel(recomputeJob)}`}
-            </span>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={startRecompute}
-            disabled={!courseId || recomputeStarting || isJobRunning(recomputeJob)}
-          >
-            <RefreshCw className={cn("mr-2 size-3.5", isJobRunning(recomputeJob) && "animate-spin")} />
-            {isJobRunning(recomputeJob) ? `重算中 ${recomputeJob?.progress ?? 0}%` : "后台重算"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={resetFilters} disabled={!courseId}>
-            重置筛选
-          </Button>
-        </div>
+        {diagnosis && (
+          <span className="text-xs text-muted-foreground">
+            最后计算 {formatDateTime(diagnosis.scope.generatedAt)}
+            {recomputeJob && ` · ${jobStatusLabel(recomputeJob)}`}
+          </span>
+        )}
       </div>
 
-      <Card className="rounded-lg py-4">
-        <CardContent className="space-y-4 px-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <FilterSelect
-              label="课程"
-              value={courseId || ALL}
-              placeholder="选择课程"
-              onChange={(value) =>
-                replaceQuery({
-                  courseId: value,
-                  chapterId: null,
-                  sectionId: null,
-                  classId: null,
-                  taskType: null,
-                  taskInstanceId: null,
-                })
-              }
-              options={courses.map((course) => ({
-                value: course.id,
-                label: course.class?.name
-                  ? `${course.courseTitle} · ${course.class.name}`
-                  : course.courseTitle,
-              }))}
-            />
-            <FilterSelect
-              label="章节"
-              value={chapterId || ALL}
-              disabled={!diagnosis}
-              onChange={(value) => replaceQuery({ chapterId: value, sectionId: null, taskInstanceId: null })}
-              options={(diagnosis?.filterOptions.chapters ?? []).map((chapter) => ({
-                value: chapter.id,
-                label: `${chapter.order}. ${chapter.title}`,
-              }))}
-            />
-            <FilterSelect
-              label="小节"
-              value={sectionId || ALL}
-              disabled={!diagnosis}
-              onChange={(value) => replaceQuery({ sectionId: value, taskInstanceId: null })}
-              options={filteredSections.map((section) => ({
-                value: section.id,
-                label: `${section.order}. ${section.title}`,
-              }))}
-            />
-            <FilterSelect
-              label="班级"
-              value={classId || ALL}
-              disabled={!diagnosis}
-              onChange={(value) => replaceQuery({ classId: value, taskInstanceId: null })}
-              options={(diagnosis?.filterOptions.classes ?? []).map((klass) => ({
-                value: klass.id,
-                label: klass.name,
-              }))}
-            />
-            <FilterSelect
-              label="模式"
-              value={taskType || ALL}
-              disabled={!diagnosis}
-              onChange={(value) => replaceQuery({ taskType: value, taskInstanceId: null })}
-              options={(diagnosis?.filterOptions.taskTypes ?? []).map((type) => ({
-                value: type.value,
-                label: `${type.label} (${type.count})`,
-              }))}
-            />
-            <FilterSelect
-              label="测试实例"
-              value={taskInstanceId || ALL}
-              disabled={!diagnosis}
-              onChange={(value) => replaceQuery({ taskInstanceId: value })}
-              options={filteredInstances.map((instance) => ({
-                value: instance.id,
-                label: `${instance.title} · ${instance.className}`,
-              }))}
-            />
-            <FilterSelect
-              label="计分口径"
-              value={scorePolicy}
-              onChange={(value) => replaceQuery({ scorePolicy: value })}
-              options={[
-                { value: "latest", label: SCORE_POLICY_LABELS.latest },
-                { value: "best", label: SCORE_POLICY_LABELS.best },
-                { value: "first", label: SCORE_POLICY_LABELS.first },
-              ]}
-            />
-            <FilterSelect
-              label="时间范围"
-              value={range}
-              onChange={(value) => replaceQuery({ range: value })}
-              options={[
-                { value: "term", label: RANGE_LABELS.term },
-                { value: "30d", label: RANGE_LABELS["30d"] },
-                { value: "7d", label: RANGE_LABELS["7d"] },
-              ]}
-            />
-          </div>
-
-          {scopeTags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-              <span className="text-xs font-medium text-muted-foreground">当前范围</span>
-              {scopeTags.map((tag) => (
-                <Badge key={tag} variant="secondary" className="rounded-md">
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <InsightsFilterBar
+        courses={courses}
+        diagnosis={diagnosis}
+        coursesLoading={coursesLoading}
+        searchParams={searchParams}
+        recomputeJob={recomputeJob}
+        recomputeStarting={recomputeStarting}
+        scopeTags={scopeTags}
+        onReplaceQuery={replaceQuery}
+        onReset={resetFilters}
+        onStartRecompute={startRecompute}
+      />
 
       {!courseId ? (
         <CenteredState
@@ -662,41 +566,6 @@ export function AnalyticsV2Dashboard() {
         </>
       ) : null}
     </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  placeholder = "全部",
-  disabled = false,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  placeholder?: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="h-9 w-full rounded-md">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>{placeholder}</SelectItem>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </label>
   );
 }
 
@@ -1400,15 +1269,25 @@ function EmptyInline({ text }: { text: string }) {
 function buildScopeTags(diagnosis: AnalyticsV2Diagnosis | null): string[] {
   if (!diagnosis) return [];
   const { scope, filterOptions } = diagnosis;
-  const className = filterOptions.classes.find((item) => item.id === scope.classId)?.name;
   const chapterTitle = filterOptions.chapters.find((item) => item.id === scope.chapterId)?.title;
   const sectionTitle = filterOptions.sections.find((item) => item.id === scope.sectionId)?.title;
   const instanceTitle = filterOptions.taskInstances.find((item) => item.id === scope.taskInstanceId)?.title;
+  const allClassCount = filterOptions.classes.length;
+  const selectedCount = scope.classIds.length;
+  const isAllClasses =
+    selectedCount === 0 || (allClassCount > 0 && selectedCount === allClassCount);
+  let classTag = "班级：全部";
+  if (!isAllClasses) {
+    const names = scope.classIds
+      .map((id) => filterOptions.classes.find((item) => item.id === id)?.name)
+      .filter((name): name is string => Boolean(name));
+    if (names.length > 0) classTag = `班级：${names.join(" / ")}`;
+  }
   return [
     `课程：${scope.courseTitle}`,
     chapterTitle ? `章节：${chapterTitle}` : "章节：全部",
     sectionTitle ? `小节：${sectionTitle}` : "小节：全部",
-    className ? `班级：${className}` : "班级：全部",
+    classTag,
     scope.taskType ? `模式：${TASK_TYPE_LABELS[scope.taskType]}` : "模式：全部",
     instanceTitle ? `实例：${instanceTitle}` : "实例：全部",
     `口径：${SCORE_POLICY_LABELS[scope.scorePolicy]}`,

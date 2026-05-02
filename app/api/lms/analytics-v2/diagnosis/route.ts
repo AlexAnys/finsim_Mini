@@ -13,6 +13,13 @@ const SCORE_POLICIES = new Set<AnalyticsV2ScorePolicy>(["latest", "best", "first
 const RANGES = new Set<AnalyticsV2Range>(["7d", "30d", "term"]);
 const TASK_TYPES = new Set<TaskType>(["simulation", "quiz", "subjective"]);
 
+function readClassIds(searchParams: URLSearchParams): string[] {
+  const multi = searchParams.getAll("classIds").map((id) => id.trim()).filter(Boolean);
+  if (multi.length > 0) return multi;
+  const legacy = searchParams.get("classId")?.trim();
+  return legacy ? [legacy] : [];
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireRole(["teacher", "admin"]);
   if (auth.error) return auth.error;
@@ -42,11 +49,12 @@ export async function GET(request: NextRequest) {
     const { user } = auth.session;
     await assertCourseAccess(courseId, user.id, user.role);
 
+    const classIds = readClassIds(searchParams);
     const diagnosis = await getAnalyticsV2Diagnosis({
       courseId,
       chapterId: searchParams.get("chapterId") ?? undefined,
       sectionId: searchParams.get("sectionId") ?? undefined,
-      classId: searchParams.get("classId") ?? undefined,
+      classIds: classIds.length > 0 ? classIds : undefined,
       taskType: (taskTypeParam as TaskType | null) ?? undefined,
       taskInstanceId: searchParams.get("taskInstanceId") ?? undefined,
       scorePolicy: (scorePolicyParam as AnalyticsV2ScorePolicy | null) ?? undefined,

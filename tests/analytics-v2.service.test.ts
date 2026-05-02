@@ -270,7 +270,7 @@ describe("getAnalyticsV2Diagnosis", () => {
 
     const result = await getAnalyticsV2Diagnosis({
       courseId: "course-1",
-      classId: "class-A",
+      classIds: ["class-A"],
       now: new Date("2026-01-10T00:00:00Z"),
     });
 
@@ -279,7 +279,7 @@ describe("getAnalyticsV2Diagnosis", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           courseId: "course-1",
-          classId: "class-A",
+          classId: { in: ["class-A"] },
         }),
       }),
     );
