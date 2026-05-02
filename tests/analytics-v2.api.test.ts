@@ -73,7 +73,7 @@ describe("GET /api/lms/analytics-v2/diagnosis", () => {
 
     const res = await GET(
       request(
-        "http://localhost/api/lms/analytics-v2/diagnosis?courseId=course-1&classId=class-A&taskType=quiz&scorePolicy=best&range=30d",
+        "http://localhost/api/lms/analytics-v2/diagnosis?courseId=course-1&classId=class-A&taskType=quiz&scorePolicy=best&range=custom&dateFrom=2026-01-01&dateTo=2026-01-31&scoreBins=ten",
       ) as Parameters<typeof GET>[0],
     );
     const body = await res.json();
@@ -87,7 +87,10 @@ describe("GET /api/lms/analytics-v2/diagnosis", () => {
         classId: "class-A",
         taskType: "quiz",
         scorePolicy: "best",
-        range: "30d",
+        range: "custom",
+        dateFrom: "2026-01-01",
+        dateTo: "2026-01-31",
+        scoreBins: "ten",
       }),
     );
   });
@@ -105,6 +108,29 @@ describe("GET /api/lms/analytics-v2/diagnosis", () => {
     );
 
     expect(res.status).toBe(400);
+    expect(assertCourseAccess).not.toHaveBeenCalled();
+    expect(getAnalyticsV2Diagnosis).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid custom date and score bin values before course access", async () => {
+    mk(requireRole).mockResolvedValue({
+      session: { user: { id: "teacher-1", role: "teacher", classId: null } },
+      error: null,
+    });
+
+    const badDate = await GET(
+      request(
+        "http://localhost/api/lms/analytics-v2/diagnosis?courseId=course-1&range=custom&dateFrom=2026/01/01",
+      ) as Parameters<typeof GET>[0],
+    );
+    const badBins = await GET(
+      request(
+        "http://localhost/api/lms/analytics-v2/diagnosis?courseId=course-1&scoreBins=quartile",
+      ) as Parameters<typeof GET>[0],
+    );
+
+    expect(badDate.status).toBe(400);
+    expect(badBins.status).toBe(400);
     expect(assertCourseAccess).not.toHaveBeenCalled();
     expect(getAnalyticsV2Diagnosis).not.toHaveBeenCalled();
   });

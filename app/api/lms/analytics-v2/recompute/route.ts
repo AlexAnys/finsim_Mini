@@ -6,12 +6,15 @@ import { created, handleServiceError, validationError } from "@/lib/api-utils";
 import { enqueueAsyncJob } from "@/lib/services/async-job.service";
 import type {
   AnalyticsV2Range,
+  AnalyticsV2ScoreBinMode,
   AnalyticsV2ScorePolicy,
 } from "@/lib/services/analytics-v2.service";
 
 const SCORE_POLICIES = new Set<AnalyticsV2ScorePolicy>(["latest", "best", "first"]);
-const RANGES = new Set<AnalyticsV2Range>(["7d", "30d", "term"]);
+const RANGES = new Set<AnalyticsV2Range>(["7d", "30d", "term", "custom"]);
+const SCORE_BINS = new Set<AnalyticsV2ScoreBinMode>(["standard", "ten"]);
 const TASK_TYPES = new Set<TaskType>(["simulation", "quiz", "subjective"]);
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(request: NextRequest) {
   const auth = await requireRole(["teacher", "admin"]);
@@ -28,7 +31,18 @@ export async function POST(request: NextRequest) {
 
   const rangeParam = searchParams.get("range");
   if (rangeParam && !RANGES.has(rangeParam as AnalyticsV2Range)) {
-    return validationError("range must be 7d, 30d, or term");
+    return validationError("range must be 7d, 30d, term, or custom");
+  }
+
+  const scoreBinsParam = searchParams.get("scoreBins");
+  if (scoreBinsParam && !SCORE_BINS.has(scoreBinsParam as AnalyticsV2ScoreBinMode)) {
+    return validationError("scoreBins must be standard or ten");
+  }
+
+  const dateFromParam = searchParams.get("dateFrom");
+  const dateToParam = searchParams.get("dateTo");
+  if ((dateFromParam && !ISO_DATE.test(dateFromParam)) || (dateToParam && !ISO_DATE.test(dateToParam))) {
+    return validationError("dateFrom/dateTo must use YYYY-MM-DD");
   }
 
   const taskTypeParam = searchParams.get("taskType");
@@ -53,6 +67,9 @@ export async function POST(request: NextRequest) {
         taskInstanceId: searchParams.get("taskInstanceId"),
         scorePolicy: scorePolicyParam,
         range: rangeParam,
+        dateFrom: dateFromParam,
+        dateTo: dateToParam,
+        scoreBins: scoreBinsParam,
       },
       createdBy: user.id,
       maxAttempts: 2,

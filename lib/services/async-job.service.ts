@@ -167,9 +167,33 @@ async function performAsyncJob(job: AsyncJob): Promise<JsonInput | undefined> {
         taskInstanceId: readInputString(job, "taskInstanceId") ?? undefined,
         scorePolicy: (readInputString(job, "scorePolicy") as never) ?? undefined,
         range: (readInputString(job, "range") as never) ?? undefined,
+        dateFrom: readInputString(job, "dateFrom") ?? undefined,
+        dateTo: readInputString(job, "dateTo") ?? undefined,
+        scoreBins: (readInputString(job, "scoreBins") as never) ?? undefined,
       });
       await updateAsyncJobProgress(job.id, 90);
       return diagnosis as unknown as JsonInput;
+    }
+    case "data_insight_advice": {
+      const courseId = readInputString(job, "courseId") || job.entityId;
+      if (!courseId) throw new Error("COURSE_NOT_FOUND");
+      await updateAsyncJobProgress(job.id, 15);
+      const { generateDataInsightAdvice } = await import("@/lib/services/analytics-v2.service");
+      const advice = await generateDataInsightAdvice({
+        courseId,
+        chapterId: readInputString(job, "chapterId") ?? undefined,
+        sectionId: readInputString(job, "sectionId") ?? undefined,
+        classId: readInputString(job, "classId") ?? undefined,
+        taskType: readInputString(job, "taskType") as never,
+        taskInstanceId: readInputString(job, "taskInstanceId") ?? undefined,
+        scorePolicy: (readInputString(job, "scorePolicy") as never) ?? undefined,
+        range: (readInputString(job, "range") as never) ?? undefined,
+        dateFrom: readInputString(job, "dateFrom") ?? undefined,
+        dateTo: readInputString(job, "dateTo") ?? undefined,
+        scoreBins: (readInputString(job, "scoreBins") as never) ?? undefined,
+      }, job.createdBy);
+      await updateAsyncJobProgress(job.id, 95);
+      return advice as unknown as JsonInput;
     }
     case "ai_work_assistant": {
       await updateAsyncJobProgress(job.id, 10);

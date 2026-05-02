@@ -6,11 +6,17 @@ vi.mock("@/lib/db/prisma", () => ({
     taskInstance: { findMany: vi.fn() },
     user: { findMany: vi.fn() },
     studentGroup: { findMany: vi.fn() },
+    studyBuddyPost: { findMany: vi.fn() },
   },
+}));
+
+vi.mock("@/lib/services/ai.service", () => ({
+  aiGenerateJSON: vi.fn(),
 }));
 
 import { prisma } from "@/lib/db/prisma";
 import {
+  buildDataInsightFingerprint,
   buildStudentInstanceAttempts,
   extractWeaknessSignals,
   getAnalyticsV2Diagnosis,
@@ -58,6 +64,7 @@ function submission(overrides: {
   subjectiveEvaluation?: unknown;
   subjectiveConceptTags?: string[];
   taskType?: "quiz" | "simulation" | "subjective";
+  releasedAt?: string | null;
 }) {
   const taskType = overrides.taskType ?? "quiz";
   return {
@@ -68,6 +75,7 @@ function submission(overrides: {
     score: overrides.score ?? null,
     maxScore: overrides.maxScore ?? null,
     submittedAt: new Date(overrides.submittedAt),
+    releasedAt: overrides.releasedAt === undefined ? new Date("2026-01-06T00:00:00Z") : overrides.releasedAt ? new Date(overrides.releasedAt) : null,
     student: { id: overrides.studentId, name: overrides.studentId.toUpperCase() },
     simulationSubmission: null,
     quizSubmission: {
@@ -132,6 +140,7 @@ function instance(overrides: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mk(prisma.studyBuddyPost.findMany).mockResolvedValue([]);
 });
 
 describe("analytics-v2 score helpers", () => {
@@ -162,6 +171,40 @@ describe("analytics-v2 score helpers", () => {
       bestScore: 90,
       improvement: 20,
     });
+  });
+});
+
+describe("analytics-v2 advice fingerprint", () => {
+  it("does not change when only generatedAt changes", () => {
+    const baseDiagnosis = {
+      scope: {
+        courseId: "course-1",
+        courseTitle: "金融模拟",
+        chapterId: null,
+        sectionId: null,
+        classId: null,
+        taskType: null,
+        taskInstanceId: "inst-1",
+        scorePolicy: "latest",
+        range: "term",
+        dateFrom: null,
+        dateTo: null,
+        scoreBins: "standard",
+        generatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      kpis: { completionRate: 1, avgNormalizedScore: 80 },
+      scoreDistribution: { bins: [{ id: "80-89", count: 1 }] },
+      risks: { chapters: [], students: [], pendingReleases: [] },
+      studyBuddySignals: { groups: [] },
+      taskPerformance: { selectedInstanceId: "inst-1", highExamples: [], lowIssues: [] },
+    };
+
+    expect(buildDataInsightFingerprint(baseDiagnosis as never)).toBe(
+      buildDataInsightFingerprint({
+        ...baseDiagnosis,
+        scope: { ...baseDiagnosis.scope, generatedAt: "2026-01-02T00:00:00.000Z" },
+      } as never),
+    );
   });
 });
 
@@ -670,6 +713,136 @@ describe("getAnalyticsV2Diagnosis", () => {
         latestSubmittedAt: "2026-01-04T00:00:00.000Z",
       }),
     ]);
+  });
+
+  it("builds dashboard distribution, risks, pending releases, and Study Buddy signals", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 95,
+              maxScore: 100,
+              submittedAt: "2026-01-02T00:00:00Z",
+            }),
+            submission({
+              id: "sub-2",
+              studentId: "s2",
+              status: "graded",
+              score: 20,
+              maxScore: 100,
+              submittedAt: "2026-01-02T00:00:00Z",
+              releasedAt: null,
+              quizEvaluation: {
+                quizBreakdown: [
+                  { questionId: "q1", score: 0, maxScore: 5, correct: false, comment: "CAPM 概念错误" },
+                ],
+              },
+              quizConceptTags: ["CAPM"],
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+      { id: "s3", name: "S3", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.studyBuddyPost.findMany).mockResolvedValue([
+      {
+        id: "post-1",
+        taskId: "task-1",
+        taskInstanceId: "inst-1",
+        studentId: "s2",
+        question: "CAPM 的 beta 怎么理解？",
+        status: "pending",
+        anonymous: true,
+        task: { id: "task-1", taskName: "课后测验", taskType: "quiz" },
+        student: { id: "s2", name: "S2", email: "s2@example.com" },
+        taskInstance: {
+          id: "inst-1",
+          title: "课后测验",
+          chapterId: "chapter-1",
+          sectionId: "section-1",
+          chapter: { id: "chapter-1", title: "资产配置", order: 1 },
+          section: { id: "section-1", title: "风险预算", order: 1 },
+        },
+      },
+      {
+        id: "post-2",
+        taskId: "task-1",
+        taskInstanceId: "inst-1",
+        studentId: "s1",
+        question: "CAPM 的 beta 怎么理解？",
+        status: "answered",
+        anonymous: false,
+        task: { id: "task-1", taskName: "课后测验", taskType: "quiz" },
+        student: { id: "s1", name: "S1", email: "s1@example.com" },
+        taskInstance: {
+          id: "inst-1",
+          title: "课后测验",
+          chapterId: "chapter-1",
+          sectionId: "section-1",
+          chapter: { id: "chapter-1", title: "资产配置", order: 1 },
+          section: { id: "section-1", title: "风险预算", order: 1 },
+        },
+      },
+    ]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      taskInstanceId: "inst-1",
+      scoreBins: "standard",
+      now: new Date("2026-01-10T00:00:00Z"),
+    });
+
+    expect(result.generatedAt).toBe("2026-01-10T00:00:00.000Z");
+    expect(result.kpis.pendingReleaseCount).toBe(1);
+    expect(result.kpis.riskChapterCount).toBe(1);
+    expect(result.kpis.riskStudentCount).toBe(2);
+    expect(result.scoreDistribution.bins).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "0-59", count: 1 }),
+        expect.objectContaining({ id: "90-100", count: 1 }),
+      ]),
+    );
+    expect(result.risks.pendingReleases[0]).toMatchObject({
+      submissionId: "sub-2",
+      studentName: "S2",
+      instanceTitle: "课后测验",
+    });
+    expect(result.taskPerformance.highExamples[0]).toMatchObject({
+      submissionId: "sub-1",
+      evidenceKind: "quiz",
+      normalizedScore: 95,
+    });
+    expect(result.taskPerformance.lowIssues[0]).toMatchObject({
+      title: expect.stringContaining("CAPM 中 beta"),
+    });
+    expect(result.studyBuddySignals).toMatchObject({
+      totalQuestions: 2,
+      pendingQuestions: 1,
+      activeStudents: 2,
+      groups: [
+        expect.objectContaining({
+          chapterTitle: "资产配置",
+          questionCount: 2,
+          studentCount: 2,
+          topQuestions: [
+            expect.objectContaining({ question: "CAPM 的 beta 怎么理解？", count: 2 }),
+          ],
+          students: expect.arrayContaining([
+            expect.objectContaining({ id: "s2", name: "匿名学生" }),
+          ]),
+        }),
+      ],
+    });
   });
 
   it("reports data quality flags without hiding raw abnormal metrics", async () => {

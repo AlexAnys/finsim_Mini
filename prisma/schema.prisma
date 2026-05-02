@@ -142,6 +142,7 @@ enum AsyncJobType {
   submission_grade
   ai_work_assistant
   analytics_recompute
+  data_insight_advice
 }
 
 enum TaskBuildDraftStatus {
