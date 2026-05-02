@@ -1,8 +1,62 @@
+# === Dependencies / Build output ===
 node_modules
 .next
-.git
-.env*
-*.md
-.github
 coverage
+
+# === Git / CI / IDE ===
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+
+# === Env (secrets, never bake into image) ===
+.env
+.env.*
+!.env.example
+
+# === OS junk ===
 .DS_Store
+Thumbs.db
+
+# === Project meta / docs (not needed at runtime) ===
+*.md
+.claude
+.harness
+agent_docs
+mockups
+screenshots
+decisions-pending.md
+
+# === Test / dev artifacts ===
+__tests__
+test
+tests
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+vitest.config.ts
+vitest.config.js
+playwright.config.*
+e2e
+
+# === User-uploaded runtime data (volumes handle this) ===
+public/uploads
+
+# === Logs ===
+*.log
+npm-debug.log*
+
+# === Docker meta itself (don't include in build context) ===
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+
+# === Local dev databases ===
+prisma/dev.db
+prisma/dev.db-journal
+*.sqlite
+*.sqlite-journal

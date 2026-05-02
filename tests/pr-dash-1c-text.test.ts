@@ -74,9 +74,10 @@ describe("PR-DASH-1c · B6 任务卡片重做", () => {
     expect(attentionList).toMatch(/暂无均分/);
   });
 
-  it("renders 测试 button (mock-student placeholder)", () => {
+  it("renders 测试 button with real preview routing", () => {
     expect(attentionList).toMatch(/测试/);
-    expect(attentionList).toMatch(/模拟学生功能即将上线/);
+    expect(attentionList).toMatch(/preview=true/);
+    expect(attentionList).not.toMatch(/模拟学生功能即将上线/);
   });
 
   it("renders 管理 button (replaces old 查看 link)", () => {
