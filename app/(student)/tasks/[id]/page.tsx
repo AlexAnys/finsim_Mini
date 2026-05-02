@@ -36,7 +36,7 @@ interface QuizQuestion {
   id: string;
   type: string;
   prompt: string;
-  options: Array<{ label: string; content: string }> | null;
+  options: Array<{ id: string; text: string }> | null;
   points: number;
   explanation: string | null;
   order: number;
@@ -128,7 +128,9 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
               id: q.id,
               type: q.type as "single_choice" | "multiple_choice" | "true_false" | "short_answer",
               stem: q.prompt,
-              options: q.options,
+              options: Array.isArray(q.options)
+                ? q.options.map((o: { id: string; text: string }) => ({ label: o.id, content: o.text }))
+                : null,
               points: q.points,
               explanation: q.explanation,
             })),
