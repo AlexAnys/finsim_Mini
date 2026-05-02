@@ -140,6 +140,15 @@ export interface InlineTaskBuildDraft {
   progress: number;
   slot: string | null;
   sourceIds: string[];
+  asyncJobId?: string | null;
+  draftPayload?: unknown;
+  asyncJob?: {
+    id: string;
+    type: string;
+    status: string;
+    progress: number;
+    error: string | null;
+  } | null;
   missingFields: string[];
   error: string | null;
 }
@@ -172,6 +181,12 @@ interface InlineSectionRowProps {
     sectionId: string,
     slot: SlotType,
   ) => void;
+  onOpenDraft: (
+    draft: InlineTaskBuildDraft,
+    chapterId: string,
+    sectionId: string,
+    slot: SlotType,
+  ) => void;
   onCreateBlock: (
     chapterId: string,
     sectionId: string,
@@ -193,6 +208,7 @@ export function InlineSectionRow({
   onRenameSection,
   onDeleteSection,
   onAddTask,
+  onOpenDraft,
   onCreateBlock,
   onUpdateBlock,
   onDeleteBlock,
@@ -461,11 +477,21 @@ export function InlineSectionRow({
 
               {drafts.length > 0 && (
                 <div className="mb-2 space-y-1.5">
-                  {drafts.map((draft) => (
-                    <div
+                  {drafts.map((draft) => {
+                    const job = draft.asyncJob ?? null;
+                    const displayProgress = job?.progress ?? draft.progress;
+                    const statusLabel = job
+                      ? `${jobStatusLabel(job.status)} · ${job.type}`
+                      : DRAFT_STATUS_LABEL[draft.status] ?? draft.status;
+                    const displayError = job?.error || draft.error;
+
+                    return (
+                    <button
                       key={draft.id}
+                      type="button"
+                      onClick={() => onOpenDraft(draft, chapter.id, section.id, slot)}
                       className={cn(
-                        "rounded-md border px-2 py-1.5 text-left text-xs",
+                        "w-full rounded-md border px-2 py-1.5 text-left text-xs transition hover:ring-2 hover:ring-brand-soft",
                         DRAFT_STATUS_CLASS[draft.status] ??
                           "border-line bg-paper-alt text-ink-3",
                       )}
@@ -483,27 +509,34 @@ export function InlineSectionRow({
                         >
                           {TASK_TYPE_LABEL[draft.taskType] ?? draft.taskType}
                         </Badge>
-                        <span>
-                          {DRAFT_STATUS_LABEL[draft.status] ?? draft.status}
-                        </span>
-                        {draft.progress > 0 && draft.status !== "draft" && (
+                        <span>{statusLabel}</span>
+                        {displayProgress > 0 && (
                           <span className="tabular-nums opacity-70">
-                            {draft.progress}%
+                            {displayProgress}%
                           </span>
                         )}
                       </div>
+                      {job && (
+                        <div className="mt-1 h-1 rounded-full bg-white/70">
+                          <div
+                            className="h-1 rounded-full bg-current transition-all"
+                            style={{ width: `${Math.max(4, Math.min(100, displayProgress))}%` }}
+                          />
+                        </div>
+                      )}
                       {draft.missingFields.length > 0 && (
                         <p className="mt-1 line-clamp-1 text-[10px] opacity-70">
                           待补：{draft.missingFields.slice(0, 3).join("、")}
                         </p>
                       )}
-                      {draft.error && (
+                      {displayError && (
                         <p className="mt-1 line-clamp-1 text-[10px] text-danger">
-                          {draft.error}
+                          {displayError}
                         </p>
                       )}
-                    </div>
-                  ))}
+                    </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -615,4 +648,21 @@ export function InlineSectionRow({
       </div>
     </div>
   );
+}
+
+function jobStatusLabel(status: string) {
+  switch (status) {
+    case "queued":
+      return "排队中";
+    case "running":
+      return "处理中";
+    case "succeeded":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "canceled":
+      return "已取消";
+    default:
+      return status;
+  }
 }

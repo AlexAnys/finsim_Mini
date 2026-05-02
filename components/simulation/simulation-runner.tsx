@@ -10,6 +10,7 @@ import {
   ChevronRight,
   MessageSquare,
   Sparkles,
+  Mic,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { RunnerTopbar } from "@/components/runner/runner-topbar";
@@ -67,6 +68,19 @@ interface SimulationRunnerProps {
   isPreview?: boolean;
   systemPrompt?: string;
 }
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 // ---------- Helpers ----------
 
@@ -321,6 +335,8 @@ export function SimulationRunner({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          taskId,
+          taskInstanceId,
           transcript: updatedMessages.map(m => ({ role: m.role, text: m.text })),
           scenario,
           openingLine,
@@ -425,6 +441,8 @@ export function SimulationRunner({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          taskId,
+          taskInstanceId,
           transcript: messages.map((m) => ({ role: m.role, text: m.text })),
           scenario,
           openingLine,
@@ -682,7 +700,7 @@ export function SimulationRunner({
           submitted={submitted}
           isPreview={isPreview}
         />
-        <StudyBuddyPanel taskId={taskId} taskInstanceId={taskInstanceId} />
+        <StudyBuddyPanel taskId={taskId} taskInstanceId={taskInstanceId} preview={isPreview} />
       </>
     );
   }
@@ -767,7 +785,7 @@ export function SimulationRunner({
       </div>
 
       {/* Study Buddy floating button */}
-      <StudyBuddyPanel taskId={taskId} taskInstanceId={taskInstanceId} />
+      <StudyBuddyPanel taskId={taskId} taskInstanceId={taskInstanceId} preview={isPreview} />
     </div>
   );
 }
@@ -1009,6 +1027,42 @@ function SimChat({
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   scenario: string;
 }) {
+  const [listening, setListening] = useState(false);
+
+  function handleSpeechToText() {
+    if (typeof window === "undefined") return;
+    const speechWindow = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const SpeechRecognition =
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error("当前浏览器不支持本地语音识别，请先手动输入；后端云端 STT 需要配置后启用。");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "zh-CN";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join("")
+        .trim();
+      if (transcript) {
+        setInputValue(inputValue ? `${inputValue}\n${transcript}` : transcript);
+        toast.success("语音已转成文字，请确认后发送");
+      }
+    };
+    recognition.onerror = () => {
+      toast.error("语音识别失败，请重试或手动输入");
+    };
+    recognition.onend = () => setListening(false);
+    setListening(true);
+    recognition.start();
+  }
+
   return (
     <main
       className="flex min-w-0 flex-1 flex-col"
@@ -1108,28 +1162,48 @@ function SimChat({
               字数{" "}
               <span style={{ color: "var(--fs-ink-3)" }}>{inputValue.length}</span>
             </div>
-            <button
-              type="button"
-              onClick={onSend}
-              disabled={!inputValue.trim() || isSending || disabled}
-              className="inline-flex items-center gap-1 rounded-[7px] px-[18px] py-[7px] text-[12.5px] font-semibold transition disabled:cursor-not-allowed"
-              style={{
-                background: inputValue.trim() && !isSending && !disabled
-                  ? "var(--fs-primary)"
-                  : "var(--fs-bg-alt)",
-                color: inputValue.trim() && !isSending && !disabled
-                  ? "var(--fs-primary-fg)"
-                  : "var(--fs-ink-5)",
-              }}
-            >
-              {isSending ? (
-                <Loader2 size={11} className="animate-spin" />
-              ) : (
-                <>
-                  发送 <ChevronRight size={11} />
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSpeechToText}
+                disabled={isSending || disabled || listening}
+                className="inline-flex items-center gap-1 rounded-[7px] px-3 py-[7px] text-[12px] font-semibold transition disabled:cursor-not-allowed"
+                style={{
+                  background: listening ? "var(--fs-sim-soft)" : "var(--fs-bg-alt)",
+                  color: listening ? "var(--fs-sim)" : "var(--fs-ink-4)",
+                }}
+                aria-label="语音转文字"
+              >
+                {listening ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Mic size={12} />
+                )}
+                {listening ? "识别中" : "语音"}
+              </button>
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!inputValue.trim() || isSending || disabled}
+                className="inline-flex items-center gap-1 rounded-[7px] px-[18px] py-[7px] text-[12.5px] font-semibold transition disabled:cursor-not-allowed"
+                style={{
+                  background: inputValue.trim() && !isSending && !disabled
+                    ? "var(--fs-primary)"
+                    : "var(--fs-bg-alt)",
+                  color: inputValue.trim() && !isSending && !disabled
+                    ? "var(--fs-primary-fg)"
+                    : "var(--fs-ink-5)",
+                }}
+              >
+                {isSending ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <>
+                    发送 <ChevronRight size={11} />
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

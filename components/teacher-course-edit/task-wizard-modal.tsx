@@ -12,7 +12,7 @@
  *      挂入课程节点并发布。成功后 onSuccess 触发（父组件 fetchCourse 刷新）。
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Loader2,
   ChevronLeft,
@@ -154,6 +154,15 @@ interface ContextDraftResponse {
   };
 }
 
+interface InitialTaskBuildDraft {
+  id: string;
+  taskType: string;
+  title: string;
+  description: string | null;
+  sourceIds?: string[];
+  draftPayload?: unknown;
+}
+
 const DEFAULT_SIM_PERSONA = `你是一个普通人，对理财知识了解不多，但愿意学习和听取专业建议。
 你有自己的顾虑和偏好，但你不是一个"油盐不进"的人。当理财经理给出合理解释时，你会逐渐理解和接受。
 你会主动提出与对话目标相关的问题，推动对话朝有意义的方向发展。`;
@@ -256,6 +265,7 @@ export interface WizardModalContext {
 interface WizardModalProps {
   open: boolean;
   context: WizardModalContext | null;
+  initialDraft?: InitialTaskBuildDraft | null;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -269,6 +279,7 @@ const SLOT_LABEL: Record<"pre" | "in" | "post", string> = {
 export function TaskWizardModal({
   open,
   context,
+  initialDraft,
   onClose,
   onSuccess,
 }: WizardModalProps) {
@@ -282,6 +293,29 @@ export function TaskWizardModal({
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [teacherBrief, setTeacherBrief] = useState("");
   const [draftSourceLabel, setDraftSourceLabel] = useState("");
+
+  useEffect(() => {
+    if (!open || !initialDraft) return;
+    const payload = normalizeInitialDraftPayload(initialDraft.draftPayload);
+    if (payload?.form) {
+      setForm((prev) => ({ ...prev, ...payload.form }));
+      setSelectedSourceIds(initialDraft.sourceIds ?? payload.selectedSourceIds ?? []);
+      setTeacherBrief(payload.teacherBrief ?? "");
+      setDraftSourceLabel(payload.draftSourceLabel ?? "已从任务草稿恢复，请继续审核。");
+      const missing = collectMissingFields({ ...makeInitialForm(), ...payload.form });
+      setStep(missing.length > 0 ? 1 : 3);
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      taskName: initialDraft.title === "未命名任务草稿" ? "" : initialDraft.title,
+      taskType: initialDraft.taskType as TaskType,
+      description: initialDraft.description ?? "",
+    }));
+    setDraftSourceLabel("已从任务草稿恢复，请继续补全。");
+    setStep(1);
+  }, [open, initialDraft]);
 
   function resetState() {
     setStep(0);
@@ -1147,4 +1181,26 @@ export function TaskWizardModal({
       </DialogContent>
     </Dialog>
   );
+}
+
+function normalizeInitialDraftPayload(payload: unknown): {
+  form?: Partial<FormData>;
+  teacherBrief?: string;
+  draftSourceLabel?: string;
+  selectedSourceIds?: string[];
+} | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const data = payload as Record<string, unknown>;
+  return {
+    form:
+      data.form && typeof data.form === "object" && !Array.isArray(data.form)
+        ? (data.form as Partial<FormData>)
+        : undefined,
+    teacherBrief: typeof data.teacherBrief === "string" ? data.teacherBrief : undefined,
+    draftSourceLabel:
+      typeof data.draftSourceLabel === "string" ? data.draftSourceLabel : undefined,
+    selectedSourceIds: Array.isArray(data.selectedSourceIds)
+      ? data.selectedSourceIds.filter((id): id is string => typeof id === "string")
+      : undefined,
+  };
 }

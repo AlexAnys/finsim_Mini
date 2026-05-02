@@ -28,8 +28,11 @@ export async function createPost(data: {
   question: string;
   mode: "socratic" | "direct";
   anonymous: boolean;
+  isPreview?: boolean;
 }) {
-  if (data.user.role !== "student") throw new Error("FORBIDDEN");
+  const isPreview = Boolean(data.isPreview);
+  if (data.user.role !== "student" && !isPreview) throw new Error("FORBIDDEN");
+  if (data.user.role === "student" && isPreview) throw new Error("FORBIDDEN");
   if (data.taskInstanceId) {
     await assertTaskInstanceReadable(data.taskInstanceId, data.user);
     const instance = await prisma.taskInstance.findUnique({
@@ -51,6 +54,7 @@ export async function createPost(data: {
       question: data.question,
       mode: data.mode,
       anonymous: data.anonymous,
+      isPreview,
       messages: [{ role: "student", content: data.question, createdAt: new Date().toISOString() }],
     },
   });
@@ -76,6 +80,7 @@ async function generateReply(postId: string, userId: string) {
           course: { select: { courseTitle: true } },
           chapter: { select: { title: true } },
           section: { select: { title: true } },
+          createdBy: true,
         },
       },
     },
@@ -135,7 +140,16 @@ ${materialContext ? `教师补充课程素材:\n${materialContext}` : ""}
 2. 注意上下文连贯，回答追问时参考之前的对话内容。
 3. 优先使用教师补充课程素材和任务背景资料，资料不足时再使用通用知识，并明确说明推断边界。
 4. 围绕课程内容与任务目标展开，不要发散到无关话题。`,
-      `对话历史:\n${messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n")}\n\n请回复：`
+      `对话历史:\n${messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n")}\n\n请回复：`,
+      {
+        settingsUserId: taskInstance?.createdBy || task.creatorId || userId,
+        metadata: {
+          studyBuddyPostId: postId,
+          taskId: post.taskId,
+          taskInstanceId: post.taskInstanceId,
+          preview: post.isPreview,
+        },
+      },
     );
 
     const updatedMessages = [
@@ -192,7 +206,7 @@ export async function continueConversation(postId: string, userId: string, conte
 
 export async function listStudyBuddyPosts(
   user: UserLike,
-  filters: { taskId?: string; taskInstanceId?: string; take?: number },
+  filters: { taskId?: string; taskInstanceId?: string; take?: number; preview?: boolean },
 ) {
   if (filters.taskInstanceId) {
     await assertTaskInstanceReadable(filters.taskInstanceId, user);
@@ -209,7 +223,9 @@ export async function listStudyBuddyPosts(
     where: {
       ...(filters.taskId && { taskId: filters.taskId }),
       ...(filters.taskInstanceId && { taskInstanceId: filters.taskInstanceId }),
-      ...(user.role === "student" && { studentId: user.id }),
+      isPreview: Boolean(filters.preview),
+      ...(user.role === "student" && { studentId: user.id, isPreview: false }),
+      ...(user.role !== "student" && filters.preview && { studentId: user.id }),
     },
     include: {
       student: { select: { id: true, name: true } },
@@ -223,7 +239,7 @@ export async function generateSummary(taskId: string, user: UserLike) {
   await assertTaskReadable(taskId, user);
 
   const posts = await prisma.studyBuddyPost.findMany({
-    where: { taskId, status: "answered" },
+    where: { taskId, status: "answered", isPreview: false },
     select: { question: true, aiReply: true, messages: true },
     take: 100,
   });

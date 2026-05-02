@@ -41,9 +41,13 @@ interface ContextChapter {
 interface KnowledgeSourceItem {
   id: string;
   fileName: string;
+  kind?: string;
+  sourceType: string | null;
+  tags: string[];
   status: "uploaded" | "extracting" | "ocr_required" | "ocr_processing" | "processing" | "ai_summary_failed" | "ready" | "failed";
   summary: string | null;
   conceptTags: string[];
+  structuredData: unknown;
   error: string | null;
   excerpt: string;
 }
@@ -331,7 +335,7 @@ export function CourseContextSourcesTab({
               <Input
                 ref={inputRef}
                 type="file"
-                accept="application/pdf,.pdf,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
+                accept="application/pdf,.pdf,.doc,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp,.xlsx,.xls,.csv"
                 className="w-full max-w-[320px] bg-surface text-xs"
                 disabled={uploading}
                 onChange={(event) => handleUpload(event.target.files?.[0] || null)}
@@ -383,6 +387,11 @@ export function CourseContextSourcesTab({
                         >
                           {statusLabel(source.status)}
                         </Badge>
+                        {source.sourceType === "syllabus" && (
+                          <Badge variant="outline" className="bg-brand-soft text-brand">
+                            课程大纲
+                          </Badge>
+                        )}
                       </div>
                       {source.summary && (
                         <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-ink-3">
@@ -399,6 +408,35 @@ export function CourseContextSourcesTab({
                               {tag}
                             </Badge>
                           ))}
+                        </div>
+                      )}
+                      {source.tags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {source.tags.slice(0, 5).map((tag) => (
+                            <Badge key={tag} variant="secondary" className="bg-paper-alt text-[10.5px] text-ink-4">
+                              #{tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      {source.sourceType === "syllabus" && hasOutlineDraft(source.structuredData) && (
+                        <div className="mt-3 rounded-md border border-line bg-surface px-2 py-2">
+                          <p className="text-[11px] font-semibold text-ink-3">
+                            AI 目录草稿 · {source.structuredData.chapters.length} 章
+                          </p>
+                          <div className="mt-1 space-y-1">
+                            {source.structuredData.chapters.slice(0, 3).map((chapter, index) => (
+                              <p key={`${chapter.title}-${index}`} className="truncate text-[11px] text-ink-4">
+                                {index + 1}. {chapter.title}
+                                {chapter.sections.length > 0 ? ` · ${chapter.sections.length} 节` : ""}
+                              </p>
+                            ))}
+                          </div>
+                          {source.structuredData.notes && (
+                            <p className="mt-1 line-clamp-2 text-[11px] text-ink-5">
+                              {source.structuredData.notes}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -431,5 +469,17 @@ export function CourseContextSourcesTab({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function hasOutlineDraft(value: unknown): value is {
+  chapters: Array<{ title: string; sections: Array<{ title: string }> }>;
+  notes?: string;
+} {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Array.isArray((value as { chapters?: unknown }).chapters)
   );
 }

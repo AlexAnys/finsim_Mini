@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { chatReply } from "@/lib/services/ai.service";
 import { success, validationError, handleServiceError, forbidden } from "@/lib/api-utils";
+import { prisma } from "@/lib/db/prisma";
+import { assertTaskInstanceReadable, assertTaskReadable } from "@/lib/auth/resource-access";
 import { z } from "zod";
 
 // PR-FIX-1 A9: 长度上限，防 prompt-injection / token 浪费 / context overflow
@@ -18,6 +20,8 @@ const MAX_ALLOCATION_ITEMS_PER_SECTION = 30;
 const MAX_ALLOCATION_LABEL_CHARS = 80;
 
 const chatSchema = z.object({
+  taskId: z.string().uuid().optional(),
+  taskInstanceId: z.string().uuid().optional(),
   transcript: z
     .array(
       z.object({
@@ -95,9 +99,22 @@ export async function POST(request: NextRequest) {
       -SERVER_TRIM_RECENT_TURNS
     );
 
+    const settingsUserId = await resolveSettingsUserId({
+      user: result.session.user,
+      taskId: parsed.data.taskId,
+      taskInstanceId: parsed.data.taskInstanceId,
+    });
+
     const out = await chatReply(result.session.user.id, {
       ...parsed.data,
       transcript: trimmedTranscript,
+    }, {
+      settingsUserId,
+      metadata: {
+        taskId: parsed.data.taskId,
+        taskInstanceId: parsed.data.taskInstanceId,
+        settingsSource: settingsUserId === result.session.user.id ? "actor" : "teacher",
+      },
     });
     return success({
       reply: out.reply,
@@ -110,4 +127,32 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     return handleServiceError(err);
   }
+}
+
+async function resolveSettingsUserId(input: {
+  user: { id: string; role: string; classId?: string | null };
+  taskId?: string;
+  taskInstanceId?: string;
+}) {
+  if (input.taskInstanceId) {
+    await assertTaskInstanceReadable(input.taskInstanceId, input.user);
+    const instance = await prisma.taskInstance.findUnique({
+      where: { id: input.taskInstanceId },
+      select: { taskId: true, createdBy: true },
+    });
+    if (!instance) throw new Error("INSTANCE_NOT_FOUND");
+    if (input.taskId && instance.taskId !== input.taskId) throw new Error("FORBIDDEN");
+    return instance.createdBy || input.user.id;
+  }
+
+  if (input.taskId) {
+    await assertTaskReadable(input.taskId, input.user);
+    const task = await prisma.task.findUnique({
+      where: { id: input.taskId },
+      select: { creatorId: true },
+    });
+    return task?.creatorId || input.user.id;
+  }
+
+  return input.user.id;
 }

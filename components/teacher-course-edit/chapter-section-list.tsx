@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   InlineSectionRow,
   type InlineChapter,
+  type InlineTaskBuildDraft,
 } from "./inline-section-row";
 import type {
   BlockType,
@@ -39,6 +40,12 @@ interface Props {
   onRenameSection: (sectionId: string, newTitle: string) => Promise<void>;
   onDeleteSection: (sectionId: string) => Promise<void>;
   onAddTask: (
+    chapterId: string,
+    sectionId: string,
+    slot: SlotType,
+  ) => void;
+  onOpenDraft: (
+    draft: InlineTaskBuildDraft,
     chapterId: string,
     sectionId: string,
     slot: SlotType,
@@ -66,6 +73,7 @@ export function ChapterSectionList({
   onRenameSection,
   onDeleteSection,
   onAddTask,
+  onOpenDraft,
   onCreateBlock,
   onUpdateBlock,
   onDeleteBlock,
@@ -125,6 +133,7 @@ export function ChapterSectionList({
                       onRenameSection={onRenameSection}
                       onDeleteSection={onDeleteSection}
                       onAddTask={onAddTask}
+                      onOpenDraft={onOpenDraft}
                       onCreateBlock={onCreateBlock}
                       onUpdateBlock={onUpdateBlock}
                       onDeleteBlock={onDeleteBlock}

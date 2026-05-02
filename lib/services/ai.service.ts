@@ -17,10 +17,16 @@ interface ProviderConfig {
 }
 
 interface AiRuntimeSetting {
+  provider?: string | null;
   model?: string | null;
   thinking?: "disabled" | "enabled" | null;
   temperature?: number | null;
   systemPromptSuffix?: string | null;
+}
+
+export interface AiCallOptions {
+  settingsUserId?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export function getProviderConfig(name: string): ProviderConfig | null {
@@ -29,7 +35,7 @@ export function getProviderConfig(name: string): ProviderConfig | null {
       return {
         name: "mimo",
         apiKey: process.env.MIMO_API_KEY || "",
-        baseURL: process.env.MIMO_BASE_URL || "https://token-plan-cn.xiaomimimo.com/v1",
+        baseURL: process.env.MIMO_BASE_URL || "https://api.xiaomimimo.com/v1",
         defaultModel: process.env.MIMO_MODEL || "mimo-v2.5-pro",
       };
     case "qwen":
@@ -117,12 +123,17 @@ const FEATURE_TOOL_KEYS: Record<AIFeature, string> = {
   examCheck: "examCheck",
 };
 
+const LEGACY_FEATURE_TOOL_KEYS: Partial<Record<AIFeature, string>> = {
+  simulation: "simulation",
+};
+
 export function getProviderForFeature(
   feature: AIFeature,
   setting?: AiRuntimeSetting | null,
 ): { provider: ProviderConfig; model: string } {
   const envPrefix = FEATURE_ENV_MAP[feature];
   const providerName =
+    setting?.provider ||
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
     "mimo";
@@ -130,6 +141,13 @@ export function getProviderForFeature(
 
   const provider = getProviderConfig(providerName);
   if (!provider || !provider.apiKey) {
+    if (setting?.provider && provider) {
+      return {
+        provider,
+        model: resolveModelForProvider(provider, requestedModel),
+      };
+    }
+
     // 尝试 fallback
     const fallbackName =
       process.env[`${envPrefix}_FALLBACK_PROVIDER`] ||
@@ -196,6 +214,13 @@ export function getProviderOptions(provider: ProviderConfig, setting?: AiRuntime
 
 async function getRuntimeSetting(userId: string, feature: AIFeature): Promise<AiRuntimeSetting | null> {
   try {
+    const select = {
+      provider: true,
+      model: true,
+      thinking: true,
+      temperature: true,
+      systemPromptSuffix: true,
+    } as const;
     const setting = await prisma.aiToolSetting.findUnique({
       where: {
         teacherId_toolKey: {
@@ -203,14 +228,22 @@ async function getRuntimeSetting(userId: string, feature: AIFeature): Promise<Ai
           toolKey: FEATURE_TOOL_KEYS[feature],
         },
       },
-      select: {
-        model: true,
-        thinking: true,
-        temperature: true,
-        systemPromptSuffix: true,
-      },
+      select,
     });
-    return setting;
+    if (setting) return setting;
+
+    const legacyToolKey = LEGACY_FEATURE_TOOL_KEYS[feature];
+    if (!legacyToolKey) return null;
+
+    return prisma.aiToolSetting.findUnique({
+      where: {
+        teacherId_toolKey: {
+          teacherId: userId,
+          toolKey: legacyToolKey,
+        },
+      },
+      select,
+    });
   } catch {
     return null;
   }
@@ -224,10 +257,12 @@ function mergeSystemPrompt(systemPrompt: string, setting?: AiRuntimeSetting | nu
 async function createAiRun(input: {
   feature: AIFeature;
   userId: string;
+  settingsUserId?: string | null;
   provider: ProviderConfig;
   model: string;
   systemPrompt: string;
   userPrompt: string;
+  metadata?: Record<string, unknown>;
 }) {
   try {
     const promptHash = createHash("sha256")
@@ -244,6 +279,12 @@ async function createAiRun(input: {
         promptVersion: "v1",
         promptHash,
         inputSize: input.systemPrompt.length + input.userPrompt.length,
+        metadata: {
+          ...(input.metadata ?? {}),
+          effectiveProvider: input.provider.name,
+          effectiveModel: input.model,
+          settingsUserId: input.settingsUserId ?? input.userId,
+        },
       },
     });
   } catch {
@@ -320,13 +361,15 @@ export async function aiGenerateText(
   feature: AIFeature,
   userId: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  options: AiCallOptions = {},
 ): Promise<string> {
   if (!checkRateLimit(userId, feature)) {
     throw new Error("RATE_LIMIT_EXCEEDED");
   }
 
-  const setting = await getRuntimeSetting(userId, feature);
+  const settingsUserId = options.settingsUserId || userId;
+  const setting = await getRuntimeSetting(settingsUserId, feature);
   const { provider, model } = getProviderForFeature(feature, setting);
   const openai = createProvider(provider);
   const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
@@ -335,10 +378,12 @@ export async function aiGenerateText(
   const aiRun = await createAiRun({
     feature,
     userId,
+    settingsUserId,
     provider,
     model,
     systemPrompt: mergedSystemPrompt,
     userPrompt,
+    metadata: options.metadata,
   });
 
   try {
@@ -366,13 +411,15 @@ export async function aiGenerateJSON<T>(
   systemPrompt: string,
   userPrompt: string,
   schema: z.ZodType<T>,
-  maxRetries: number = 2
+  maxRetries: number = 2,
+  options: AiCallOptions = {},
 ): Promise<T> {
   if (!checkRateLimit(userId, feature)) {
     throw new Error("RATE_LIMIT_EXCEEDED");
   }
 
-  const setting = await getRuntimeSetting(userId, feature);
+  const settingsUserId = options.settingsUserId || userId;
+  const setting = await getRuntimeSetting(settingsUserId, feature);
   const { provider, model } = getProviderForFeature(feature, setting);
   const openai = createProvider(provider);
   const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
@@ -381,10 +428,12 @@ export async function aiGenerateJSON<T>(
   const aiRun = await createAiRun({
     feature,
     userId,
+    settingsUserId,
     provider,
     model,
     systemPrompt: mergedSystemPrompt,
     userPrompt,
+    metadata: options.metadata,
   });
 
   let lastError: Error | null = null;
@@ -506,7 +555,8 @@ export async function chatReply(
     messageType?: ChatMessageType;
     /** PR-SIM-3 D3: 当 messageType=config_submission 时必填，学生提交的资产配置快照。 */
     allocations?: ChatAllocationSection[];
-  }
+  },
+  options: AiCallOptions = {},
 ): Promise<ChatReplyResult> {
   const messageType: ChatMessageType = data.messageType ?? "user_message";
   const objectivesBlock =
@@ -611,14 +661,17 @@ ${objectivesBlock}${configSubmissionBlock}
       userId,
       systemPrompt,
       userPrompt,
-      chatReplySchema
+      chatReplySchema,
+      2,
+      options,
     );
   } catch {
     const fallbackText = await aiGenerateText(
       "simulation",
       userId,
       personaPrompt,
-      userPrompt
+      userPrompt,
+      options,
     );
     return {
       reply: stripMoodTagFromText(fallbackText),
@@ -675,7 +728,7 @@ ${objectivesBlock}${configSubmissionBlock}
       scenario: data.scenario,
       objectives: data.objectives ?? [],
       deviatedDimensions: parsed.deviated_dimensions,
-    });
+    }, options);
   }
 
   return {
@@ -701,7 +754,8 @@ async function generateSocraticHint(
     scenario: string;
     objectives: string[];
     deviatedDimensions: string[];
-  }
+  },
+  options: AiCallOptions = {},
 ): Promise<string | undefined> {
   try {
     const systemPrompt = `你是一位金融教育的学习伙伴。学生（理财顾问）在本轮对话中表现欠佳或偏离了对话目标。
@@ -728,7 +782,9 @@ ${recent}
       userId,
       systemPrompt,
       userPrompt,
-      hintSchema
+      hintSchema,
+      2,
+      options,
     );
     return out.hint;
   } catch {
@@ -759,7 +815,8 @@ export async function evaluateSimulation(
         allocations: Array<{ label: string; value: number }>;
       }>;
     };
-  }
+  },
+  options: AiCallOptions = {},
 ) {
   const evaluationSchema = z.object({
     totalScore: z.number(),
@@ -837,7 +894,9 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
     userId,
     systemPrompt,
     userPrompt,
-    evaluationSchema
+    evaluationSchema,
+    2,
+    options,
   );
 
   // 标准化: 确保分数不超上限, 补全缺失项

@@ -1,13 +1,14 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import JSZip from "jszip";
+import * as XLSX from "xlsx";
 import { execFile } from "child_process";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 
-export type IngestedDocumentKind = "pdf" | "docx" | "text" | "zip" | "image";
+export type IngestedDocumentKind = "pdf" | "docx" | "text" | "zip" | "image" | "spreadsheet";
 export type IngestedDocumentStatus = "ready" | "ocr_required" | "failed";
 
 export interface IngestedDocumentFile {
@@ -52,6 +53,7 @@ export async function extractDocumentText(input: ExtractDocumentInput): Promise<
   try {
     if (kind === "pdf") text = await extractPdfText(input.buffer);
     if (kind === "docx") text = await extractDocxText(input.buffer);
+    if (kind === "spreadsheet") text = extractSpreadsheetText(input.buffer, input.fileName);
     if (kind === "text") text = extractPlainText(input.buffer);
     if (kind === "image") {
       const ocr = await extractImageTextWithOcr(input);
@@ -142,6 +144,14 @@ export function detectDocumentKind(fileName: string, mimeType?: string | null): 
   ) {
     return "docx";
   }
+  if (
+    type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    type === "application/vnd.ms-excel" ||
+    type === "text/csv" ||
+    /\.(xlsx|xls|csv)$/i.test(lower)
+  ) {
+    return "spreadsheet";
+  }
   if (type === "application/zip" || type === "application/x-zip-compressed" || lower.endsWith(".zip")) return "zip";
   if (type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(lower)) return "image";
   return "text";
@@ -164,6 +174,21 @@ async function extractDocxText(buffer: Buffer) {
 
 function extractPlainText(buffer: Buffer) {
   return buffer.toString("utf-8");
+}
+
+function extractSpreadsheetText(buffer: Buffer, fileName: string) {
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const parts: string[] = [];
+  for (const sheetName of workbook.SheetNames.slice(0, 20)) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+    const rows = csv.split(/\r?\n/).filter(Boolean).slice(0, 200);
+    if (rows.length > 0) {
+      parts.push(`【表格：${fileName} / ${sheetName}】\n${rows.join("\n")}`);
+    }
+  }
+  return parts.join("\n\n");
 }
 
 async function extractZipText(input: ExtractDocumentInput): Promise<IngestedDocumentResult> {
@@ -299,6 +324,7 @@ function pageNumber(fileName: string) {
 function mimeForKind(kind: IngestedDocumentKind) {
   if (kind === "pdf") return "application/pdf";
   if (kind === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (kind === "spreadsheet") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (kind === "zip") return "application/zip";
   if (kind === "image") return "image/png";
   return "text/plain";
@@ -381,7 +407,7 @@ async function extractImageTextWithMimoOcr(input: ExtractDocumentInput): Promise
     return { text: "", error: "OCR provider 未配置：缺少 MIMO_API_KEY" };
   }
 
-  const baseUrl = (process.env.MIMO_BASE_URL || "https://token-plan-cn.xiaomimimo.com/v1").replace(/\/+$/, "");
+  const baseUrl = (process.env.MIMO_BASE_URL || "https://api.xiaomimimo.com/v1").replace(/\/+$/, "");
   const model = process.env.MIMO_OCR_MODEL || "mimo-v2-omni";
   const mimeType = input.mimeType || "image/png";
   const dataUrl = `data:${mimeType};base64,${input.buffer.toString("base64")}`;

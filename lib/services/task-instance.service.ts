@@ -145,6 +145,8 @@ export async function getTaskInstances(filters: {
       task: { select: { id: true, taskName: true, taskType: true } },
       class: { select: { id: true, name: true } },
       course: { select: { id: true, courseTitle: true } },
+      chapter: { select: { id: true, title: true, order: true } },
+      section: { select: { id: true, title: true, order: true } },
       _count: { select: { submissions: true } },
     },
     orderBy: { createdAt: "desc" },

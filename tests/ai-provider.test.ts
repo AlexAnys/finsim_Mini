@@ -14,7 +14,7 @@ afterEach(() => {
 describe("AI provider selection", () => {
   it("supports Xiaomi MiMo as an OpenAI-compatible provider", () => {
     process.env.MIMO_API_KEY = "test-key";
-    process.env.MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1";
+    process.env.MIMO_BASE_URL = "https://api.xiaomimimo.com/v1";
     process.env.MIMO_MODEL = "mimo-v2.5-pro";
 
     const provider = getProviderConfig("mimo");
@@ -22,9 +22,24 @@ describe("AI provider selection", () => {
     expect(provider).toMatchObject({
       name: "mimo",
       apiKey: "test-key",
-      baseURL: "https://token-plan-cn.xiaomimimo.com/v1",
+      baseURL: "https://api.xiaomimimo.com/v1",
       defaultModel: "mimo-v2.5-pro",
     });
+  });
+
+  it("does not silently fallback when a teacher explicitly selects a provider", () => {
+    delete process.env.MIMO_API_KEY;
+    process.env.QWEN_API_KEY = "qwen-key";
+    process.env.AI_FALLBACK_PROVIDER = "qwen";
+
+    const { provider, model } = getProviderForFeature("simulation", {
+      provider: "mimo",
+      model: "mimo-v2.5-pro",
+    });
+
+    expect(provider.name).toBe("mimo");
+    expect(provider.apiKey).toBe("");
+    expect(model).toBe("mimo-v2.5-pro");
   });
 
   it("defaults feature calls to MiMo when no provider override is set", () => {

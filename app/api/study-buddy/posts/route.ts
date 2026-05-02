@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { requireAuth } from "@/lib/auth/guards";
 import { createPost, listStudyBuddyPosts } from "@/lib/services/study-buddy.service";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -11,10 +11,11 @@ const createPostSchema = z.object({
   question: z.string().min(1).max(5000),
   mode: z.enum(["socratic", "direct"]),
   anonymous: z.boolean().default(false),
+  isPreview: z.boolean().default(false),
 });
 
 export async function POST(request: NextRequest) {
-  const result = await requireRole(["student"]);
+  const result = await requireAuth();
   if (result.error) return result.error;
 
   try {
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
   const taskId = searchParams.get("taskId") || undefined;
   const taskInstanceId = searchParams.get("taskInstanceId") || undefined;
   const take = Number.parseInt(searchParams.get("take") || "100", 10);
+  const preview = searchParams.get("preview") === "true";
 
   try {
     const { user } = result.session;
@@ -57,6 +59,7 @@ export async function GET(request: NextRequest) {
       taskId,
       taskInstanceId,
       take: Number.isFinite(take) ? take : 100,
+      preview,
     });
     return success(posts);
   } catch (err) {

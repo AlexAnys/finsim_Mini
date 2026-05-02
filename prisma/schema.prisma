@@ -124,6 +124,7 @@ enum KnowledgeSourceKind {
   text
   zip
   image
+  spreadsheet
 }
 
 enum AsyncJobStatus {
@@ -654,6 +655,7 @@ model StudyBuddyPost {
   question         String           @db.Text
   mode             StudyBuddyMode
   anonymous        Boolean
+  isPreview        Boolean          @default(false)
   status           StudyBuddyStatus @default(pending)
   aiReply          String?          @db.Text
   replyGeneratedAt DateTime?
@@ -668,6 +670,7 @@ model StudyBuddyPost {
   @@index([studentId])
   @@index([taskId])
   @@index([taskInstanceId])
+  @@index([isPreview])
 }
 
 // ============================================
@@ -862,6 +865,8 @@ model CourseKnowledgeSource {
   taskInstanceId String?
   teacherId     String
   kind          KnowledgeSourceKind   @default(pdf)
+  sourceType    String?               @db.VarChar(80)
+  tags          String[]              @default([])
   fileName      String                @db.VarChar(500)
   filePath      String?               @db.VarChar(1000)
   mimeType      String                @db.VarChar(120)
@@ -869,6 +874,7 @@ model CourseKnowledgeSource {
   extractedText String?               @db.Text
   summary       String?               @db.Text
   conceptTags   String[]              @default([])
+  structuredData Json?
   error         String?               @db.Text
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
@@ -885,6 +891,7 @@ model CourseKnowledgeSource {
   @@index([taskInstanceId])
   @@index([teacherId])
   @@index([status])
+  @@index([sourceType])
 }
 
 // ============================================
@@ -930,6 +937,7 @@ model TaskBuildDraft {
   status        TaskBuildDraftStatus @default(draft)
   progress      Int                  @default(0)
   sourceIds     String[]             @default([])
+  asyncJobId    String?              @db.VarChar(120)
   missingFields String[]             @default([])
   draftPayload  Json?
   error         String?              @db.Text
@@ -945,6 +953,7 @@ model TaskBuildDraft {
   @@index([courseId, chapterId, sectionId])
   @@index([createdBy])
   @@index([status])
+  @@index([asyncJobId])
 }
 
 // ============================================
@@ -982,6 +991,7 @@ model AiToolSetting {
   id                 String          @id @default(uuid())
   teacherId          String
   toolKey            String          @db.VarChar(80)
+  provider           String?         @db.VarChar(40)
   model              String?         @db.VarChar(120)
   thinking           AiThinkingLevel @default(disabled)
   temperature        Float?

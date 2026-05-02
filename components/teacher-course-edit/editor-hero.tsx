@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, Users, CalendarDays, BookOpen, Pencil } from "lucide-react";
+import { Plus, Users, CalendarDays, BookOpen, Pencil, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CourseSummaryCounts } from "@/lib/utils/course-editor-transforms";
 
@@ -30,6 +30,7 @@ interface EditorHeroProps {
   onAddChapter: () => void;
   onAddTeacher: () => void;
   onEditCourse: () => void;
+  onUploadSyllabus: () => void;
   onAddClass: () => void;
   onEditSemester: () => void;
   onRemoveClass: (classId: string) => void;
@@ -49,6 +50,7 @@ export function EditorHero({
   onAddChapter,
   onAddTeacher,
   onEditCourse,
+  onUploadSyllabus,
   onAddClass,
   onRemoveClass,
   onRemoveTeacher,
@@ -200,6 +202,15 @@ export function EditorHero({
             )}
           </div>
           <div className="mt-3 flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-white/20 bg-white/5 text-white hover:bg-white/15 hover:text-white"
+              onClick={onUploadSyllabus}
+            >
+              <Upload className="size-[12px]" />
+              上传大纲
+            </Button>
             <Button
               size="sm"
               variant="outline"

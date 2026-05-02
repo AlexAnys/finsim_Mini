@@ -34,6 +34,7 @@ import {
   Pencil,
   Check,
   X,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -61,6 +62,7 @@ import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
 import { CourseContextSourcesTab } from "@/components/course/course-context-sources-tab";
 import { CourseInstancesTab } from "@/components/course/course-instances-tab";
+import { CourseStudyBuddyAnalyticsTab } from "@/components/course/course-study-buddy-analytics-tab";
 import { EditorHero } from "@/components/teacher-course-edit/editor-hero";
 import { TocSidebar } from "@/components/teacher-course-edit/toc-sidebar";
 import { ChapterSectionList } from "@/components/teacher-course-edit/chapter-section-list";
@@ -98,9 +100,18 @@ interface ApiTaskBuildDraft {
   progress: number;
   slot: string | null;
   sourceIds: string[];
+  asyncJobId?: string | null;
+  draftPayload?: unknown;
+  asyncJob?: {
+    id: string;
+    type: string;
+    status: string;
+    progress: number;
+    error: string | null;
+  } | null;
   missingFields: string[];
   error: string | null;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 interface ApiContentBlock {
@@ -150,6 +161,10 @@ export default function TeacherCourseDetailPage() {
   const [editingSemesterDate, setEditingSemesterDate] = useState(false);
   const [editSemesterDate, setEditSemesterDate] = useState("");
   const [savingSemesterDate, setSavingSemesterDate] = useState(false);
+  const [outlineDialogOpen, setOutlineDialogOpen] = useState(false);
+  const [outlineFile, setOutlineFile] = useState<File | null>(null);
+  const [outlineTags, setOutlineTags] = useState("课程大纲,课程结构");
+  const [uploadingOutline, setUploadingOutline] = useState(false);
 
   // ---------- Chapter / Section dialogs ----------
 
@@ -203,6 +218,7 @@ export default function TeacherCourseDetailPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardContext, setWizardContext] =
     useState<WizardModalContext | null>(null);
+  const [wizardDraft, setWizardDraft] = useState<ApiTaskBuildDraft | null>(null);
 
   // ---------- Fetchers ----------
 
@@ -544,6 +560,7 @@ export default function TeacherCourseDetailPage() {
       if (!course) return;
       const ch = course.chapters.find((c) => c.id === chapterId);
       const sec = ch?.sections.find((s) => s.id === sectionId);
+      setWizardDraft(null);
       setWizardContext({
         courseId: course.id,
         classId: course.class.id,
@@ -557,6 +574,60 @@ export default function TeacherCourseDetailPage() {
     },
     [course],
   );
+
+  const handleOpenDraft = useCallback(
+    (
+      draft: ApiTaskBuildDraft,
+      chapterId: string,
+      sectionId: string,
+      slot: SlotType,
+    ) => {
+      if (!course) return;
+      const ch = course.chapters.find((c) => c.id === chapterId);
+      const sec = ch?.sections.find((s) => s.id === sectionId);
+      setWizardDraft(draft);
+      setWizardContext({
+        courseId: course.id,
+        classId: course.class.id,
+        chapterId,
+        sectionId,
+        slot,
+        chapterTitle: ch?.title,
+        sectionTitle: sec?.title,
+      });
+      setWizardOpen(true);
+    },
+    [course],
+  );
+
+  async function handleUploadOutline() {
+    if (!outlineFile) {
+      toast.error("请选择课程大纲或课程内容文件");
+      return;
+    }
+    setUploadingOutline(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", outlineFile);
+      formData.append("tags", outlineTags);
+      const res = await fetch(`/api/lms/courses/${courseId}/outline-import`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "上传课程大纲失败");
+        return;
+      }
+      toast.success("课程大纲已上传，正在异步识别与解析");
+      setOutlineDialogOpen(false);
+      setOutlineFile(null);
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setUploadingOutline(false);
+    }
+  }
 
   const handleCreateBlock = useCallback(
     async (
@@ -698,6 +769,7 @@ export default function TeacherCourseDetailPage() {
         onAddChapter={() => setChapterDialogOpen(true)}
         onAddTeacher={() => setTeacherDialogOpen(true)}
         onEditCourse={openEditCourseDialog}
+        onUploadSyllabus={() => setOutlineDialogOpen(true)}
         onAddClass={() => {
           setAddClassDialogOpen(true);
           fetchAvailableClasses();
@@ -789,6 +861,7 @@ export default function TeacherCourseDetailPage() {
               <TabsTrigger value="structure">课程结构</TabsTrigger>
               <TabsTrigger value="instances">任务实例</TabsTrigger>
               <TabsTrigger value="contexts">教学上下文</TabsTrigger>
+              <TabsTrigger value="studybuddy">Study Buddy 统计</TabsTrigger>
               <TabsTrigger value="analytics">数据分析</TabsTrigger>
               <TabsTrigger value="announcements">公告管理</TabsTrigger>
             </TabsList>
@@ -841,6 +914,7 @@ export default function TeacherCourseDetailPage() {
                   onRenameSection={handleRenameSection}
                   onDeleteSection={handleDeleteSection}
                   onAddTask={handleAddTask}
+                  onOpenDraft={handleOpenDraft}
                   onCreateBlock={handleCreateBlock}
                   onUpdateBlock={handleUpdateBlock}
                   onDeleteBlock={handleDeleteBlock}
@@ -858,6 +932,10 @@ export default function TeacherCourseDetailPage() {
                 courseTitle={course.courseTitle}
                 chapters={course.chapters}
               />
+            </TabsContent>
+
+            <TabsContent value="studybuddy" className="mt-4">
+              <CourseStudyBuddyAnalyticsTab courseId={courseId} />
             </TabsContent>
 
             <TabsContent value="analytics" className="mt-4">
@@ -1103,11 +1181,77 @@ export default function TeacherCourseDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Upload Course Outline Dialog */}
+      <Dialog open={outlineDialogOpen} onOpenChange={setOutlineDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>上传课程大纲 / 课程内容</DialogTitle>
+            <DialogDescription>
+              文件会保存为课程级上下文。AI 只生成目录草稿和知识点建议，教师确认后再调整课程结构。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg border border-dashed border-line bg-paper-alt/50 p-4">
+              <Label htmlFor="outlineFile" className="mb-2 block">
+                课程文件
+              </Label>
+              <Input
+                id="outlineFile"
+                type="file"
+                accept=".pdf,.docx,.doc,.txt,.md,.zip,.png,.jpg,.jpeg,.xlsx,.xls,.csv"
+                onChange={(event) => setOutlineFile(event.target.files?.[0] ?? null)}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                支持 PDF、DOCX、TXT/MD、图片、ZIP、XLS/XLSX/CSV。扫描件会进入 OCR 流程。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="outlineTags">素材标签</Label>
+              <Input
+                id="outlineTags"
+                value={outlineTags}
+                onChange={(event) => setOutlineTags(event.target.value)}
+                placeholder="例如：课程大纲,知识点,期末复习"
+              />
+              <p className="text-xs text-muted-foreground">
+                用英文逗号分隔，后续 AI 出题和上下文检索会用这些标签筛选素材。
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOutlineDialogOpen(false)}
+              disabled={uploadingOutline}
+            >
+              取消
+            </Button>
+            <Button onClick={handleUploadOutline} disabled={uploadingOutline || !outlineFile}>
+              {uploadingOutline ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  上传中...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 size-4" />
+                  上传并解析
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* C2 · Task Wizard Modal */}
       <TaskWizardModal
         open={wizardOpen}
         context={wizardContext}
-        onClose={() => setWizardOpen(false)}
+        initialDraft={wizardDraft}
+        onClose={() => {
+          setWizardOpen(false);
+          setWizardDraft(null);
+        }}
         onSuccess={fetchCourse}
       />
     </div>

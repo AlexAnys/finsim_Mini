@@ -53,6 +53,9 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   document: [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/csv",
     "text/plain",
     "text/markdown",
     "application/zip",

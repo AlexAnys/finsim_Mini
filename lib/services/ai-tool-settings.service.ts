@@ -157,6 +157,19 @@ export const AI_MODEL_OPTIONS = [
   { value: "mimo-v2-omni", label: "多模态识别", description: "用于图片/试卷识别，需 OCR smoke test 通过" },
 ] as const;
 
+export const AI_PROVIDER_OPTIONS = [
+  { value: "mimo", label: "小米 MiMo", description: "默认 OpenAI-compatible provider" },
+  { value: "qwen", label: "阿里云百炼 Qwen", description: "适合 OCR/中文文档任务的备用 provider" },
+  { value: "deepseek", label: "DeepSeek", description: "备用文本 provider" },
+  { value: "openai", label: "OpenAI-compatible", description: "自定义 OpenAI 协议 provider" },
+] as const;
+
+const AI_PROVIDER_VALUES = new Set(AI_PROVIDER_OPTIONS.map((provider) => provider.value));
+
+const LEGACY_TOOL_KEY_FALLBACKS: Record<string, string> = {
+  simulationChat: "simulation",
+};
+
 export async function listAiToolSettings(teacherId: string) {
   const rows = await prisma.aiToolSetting.findMany({
     where: { teacherId },
@@ -165,9 +178,10 @@ export async function listAiToolSettings(teacherId: string) {
   const map = new Map(rows.map((row) => [row.toolKey, row]));
 
   return AI_TOOL_DEFINITIONS.map((definition) => {
-    const row = map.get(definition.key);
+    const row = map.get(definition.key) ?? map.get(LEGACY_TOOL_KEY_FALLBACKS[definition.key] ?? "");
     return {
       ...definition,
+      provider: row?.provider || "mimo",
       model: row?.model || definition.defaultModel,
       thinking: row?.thinking || "disabled",
       temperature: row?.temperature ?? null,
@@ -184,6 +198,7 @@ export async function upsertAiToolSetting(
   teacherId: string,
   data: {
     toolKey: string;
+    provider?: string | null;
     model?: string | null;
     thinking?: "disabled" | "enabled";
     temperature?: number | null;
@@ -196,6 +211,9 @@ export async function upsertAiToolSetting(
   if (!AI_TOOL_DEFINITIONS.some((tool) => tool.key === data.toolKey)) {
     throw new Error("AI_TOOL_NOT_FOUND");
   }
+  if (data.provider && !AI_PROVIDER_VALUES.has(data.provider as (typeof AI_PROVIDER_OPTIONS)[number]["value"])) {
+    throw new Error("AI_PROVIDER_NOT_FOUND");
+  }
 
   return prisma.aiToolSetting.upsert({
     where: {
@@ -207,6 +225,7 @@ export async function upsertAiToolSetting(
     create: {
       teacherId,
       toolKey: data.toolKey,
+      provider: data.provider || null,
       model: data.model || null,
       thinking: data.thinking || "disabled",
       temperature: data.temperature ?? null,
@@ -216,6 +235,7 @@ export async function upsertAiToolSetting(
       outputStyle: data.outputStyle || null,
     },
     update: {
+      provider: data.provider || null,
       model: data.model || null,
       thinking: data.thinking || "disabled",
       temperature: data.temperature ?? null,

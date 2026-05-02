@@ -20,13 +20,30 @@ export async function GET(request: NextRequest) {
     const sectionId = searchParams.get("sectionId");
     const taskId = searchParams.get("taskId");
     const taskInstanceId = searchParams.get("taskInstanceId");
+    const sourceType = searchParams.get("sourceType");
+    const status = searchParams.get("status");
+    const tags = searchParams.getAll("tag").flatMap((value) =>
+      value
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    );
     if (!courseId) return validationError("缺少 courseId");
 
     const user = result.session.user;
     await assertCourseAccess(courseId, user.id, user.role);
     await assertKnowledgeSourceScope({ courseId, chapterId, sectionId, taskId, taskInstanceId });
 
-    const sources = await listCourseKnowledgeSources({ courseId, chapterId, sectionId, taskId, taskInstanceId });
+    const sources = await listCourseKnowledgeSources({
+      courseId,
+      chapterId,
+      sectionId,
+      taskId,
+      taskInstanceId,
+      sourceType,
+      status,
+      tags,
+    });
     return success(sources);
   } catch (err) {
     return handleServiceError(err);
@@ -45,6 +62,15 @@ export async function POST(request: NextRequest) {
     const sectionId = (formData.get("sectionId") as string | null) || null;
     const taskId = (formData.get("taskId") as string | null) || null;
     const taskInstanceId = (formData.get("taskInstanceId") as string | null) || null;
+    const sourceType = (formData.get("sourceType") as string | null) || null;
+    const tags = formData
+      .getAll("tags")
+      .flatMap((value) =>
+        String(value)
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      );
 
     if (!courseId) return validationError("缺少 courseId");
     if (!file) return validationError("请选择要上传的课程素材");
@@ -70,6 +96,8 @@ export async function POST(request: NextRequest) {
       fileName: file.name,
       filePath,
       mimeType: file.type,
+      sourceType,
+      tags,
     });
 
     return created(source);

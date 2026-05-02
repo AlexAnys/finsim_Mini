@@ -123,7 +123,7 @@ export async function gradeSubmission(submissionId: string) {
       quizSubmission: true,
       subjectiveSubmission: true,
       taskInstance: {
-        select: { id: true, releaseMode: true, autoReleaseAt: true, dueAt: true },
+        select: { id: true, releaseMode: true, autoReleaseAt: true, dueAt: true, createdBy: true },
       },
     },
   });
@@ -187,6 +187,7 @@ async function gradeSimulation(submission: SubmissionFull, releasedAt: Date | nu
   const transcript = (submission.simulationSubmission.transcript as Array<{ role: string; text: string }>) || [];
   const assets = submission.simulationSubmission.assets as Record<string, unknown> | null;
 
+  const settingsUserId = getSubmissionSettingsUserId(submission);
   const evaluation = await aiService.evaluateSimulation(submission.studentId, {
     taskName: submission.task.taskName,
     requirements: submission.task.requirements || undefined,
@@ -202,6 +203,14 @@ async function gradeSimulation(submission: SubmissionFull, releasedAt: Date | nu
       maxPoints: c.maxPoints,
     })),
     assets: assets as Parameters<typeof aiService.evaluateSimulation>[1]["assets"],
+  }, {
+    settingsUserId,
+    metadata: {
+      submissionId: submission.id,
+      taskId: submission.taskId,
+      taskInstanceId: submission.taskInstanceId,
+      settingsSource: settingsUserId === submission.studentId ? "student_fallback" : "teacher",
+    },
   });
   const penalty = computeLatePenalty({
     score: evaluation.totalScore,
@@ -240,6 +249,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
   }>) || [];
 
   const questions = submission.task.quizQuestions;
+  const settingsUserId = getSubmissionSettingsUserId(submission);
   let totalScore = 0;
   let maxScore = 0;
   const breakdown: Array<{
@@ -287,6 +297,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
       try {
         const result = await gradeShortAnswer(
           submission.studentId,
+          settingsUserId,
           question.prompt,
           answer.textAnswer || "",
           question.correctAnswer || "",
@@ -330,7 +341,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
   // 失败不阻塞批改主流程（catch + 空数组）。
   let conceptTags: string[] = [];
   try {
-    conceptTags = await extractQuizConceptTags(submission.studentId, questions);
+    conceptTags = await extractQuizConceptTags(submission.studentId, settingsUserId, questions);
   } catch (err) {
     console.error("[grading] quiz conceptTags 提取失败（不阻塞）：", err);
   }
@@ -349,6 +360,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
 // （quiz 是确定性批改，没有 AI 评估输出可解析；为聚合统一性单独喂 prompts → tags）
 async function extractQuizConceptTags(
   userId: string,
+  settingsUserId: string,
   questions: Array<{ prompt: string }>,
 ): Promise<string[]> {
   if (questions.length === 0) return [];
@@ -369,12 +381,15 @@ ${prompts}
 
 请按上面 JSON 格式输出。`,
     schema,
+    2,
+    { settingsUserId, metadata: { settingsSource: settingsUserId === userId ? "student_fallback" : "teacher" } },
   );
   return Array.isArray(out.conceptTags) ? out.conceptTags.slice(0, 5) : [];
 }
 
 async function gradeShortAnswer(
   userId: string,
+  settingsUserId: string,
   prompt: string,
   studentAnswer: string,
   referenceAnswer: string,
@@ -400,8 +415,10 @@ async function gradeShortAnswer(
 学生作答: ${studentAnswer}
 满分: ${maxPoints}
 
-请返回 JSON: {"score": 得分(0到${maxPoints}之间的整数), "comment": "评语"}`,
-    schema
+    请返回 JSON: {"score": 得分(0到${maxPoints}之间的整数), "comment": "评语"}`,
+    schema,
+    2,
+    { settingsUserId, metadata: { settingsSource: settingsUserId === userId ? "student_fallback" : "teacher" } },
   );
 
   const score = Math.min(Math.max(0, Math.round(result.score)), maxPoints);
@@ -464,6 +481,7 @@ async function gradeSubjective(submission: SubmissionFull, releasedAt: Date | nu
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const rubric = submission.task.scoringCriteria;
+  const settingsUserId = getSubmissionSettingsUserId(submission);
   const maxScore = rubric.reduce((sum: number, c: any) => sum + c.maxPoints, 0);
 
   const systemPrompt = `${config.evaluatorPersona || "你是一位资深的金融课程评估专家。"}
@@ -488,7 +506,17 @@ ${rubric.map((r: any) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
 {"totalScore": 总分, "feedback": "总体评语", "rubricBreakdown": [{"criterionId": "ID", "score": 得分, "maxScore": 满分, "comment": "评语"}], "conceptTags": ["概念1","概念2","概念3"]}
 criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}
 conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于班级薄弱点聚合。`,
-    evaluationSchema
+    evaluationSchema,
+    2,
+    {
+      settingsUserId,
+      metadata: {
+        submissionId: submission.id,
+        taskId: submission.taskId,
+        taskInstanceId: submission.taskInstanceId,
+        settingsSource: settingsUserId === submission.studentId ? "student_fallback" : "teacher",
+      },
+    },
   );
 
   // 标准化
@@ -531,3 +559,11 @@ conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SubmissionFull = any;
+
+function getSubmissionSettingsUserId(submission: SubmissionFull): string {
+  return (
+    submission.taskInstance?.createdBy ||
+    submission.task?.creatorId ||
+    submission.studentId
+  );
+}

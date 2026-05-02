@@ -21,6 +21,38 @@ const sourceSummarySchema = z.object({
   conceptTags: z.array(z.string()).default([]),
 });
 
+const outlineDraftSchema = z.object({
+  chapters: z
+    .array(
+      z.object({
+        title: z.string().default(""),
+        order: z.number().optional(),
+        sections: z
+          .array(
+            z.object({
+              title: z.string().default(""),
+              order: z.number().optional(),
+              knowledgePoints: z.array(z.string()).default([]),
+              taskSuggestions: z
+                .array(
+                  z.object({
+                    slot: z.enum(["pre", "in", "post"]).default("in"),
+                    taskType: z.enum(["quiz", "simulation", "subjective"]).default("quiz"),
+                    title: z.string().default(""),
+                    rationale: z.string().default(""),
+                  }),
+                )
+                .default([]),
+            }),
+          )
+          .default([]),
+      }),
+    )
+    .default([]),
+  globalKnowledgePoints: z.array(z.string()).default([]),
+  notes: z.string().default(""),
+});
+
 export interface CourseKnowledgeSourceListItem {
   id: string;
   courseId: string;
@@ -28,10 +60,14 @@ export interface CourseKnowledgeSourceListItem {
   sectionId: string | null;
   taskId: string | null;
   taskInstanceId: string | null;
+  kind: string;
+  sourceType: string | null;
+  tags: string[];
   fileName: string;
   status: string;
   summary: string | null;
   conceptTags: string[];
+  structuredData: unknown;
   error: string | null;
   excerpt: string;
   createdAt: Date;
@@ -120,6 +156,9 @@ export async function listCourseKnowledgeSources(input: {
   sectionId?: string | null;
   taskId?: string | null;
   taskInstanceId?: string | null;
+  sourceType?: string | null;
+  status?: string | null;
+  tags?: string[];
 }): Promise<CourseKnowledgeSourceListItem[]> {
   const sources = await prisma.courseKnowledgeSource.findMany({
     where: {
@@ -128,6 +167,9 @@ export async function listCourseKnowledgeSources(input: {
       ...(input.sectionId ? { sectionId: input.sectionId } : {}),
       ...(input.taskId ? { taskId: input.taskId } : {}),
       ...(input.taskInstanceId ? { taskInstanceId: input.taskInstanceId } : {}),
+      ...(input.sourceType ? { sourceType: input.sourceType } : {}),
+      ...(input.status ? { status: input.status as never } : {}),
+      ...(input.tags && input.tags.length > 0 ? { tags: { hasEvery: input.tags } } : {}),
     },
     orderBy: { createdAt: "desc" },
     select: {
@@ -137,10 +179,14 @@ export async function listCourseKnowledgeSources(input: {
       sectionId: true,
       taskId: true,
       taskInstanceId: true,
+      kind: true,
+      sourceType: true,
+      tags: true,
       fileName: true,
       status: true,
       summary: true,
       conceptTags: true,
+      structuredData: true,
       error: true,
       extractedText: true,
       createdAt: true,
@@ -155,10 +201,14 @@ export async function listCourseKnowledgeSources(input: {
     sectionId: source.sectionId,
     taskId: source.taskId,
     taskInstanceId: source.taskInstanceId,
+    kind: source.kind,
+    sourceType: source.sourceType,
+    tags: source.tags,
     fileName: source.fileName,
     status: source.status,
     summary: source.summary,
     conceptTags: source.conceptTags,
+    structuredData: source.structuredData,
     error: source.error,
     excerpt: makeExcerpt(source.extractedText || ""),
     createdAt: source.createdAt,
@@ -176,6 +226,8 @@ export async function createAndProcessCourseKnowledgeSource(input: {
   fileName: string;
   filePath: string;
   mimeType: string;
+  sourceType?: string | null;
+  tags?: string[];
 }) {
   await assertKnowledgeSourceScope(input);
 
@@ -188,6 +240,8 @@ export async function createAndProcessCourseKnowledgeSource(input: {
       taskId: input.taskId || null,
       taskInstanceId: input.taskInstanceId || null,
       kind: detectDocumentKind(input.fileName, input.mimeType),
+      sourceType: input.sourceType || null,
+      tags: sanitizeTags(input.tags),
       fileName: input.fileName,
       filePath: input.filePath,
       mimeType: input.mimeType,
@@ -248,6 +302,7 @@ export async function processCourseKnowledgeSource(sourceId: string, userId: str
 
     let summary: string | null = null;
     let conceptTags: string[] = [];
+    let structuredData: unknown = null;
     let aiError: string | null = null;
 
     try {
@@ -271,11 +326,80 @@ export async function processCourseKnowledgeSource(sourceId: string, userId: str
 ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
         sourceSummarySchema,
         1,
+        {
+          settingsUserId: userId,
+          metadata: {
+            sourceId,
+            sourceType: source.sourceType,
+            courseId: source.courseId,
+          },
+        },
       );
       summary = result.summary || null;
       conceptTags = dedupeTags(result.conceptTags);
     } catch (err) {
       aiError = `AI 摘要暂不可用：${errorMessage(err)}`;
+    }
+
+    if (source.sourceType === "syllabus") {
+      try {
+        structuredData = await aiGenerateJSON(
+          "taskDraft",
+          userId,
+          "你是一位中高职课程负责人。请只生成可供教师审核的课程目录草稿，不要直接写入系统。",
+          `文件名: ${source.fileName}
+
+请阅读课程大纲或课程整体内容，返回 JSON：
+{
+  "chapters": [
+    {
+      "title": "章节标题",
+      "order": 0,
+      "sections": [
+        {
+          "title": "小节标题",
+          "order": 0,
+          "knowledgePoints": ["知识点"],
+          "taskSuggestions": [
+            {
+              "slot": "pre|in|post",
+              "taskType": "quiz|simulation|subjective",
+              "title": "建议任务标题",
+              "rationale": "为什么适合这里"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalKnowledgePoints": ["课程级知识点"],
+  "notes": "需要教师确认或补充的地方"
+}
+
+要求：
+- 只做草稿，不要声称已经改写课程结构。
+- 章节、小节和知识点要面向中高职课堂，不要使用 MBA/投行语境。
+- taskSuggestions 只给少量高价值建议，slot 必须是 pre/in/post。
+
+素材文本：
+${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
+          outlineDraftSchema,
+          1,
+          {
+            settingsUserId: userId,
+            metadata: {
+              sourceId,
+              sourceType: source.sourceType,
+              courseId: source.courseId,
+              parser: "syllabus-outline",
+            },
+          },
+        );
+      } catch (err) {
+        aiError = [aiError, `课程大纲解析暂不可用：${errorMessage(err)}`]
+          .filter(Boolean)
+          .join("；");
+      }
     }
 
     return prisma.courseKnowledgeSource.update({
@@ -285,6 +409,7 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
         extractedText,
         summary,
         conceptTags,
+        structuredData: structuredData as never,
         error: aiError,
       },
     });
@@ -417,6 +542,18 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
 
 function dedupeTags(tags: string[]) {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean))).slice(0, 12);
+}
+
+function sanitizeTags(tags?: string[]) {
+  if (!tags) return [];
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 20),
+    ),
+  );
 }
 
 function getStudyBuddyScopeLevel(source: {

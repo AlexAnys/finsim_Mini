@@ -12,16 +12,39 @@ export interface TaskBuildDraftInput {
   status?: TaskBuildDraftStatus;
   progress?: number;
   sourceIds?: string[];
+  asyncJobId?: string | null;
   missingFields?: string[];
   draftPayload?: Prisma.InputJsonValue;
   error?: string | null;
 }
 
 export async function listTaskBuildDrafts(courseId: string) {
-  return prisma.taskBuildDraft.findMany({
+  const drafts = await prisma.taskBuildDraft.findMany({
     where: { courseId },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
+
+  const jobIds = Array.from(
+    new Set(drafts.map((draft) => draft.asyncJobId).filter(Boolean) as string[]),
+  );
+  if (jobIds.length === 0) return drafts;
+
+  const jobs = await prisma.asyncJob.findMany({
+    where: { id: { in: jobIds } },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      progress: true,
+      error: true,
+      updatedAt: true,
+    },
+  });
+  const jobMap = new Map(jobs.map((job) => [job.id, job]));
+  return drafts.map((draft) => ({
+    ...draft,
+    asyncJob: draft.asyncJobId ? (jobMap.get(draft.asyncJobId) ?? null) : null,
+  }));
 }
 
 export async function createTaskBuildDraft(
@@ -42,6 +65,7 @@ export async function createTaskBuildDraft(
       status: input.status ?? "draft",
       progress: clampProgress(input.progress),
       sourceIds: input.sourceIds ?? [],
+      asyncJobId: input.asyncJobId || null,
       missingFields: input.missingFields ?? [],
       draftPayload: input.draftPayload ?? Prisma.JsonNull,
       error: normalizeOptionalText(input.error),

@@ -18,6 +18,7 @@ interface ToolSetting {
   description: string;
   basePromptPreview: string;
   defaultModel: string;
+  provider: string;
   model: string;
   thinking: "disabled" | "enabled";
   temperature: number | null;
@@ -33,9 +34,16 @@ interface ModelOption {
   description: string;
 }
 
+interface ProviderOption {
+  value: string;
+  label: string;
+  description: string;
+}
+
 export default function AiSettingsPage() {
   const [tools, setTools] = useState<ToolSetting[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [searchConfigured, setSearchConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -55,6 +63,7 @@ export default function AiSettingsPage() {
       }
       setTools(json.data.tools || []);
       setModels(json.data.modelOptions || []);
+      setProviders(json.data.providerOptions || []);
       setSearchConfigured(Boolean(json.data.searchProviderConfigured));
     } finally {
       setLoading(false);
@@ -73,6 +82,7 @@ export default function AiSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toolKey: tool.key,
+          provider: tool.provider,
           model: tool.model,
           thinking: tool.thinking,
           temperature: tool.temperature,
@@ -144,6 +154,19 @@ export default function AiSettingsPage() {
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
+                      <Label>Provider</Label>
+                      <Select value={tool.provider} onValueChange={(value) => updateTool(tool.key, { provider: value })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {providers.map((provider) => (
+                            <SelectItem key={provider.value} value={provider.value}>
+                              {provider.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
                       <Label>模型</Label>
                       <Select value={tool.model} onValueChange={(value) => updateTool(tool.key, { model: value })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
@@ -156,7 +179,7 @@ export default function AiSettingsPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 sm:col-span-2">
                       <Label>输出风格</Label>
                       <Select value={tool.outputStyle} onValueChange={(value) => updateTool(tool.key, { outputStyle: value })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>

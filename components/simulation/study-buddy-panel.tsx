@@ -106,9 +106,10 @@ interface StudyBuddyPost {
 interface StudyBuddyPanelProps {
   taskId: string;
   taskInstanceId: string;
+  preview?: boolean;
 }
 
-export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps) {
+export function StudyBuddyPanel({ taskId, taskInstanceId, preview = false }: StudyBuddyPanelProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"form" | "history" | "chat">("form");
 
@@ -260,7 +261,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
   const fetchPosts = useCallback(async () => {
     setLoadingPosts(true);
     try {
-      const res = await fetch(`/api/study-buddy/posts?taskId=${taskId}&taskInstanceId=${taskInstanceId}`);
+      const res = await fetch(`/api/study-buddy/posts?taskId=${taskId}&taskInstanceId=${taskInstanceId}&preview=${preview ? "true" : "false"}`);
       const json = await res.json();
       if (json.success) {
         setPosts(json.data || []);
@@ -270,7 +271,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
     } finally {
       setLoadingPosts(false);
     }
-  }, [taskId, taskInstanceId]);
+  }, [taskId, taskInstanceId, preview]);
 
   useEffect(() => {
     if (open && view === "history") {
@@ -287,7 +288,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
     if (!selectedPost || selectedPost.status !== "pending") return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/study-buddy/posts?taskId=${taskId}&taskInstanceId=${taskInstanceId}`);
+        const res = await fetch(`/api/study-buddy/posts?taskId=${taskId}&taskInstanceId=${taskInstanceId}&preview=${preview ? "true" : "false"}`);
         const json = await res.json();
         if (json.success) {
           const updated = (json.data || []).find(
@@ -305,7 +306,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [selectedPost, taskId, taskInstanceId]);
+  }, [selectedPost, taskId, taskInstanceId, preview]);
 
   async function handleCreate() {
     if (!title.trim() || !question.trim()) {
@@ -324,6 +325,7 @@ export function StudyBuddyPanel({ taskId, taskInstanceId }: StudyBuddyPanelProps
           question,
           mode,
           anonymous,
+          isPreview: preview,
         }),
       });
       const json = await res.json();

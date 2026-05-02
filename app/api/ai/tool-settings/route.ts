@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { handleServiceError, success, validationError } from "@/lib/api-utils";
 import {
   AI_MODEL_OPTIONS,
+  AI_PROVIDER_OPTIONS,
   AI_TOOL_DEFINITIONS,
   listAiToolSettings,
   upsertAiToolSetting,
@@ -11,6 +12,7 @@ import {
 
 const updateSchema = z.object({
   toolKey: z.string().min(1),
+  provider: z.enum(["mimo", "qwen", "deepseek", "openai"]).optional().nullable(),
   model: z.string().optional().nullable(),
   thinking: z.enum(["disabled", "enabled"]).optional(),
   temperature: z.number().min(0).max(1.5).optional().nullable(),
@@ -29,6 +31,7 @@ export async function GET() {
     return success({
       tools: settings,
       modelOptions: AI_MODEL_OPTIONS,
+      providerOptions: AI_PROVIDER_OPTIONS,
       definitions: AI_TOOL_DEFINITIONS,
       searchProviderConfigured: Boolean(process.env.SEARCH_PROVIDER && process.env.SEARCH_API_KEY),
     });

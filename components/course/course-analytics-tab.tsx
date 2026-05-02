@@ -45,17 +45,30 @@ interface InstanceItem {
   taskType?: string;
   task?: { taskType: string };
   class?: { name: string };
+  chapter?: { id: string; title: string; order: number } | null;
+  section?: { id: string; title: string; order: number } | null;
+  slot?: string | null;
 }
 
 interface InstanceStats {
   instanceId: string;
   title: string;
   taskType: string;
+  chapterId: string | null;
+  chapterTitle: string;
+  chapterOrder: number;
+  sectionId: string | null;
+  sectionTitle: string;
+  sectionOrder: number;
+  slot: string | null;
   submissionCount: number;
   gradedCount: number;
   avgScore: number;
   maxScore: number;
   totalStudents: number;
+  validScoreCount: number;
+  abnormalCount: number;
+  qualityFlags: string[];
 }
 
 interface StudentPerformance {
@@ -149,10 +162,49 @@ interface EvidenceData {
   feedback: string;
 }
 
+interface ChapterDiagnosticSummary {
+  key: string;
+  chapterTitle: string;
+  sectionTitle: string;
+  chapterOrder: number;
+  sectionOrder: number;
+  taskCount: number;
+  submissionCount: number;
+  gradedCount: number;
+  validScoreCount: number;
+  abnormalCount: number;
+  avgScore: number;
+  completionRate: number;
+  byType: Record<string, number>;
+}
+
+function normalizedScore(
+  score: number | string | null | undefined,
+  maxScore: number | string | null | undefined,
+) {
+  const rawScore = typeof score === "string" ? Number(score) : score;
+  const rawMax = typeof maxScore === "string" ? Number(maxScore) : maxScore;
+  if (
+    typeof rawScore !== "number" ||
+    typeof rawMax !== "number" ||
+    !Number.isFinite(rawScore) ||
+    !Number.isFinite(rawMax) ||
+    rawMax <= 0 ||
+    rawScore < 0
+  ) {
+    return { value: null, abnormal: true, reason: "score/maxScore 缺失或非法" };
+  }
+  const value = (rawScore / rawMax) * 100;
+  if (!Number.isFinite(value) || value > 120) {
+    return { value: null, abnormal: true, reason: "score/maxScore 超出合理范围" };
+  }
+  return { value: Math.round(value), abnormal: false, reason: null };
+}
+
 // Exported for testing: build the ranking list from raw submission data.
 // B8 fix: students with gradedCount === 0 are excluded so unrated students don't tie with real zeros.
 export function buildStudentRanking(
-  submissionsByInstance: Array<{ subs: Array<{ student?: { id: string; name?: string }; status: string; score?: number | null }> }>
+  submissionsByInstance: Array<{ subs: Array<{ student?: { id: string; name?: string }; status: string; score?: number | string | null; maxScore?: number | string | null }> }>
 ): StudentPerformance[] {
   const studentMap = new Map<string, StudentPerformance>();
   for (const { subs } of submissionsByInstance) {
@@ -163,18 +215,22 @@ export function buildStudentRanking(
       if (existing) {
         existing.submissionCount++;
         if (sub.status === "graded") {
-          existing.gradedCount++;
-          existing.avgScore =
-            (existing.avgScore * (existing.gradedCount - 1) + (sub.score || 0)) /
-            existing.gradedCount;
+          const normalized = normalizedScore(sub.score, sub.maxScore ?? 100);
+          if (normalized.value !== null) {
+            existing.gradedCount++;
+            existing.avgScore =
+              (existing.avgScore * (existing.gradedCount - 1) + normalized.value) /
+              existing.gradedCount;
+          }
         }
       } else {
+        const normalized = sub.status === "graded" ? normalizedScore(sub.score, sub.maxScore ?? 100) : null;
         studentMap.set(student.id, {
           studentId: student.id,
           studentName: student.name || "未知",
           submissionCount: 1,
-          avgScore: sub.score || 0,
-          gradedCount: sub.status === "graded" ? 1 : 0,
+          avgScore: normalized?.value ?? 0,
+          gradedCount: normalized?.value !== null && normalized !== null ? 1 : 0,
         });
       }
     }
@@ -209,6 +265,59 @@ const taskTypeLabels: Record<string, string> = {
   quiz: "测验",
   subjective: "主观题",
 };
+
+interface SubmissionForStats {
+  status: string;
+  score?: number | string | null;
+  maxScore?: number | string | null;
+  student?: { id: string; name?: string };
+}
+
+function buildChapterDiagnostics(stats: InstanceStats[]): ChapterDiagnosticSummary[] {
+  const map = new Map<string, ChapterDiagnosticSummary & { weightedScoreTotal: number }>();
+  for (const stat of stats) {
+    const key = `${stat.chapterId || "no-chapter"}:${stat.sectionId || "no-section"}`;
+    const existing =
+      map.get(key) ||
+      {
+        key,
+        chapterTitle: stat.chapterTitle,
+        sectionTitle: stat.sectionTitle,
+        chapterOrder: stat.chapterOrder,
+        sectionOrder: stat.sectionOrder,
+        taskCount: 0,
+        submissionCount: 0,
+        gradedCount: 0,
+        validScoreCount: 0,
+        abnormalCount: 0,
+        avgScore: 0,
+        completionRate: 0,
+        byType: {},
+        weightedScoreTotal: 0,
+      };
+    existing.taskCount += 1;
+    existing.submissionCount += stat.submissionCount;
+    existing.gradedCount += stat.gradedCount;
+    existing.validScoreCount += stat.validScoreCount;
+    existing.abnormalCount += stat.abnormalCount;
+    existing.weightedScoreTotal += stat.avgScore * stat.validScoreCount;
+    existing.byType[stat.taskType] = (existing.byType[stat.taskType] || 0) + 1;
+    map.set(key, existing);
+  }
+  return Array.from(map.values())
+    .map(({ weightedScoreTotal, ...summary }) => ({
+      ...summary,
+      avgScore:
+        summary.validScoreCount > 0
+          ? Math.round(weightedScoreTotal / summary.validScoreCount)
+          : 0,
+      completionRate:
+        summary.submissionCount > 0
+          ? Math.round((summary.gradedCount / summary.submissionCount) * 100)
+          : 0,
+    }))
+    .sort((a, b) => a.chapterOrder - b.chapterOrder || a.sectionOrder - b.sectionOrder);
+}
 
 // --- Component ---
 
@@ -282,26 +391,43 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
       );
 
       const stats: InstanceStats[] = subsResults.map(({ inst, subs }) => {
-        const graded = subs.filter(
-          (s: { status: string }) => s.status === "graded"
+        const graded = (subs as SubmissionForStats[]).filter(
+          (s) => s.status === "graded"
         );
-        const scores = graded
-          .filter((s: { score: number | null }) => s.score !== null)
-          .map((s: { score: number }) => s.score);
+        const normalized = graded.map((submission) =>
+          normalizedScore(submission.score, submission.maxScore),
+        );
+        const validScores = normalized
+          .map((item) => item.value)
+          .filter((value): value is number => value !== null);
+        const abnormalCount = normalized.filter((item) => item.abnormal).length;
+        const qualityFlags = abnormalCount > 0
+          ? [`${abnormalCount} 条 score/maxScore 异常，未计入均分`]
+          : [];
         return {
           instanceId: inst.id,
           title: inst.title,
           taskType: inst.task?.taskType || inst.taskType || "",
+          chapterId: inst.chapter?.id || null,
+          chapterTitle: inst.chapter?.title || "未绑定章节",
+          chapterOrder: inst.chapter?.order ?? 9999,
+          sectionId: inst.section?.id || null,
+          sectionTitle: inst.section?.title || "未绑定小节",
+          sectionOrder: inst.section?.order ?? 9999,
+          slot: inst.slot || null,
           submissionCount: subs.length,
           gradedCount: graded.length,
           avgScore:
-            scores.length > 0
+            validScores.length > 0
               ? Math.round(
-                  scores.reduce((a: number, b: number) => a + b, 0) / scores.length
+                  validScores.reduce((a: number, b: number) => a + b, 0) / validScores.length
                 )
               : 0,
-          maxScore: graded.length > 0 ? graded[0].maxScore || 100 : 100,
+          maxScore: graded.length > 0 ? Number(graded[0].maxScore || 100) : 100,
           totalStudents: subs.length,
+          validScoreCount: validScores.length,
+          abnormalCount,
+          qualityFlags,
         };
       });
 
@@ -473,11 +599,16 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
   // --- Computed summary ---
   const totalSubmissions = instanceStats.reduce((s, i) => s + i.submissionCount, 0);
   const totalGraded = instanceStats.reduce((s, i) => s + i.gradedCount, 0);
-  const gradedStats = instanceStats.filter((s) => s.gradedCount > 0);
+  const gradedStats = instanceStats.filter((s) => s.validScoreCount > 0);
+  const abnormalScoreCount = instanceStats.reduce((s, i) => s + i.abnormalCount, 0);
   const overallAvg =
     gradedStats.length > 0
-      ? Math.round(gradedStats.reduce((s, i) => s + i.avgScore, 0) / gradedStats.length)
+      ? Math.round(
+          gradedStats.reduce((s, i) => s + i.avgScore * i.validScoreCount, 0) /
+            gradedStats.reduce((s, i) => s + i.validScoreCount, 0),
+        )
       : 0;
+  const chapterDiagnostics = buildChapterDiagnostics(instanceStats);
 
   return (
     <div className="space-y-6">
@@ -527,7 +658,15 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">均分</p>
-                <p className="text-2xl font-bold mt-1">{overallAvg}</p>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <p className="text-2xl font-bold">{overallAvg}</p>
+                  <span className="text-xs text-muted-foreground">/100</span>
+                </div>
+                {abnormalScoreCount > 0 && (
+                  <Badge variant="secondary" className="mt-2">
+                    需核对 {abnormalScoreCount}
+                  </Badge>
+                )}
               </div>
               <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                 <Award className="h-5 w-5 text-primary" />
@@ -537,11 +676,81 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
         </Card>
       </div>
 
+      {/* ========== 2. Chapter / Section Diagnostics ========== */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">章节 / 小节诊断</h3>
+              <p className="text-xs text-muted-foreground">
+                按课程结构聚合，均分使用 score / maxScore * 100，异常分数单独标记。
+              </p>
+            </div>
+            {abnormalScoreCount > 0 && (
+              <Badge variant="secondary" className="shrink-0">
+                {abnormalScoreCount} 条需核对
+              </Badge>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>章节</TableHead>
+                  <TableHead>小节</TableHead>
+                  <TableHead className="text-right">任务</TableHead>
+                  <TableHead className="text-right">提交</TableHead>
+                  <TableHead className="text-right">已批改</TableHead>
+                  <TableHead className="text-right">均分</TableHead>
+                  <TableHead className="text-right">质量</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chapterDiagnostics.map((summary) => (
+                  <TableRow key={summary.key}>
+                    <TableCell className="whitespace-nowrap font-medium">
+                      {summary.chapterTitle}
+                    </TableCell>
+                    <TableCell className="min-w-36">
+                      <div className="flex flex-col gap-1">
+                        <span>{summary.sectionTitle}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(summary.byType).map(([type, count]) => (
+                            <Badge key={type} variant="outline" className="text-[11px]">
+                              {taskTypeLabels[type] || type} {count}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{summary.taskCount}</TableCell>
+                    <TableCell className="text-right tabular-nums">{summary.submissionCount}</TableCell>
+                    <TableCell className="text-right tabular-nums">{summary.gradedCount}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {summary.validScoreCount > 0 ? `${summary.avgScore}/100` : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {summary.abnormalCount > 0 ? (
+                        <Badge variant="secondary" className="text-[11px]">
+                          需核对 {summary.abnormalCount}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">正常</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
       <Separator />
 
-      {/* ========== 2. Task Performance List (expandable) ========== */}
+      {/* ========== 3. Task Performance List (expandable) ========== */}
       <div>
-        <h3 className="text-base font-semibold mb-3">各任务表现详情</h3>
+        <h3 className="text-base font-semibold mb-3">任务明细</h3>
         <div className="space-y-2">
           {instanceStats.map((stat) => {
             const isExpanded = expandedTasks.has(stat.instanceId);
@@ -563,12 +772,20 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
                   <span className="font-medium text-sm flex-1 truncate">
                     {stat.title}
                   </span>
+                  <span className="hidden text-xs text-muted-foreground lg:inline">
+                    {stat.chapterTitle} · {stat.sectionTitle}
+                  </span>
                   <Badge variant="outline" className="text-xs shrink-0">
                     {taskTypeLabels[stat.taskType] || stat.taskType}
                   </Badge>
                   <span className="text-xs text-muted-foreground shrink-0">
-                    均分 <span className="font-mono font-medium text-foreground">{stat.avgScore}</span>
+                    均分 <span className="font-mono font-medium text-foreground">{stat.avgScore}</span>/100
                   </span>
+                  {stat.abnormalCount > 0 && (
+                    <Badge variant="secondary" className="text-xs shrink-0">
+                      需核对 {stat.abnormalCount}
+                    </Badge>
+                  )}
                   <span className="text-xs text-muted-foreground shrink-0">
                     {stat.gradedCount}/{stat.submissionCount} 已提交
                   </span>
@@ -576,6 +793,11 @@ export function CourseAnalyticsTab({ courseId }: CourseAnalyticsTabProps) {
 
                 {isExpanded && (
                   <CardContent className="pt-0 pb-4">
+                    {stat.qualityFlags.length > 0 && (
+                      <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        {stat.qualityFlags.join("；")}
+                      </div>
+                    )}
                     {isLoadingInsights && !insights && (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="size-4 animate-spin text-muted-foreground" />
