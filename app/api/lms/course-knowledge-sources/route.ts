@@ -6,6 +6,7 @@ import { getStorage, validateFile } from "@/lib/services/storage.service";
 import {
   assertKnowledgeSourceScope,
   createAndProcessCourseKnowledgeSource,
+  deleteCourseKnowledgeSource,
   listCourseKnowledgeSources,
 } from "@/lib/services/course-knowledge-source.service";
 
@@ -101,6 +102,26 @@ export async function POST(request: NextRequest) {
     });
 
     return created(source);
+  } catch (err) {
+    return handleServiceError(err);
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const result = await requireRole(["teacher", "admin"]);
+  if (result.error) return result.error;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    if (!id) return validationError("缺少素材 id");
+
+    const deleted = await deleteCourseKnowledgeSource({
+      id,
+      userId: result.session.user.id,
+      role: result.session.user.role,
+    });
+    return success(deleted);
   } catch (err) {
     return handleServiceError(err);
   }

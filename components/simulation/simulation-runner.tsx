@@ -1028,8 +1028,84 @@ function SimChat({
   scenario: string;
 }) {
   const [listening, setListening] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
-  function handleSpeechToText() {
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  async function transcribeAudio(blob: Blob) {
+    setTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.set("audio", blob, `simulation-${Date.now()}.webm`);
+      const res = await fetch("/api/ai/speech-to-text", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "语音识别失败");
+        return;
+      }
+      const text = String(json.data?.text || "").trim();
+      if (text) {
+        setInputValue(inputValue ? `${inputValue}\n${text}` : text);
+        toast.success(json.data?.message || "语音已转成文字，请确认后发送");
+      } else {
+        toast.error(json.data?.message || "语音识别没有返回文本");
+      }
+    } catch {
+      toast.error("语音识别失败，请重试或手动输入");
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  async function startCloudSpeechToText() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      return false;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        toast.error("录音失败，请检查浏览器麦克风权限");
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setRecording(false);
+        if (blob.size > 0) {
+          transcribeAudio(blob);
+        } else {
+          toast.error("没有录到音频，请重试");
+        }
+      };
+      recorder.start();
+      setRecording(true);
+      toast.message("正在录音，再点一次“停止”后转文字");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function startBrowserSpeechToText() {
     if (typeof window === "undefined") return;
     const speechWindow = window as typeof window & {
       SpeechRecognition?: SpeechRecognitionConstructor;
@@ -1061,6 +1137,16 @@ function SimChat({
     recognition.onend = () => setListening(false);
     setListening(true);
     recognition.start();
+  }
+
+  async function handleSpeechToText() {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    if (listening || transcribing) return;
+    const startedCloud = await startCloudSpeechToText();
+    if (!startedCloud) startBrowserSpeechToText();
   }
 
   return (
@@ -1166,20 +1252,20 @@ function SimChat({
               <button
                 type="button"
                 onClick={handleSpeechToText}
-                disabled={isSending || disabled || listening}
+                disabled={isSending || disabled || listening || transcribing}
                 className="inline-flex items-center gap-1 rounded-[7px] px-3 py-[7px] text-[12px] font-semibold transition disabled:cursor-not-allowed"
                 style={{
-                  background: listening ? "var(--fs-sim-soft)" : "var(--fs-bg-alt)",
-                  color: listening ? "var(--fs-sim)" : "var(--fs-ink-4)",
+                  background: listening || recording || transcribing ? "var(--fs-sim-soft)" : "var(--fs-bg-alt)",
+                  color: listening || recording || transcribing ? "var(--fs-sim)" : "var(--fs-ink-4)",
                 }}
                 aria-label="语音转文字"
               >
-                {listening ? (
+                {listening || transcribing ? (
                   <Loader2 size={11} className="animate-spin" />
                 ) : (
                   <Mic size={12} />
                 )}
-                {listening ? "识别中" : "语音"}
+                {recording ? "停止" : listening || transcribing ? "识别中" : "语音"}
               </button>
               <button
                 type="button"

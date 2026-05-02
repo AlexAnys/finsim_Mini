@@ -1,6 +1,7 @@
-import { readFile } from "fs/promises";
+import { readFile, unlink } from "fs/promises";
 import { join } from "path";
 import { z } from "zod";
+import { assertCourseAccess } from "@/lib/auth/course-access";
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "@/lib/services/ai.service";
 import { enqueueAsyncJob } from "@/lib/services/async-job.service";
@@ -22,16 +23,27 @@ const sourceSummarySchema = z.object({
 });
 
 const outlineDraftSchema = z.object({
+  courseGoals: z.array(z.string()).default([]),
+  knowledgeObjectives: z.array(z.string()).default([]),
+  skillObjectives: z.array(z.string()).default([]),
+  valueObjectives: z.array(z.string()).default([]),
+  assessmentRequirements: z.array(z.string()).default([]),
   chapters: z
     .array(
       z.object({
         title: z.string().default(""),
         order: z.number().optional(),
+        learningGoals: z.array(z.string()).default([]),
+        knowledgeObjectives: z.array(z.string()).default([]),
+        skillObjectives: z.array(z.string()).default([]),
         sections: z
           .array(
             z.object({
               title: z.string().default(""),
               order: z.number().optional(),
+              learningGoals: z.array(z.string()).default([]),
+              knowledgeObjectives: z.array(z.string()).default([]),
+              skillObjectives: z.array(z.string()).default([]),
               knowledgePoints: z.array(z.string()).default([]),
               taskSuggestions: z
                 .array(
@@ -216,6 +228,32 @@ export async function listCourseKnowledgeSources(input: {
   }));
 }
 
+export async function deleteCourseKnowledgeSource(input: {
+  id: string;
+  userId: string;
+  role: string;
+}) {
+  const source = await prisma.courseKnowledgeSource.findUnique({
+    where: { id: input.id },
+    select: {
+      id: true,
+      courseId: true,
+      filePath: true,
+    },
+  });
+  if (!source) throw new Error("KNOWLEDGE_SOURCE_NOT_FOUND");
+
+  await assertCourseAccess(source.courseId, input.userId, input.role);
+
+  await prisma.courseKnowledgeSource.delete({ where: { id: source.id } });
+
+  if (source.filePath) {
+    await unlink(join(STORAGE_BASE, source.filePath)).catch(() => undefined);
+  }
+
+  return { id: source.id };
+}
+
 export async function createAndProcessCourseKnowledgeSource(input: {
   teacherId: string;
   courseId: string;
@@ -351,14 +389,25 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
 
 请阅读课程大纲或课程整体内容，返回 JSON：
 {
+  "courseGoals": ["课程总体目标"],
+  "knowledgeObjectives": ["知识目标"],
+  "skillObjectives": ["技能目标"],
+  "valueObjectives": ["素养/价值/思政融合目标"],
+  "assessmentRequirements": ["考核要求或评价方式"],
   "chapters": [
     {
       "title": "章节标题",
       "order": 0,
+      "learningGoals": ["本章学习目标"],
+      "knowledgeObjectives": ["本章知识目标"],
+      "skillObjectives": ["本章技能目标"],
       "sections": [
         {
           "title": "小节标题",
           "order": 0,
+          "learningGoals": ["本节学习目标"],
+          "knowledgeObjectives": ["本节知识目标"],
+          "skillObjectives": ["本节技能目标"],
           "knowledgePoints": ["知识点"],
           "taskSuggestions": [
             {
@@ -378,6 +427,7 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
 
 要求：
 - 只做草稿，不要声称已经改写课程结构。
+- 尽量把学习目标、知识目标、技能目标、素养/思政目标、考核要求分开，不要混写成一段话。
 - 章节、小节和知识点要面向中高职课堂，不要使用 MBA/投行语境。
 - taskSuggestions 只给少量高价值建议，slot 必须是 pre/in/post。
 

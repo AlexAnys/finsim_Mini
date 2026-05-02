@@ -138,6 +138,14 @@ interface ApiChapter {
   sections: ApiSection[];
 }
 
+interface CourseOutlineSource {
+  id: string;
+  fileName: string;
+  status: string;
+  summary: string | null;
+  structuredData: unknown;
+}
+
 interface CourseDetail {
   id: string;
   courseTitle: string;
@@ -182,6 +190,7 @@ export default function TeacherCourseDetailPage() {
   const [editCourseDialogOpen, setEditCourseDialogOpen] = useState(false);
   const [editCourseTitle, setEditCourseTitle] = useState("");
   const [editCourseDescription, setEditCourseDescription] = useState("");
+  const [courseOutlineSources, setCourseOutlineSources] = useState<CourseOutlineSource[]>([]);
   const [savingEditCourse, setSavingEditCourse] = useState(false);
 
   const [courseClasses, setCourseClasses] = useState<
@@ -379,6 +388,18 @@ export default function TeacherCourseDetailPage() {
     setEditCourseTitle(course.courseTitle);
     setEditCourseDescription(course.description ?? "");
     setEditCourseDialogOpen(true);
+    fetchCourseOutlineSources();
+  }
+
+  async function fetchCourseOutlineSources() {
+    try {
+      const params = new URLSearchParams({ courseId, sourceType: "syllabus" });
+      const res = await fetch(`/api/lms/course-knowledge-sources?${params}`);
+      const json = await res.json();
+      if (json.success) setCourseOutlineSources(json.data || []);
+    } catch {
+      // 课程编辑不因大纲素材加载失败而阻塞。
+    }
   }
 
   async function handleEditCourseSave() {
@@ -1129,12 +1150,11 @@ export default function TeacherCourseDetailPage() {
         open={editCourseDialogOpen}
         onOpenChange={setEditCourseDialogOpen}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[84vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>编辑课程</DialogTitle>
             <DialogDescription>
-              修改课程名称与描述。其他元数据（班级、学期、协作教师）请在 Hero
-              区域直接编辑。
+              修改课程名称与描述，并查看 AI 从课程大纲、Excel 标准或整体课程内容中识别出的目录与目标草稿。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1154,6 +1174,64 @@ export default function TeacherCourseDetailPage() {
                 onChange={(e) => setEditCourseDescription(e.target.value)}
                 rows={4}
               />
+            </div>
+            <div className="rounded-lg border border-line bg-paper-alt p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-ink">AI 解析大纲管理</div>
+                  <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
+                    上传的课程大纲、课程标准和 Excel 编码表会被识别为课程级上下文。这里先展示 AI 建议，教师确认后再手动调整课程目录、学习目标、知识目标和技能目标。
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditCourseDialogOpen(false);
+                    setOutlineDialogOpen(true);
+                  }}
+                >
+                  <Upload className="mr-1.5 size-3.5" />
+                  继续上传
+                </Button>
+              </div>
+              {courseOutlineSources.length === 0 ? (
+                <p className="mt-3 rounded-md border border-dashed border-line bg-surface px-3 py-3 text-xs text-muted-foreground">
+                  还没有课程级大纲素材。可以先上传课程标准、教学大纲或 Excel 编码表。
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {courseOutlineSources.slice(0, 3).map((source) => (
+                    <div key={source.id} className="rounded-md border border-line bg-surface px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium text-ink">{source.fileName}</span>
+                        <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10.5px] text-brand">
+                          {source.status === "ready" ? "可用" : source.status}
+                        </span>
+                        {outlineChapterCount(source.structuredData) > 0 && (
+                          <span className="rounded bg-paper-alt px-1.5 py-0.5 text-[10.5px] text-ink-4">
+                            AI 目录 · {outlineChapterCount(source.structuredData)} 章
+                          </span>
+                        )}
+                      </div>
+                      {source.summary && (
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                          {source.summary}
+                        </p>
+                      )}
+                      {outlineObjectiveSummary(source.structuredData) && (
+                        <p className="mt-1 text-[11px] leading-relaxed text-ink-4">
+                          {outlineObjectiveSummary(source.structuredData)}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-muted-foreground">
+                    完整解析文本、目标分类和删除操作在“教学上下文”Tab 中管理。
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -1256,4 +1334,36 @@ export default function TeacherCourseDetailPage() {
       />
     </div>
   );
+}
+
+function outlineChapterCount(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const chapters = (value as { chapters?: unknown }).chapters;
+  return Array.isArray(chapters) ? chapters.length : 0;
+}
+
+function outlineObjectiveSummary(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const data = value as {
+    courseGoals?: unknown;
+    knowledgeObjectives?: unknown;
+    skillObjectives?: unknown;
+    valueObjectives?: unknown;
+    assessmentRequirements?: unknown;
+  };
+  const parts = [
+    ["总体目标", data.courseGoals],
+    ["知识目标", data.knowledgeObjectives],
+    ["技能目标", data.skillObjectives],
+    ["素养/思政目标", data.valueObjectives],
+    ["评价要求", data.assessmentRequirements],
+  ]
+    .map(([label, raw]) => {
+      const values = Array.isArray(raw)
+        ? raw.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+        : [];
+      return values.length ? `${label} ${values.length} 条` : "";
+    })
+    .filter(Boolean);
+  return parts.join(" · ");
 }

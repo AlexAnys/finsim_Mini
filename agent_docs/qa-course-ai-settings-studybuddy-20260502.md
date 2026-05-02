@@ -93,3 +93,37 @@ This pass covered:
 - `npm run lint` passed.
 - `npx vitest run` passed: 66 files, 782 tests.
 - `npm run build` passed. Turbopack emitted one existing NFT trace warning around dynamic filesystem tracing from `document-ingestion.service.ts`, but compilation, TypeScript, and route generation completed successfully.
+
+## Follow-up QA: MiMo Token Plan, Material Management, STT
+
+Date: 2026-05-03 Asia/Shanghai.
+
+### MiMo Token Plan
+
+- Updated local-only `.env` to use the MiMo token-plan key and `https://token-plan-cn.xiaomimimo.com/v1`.
+- Direct smoke test against `/chat/completions` with `mimo-v2.5-pro` returned HTTP 200.
+- Re-tested Simulation preview conversation from `/sim/2e700d5e-fa7e-4f13-b000-03f660414b89?preview=true`.
+- Result: page generated a customer reply.
+- Result: latest `AiRun` recorded `toolKey=simulationChat`, `provider=mimo`, `model=mimo-v2.5-pro`, `status=succeeded`.
+
+### Course Material Management
+
+- Opened `/teacher/courses/e6fc049c-756f-4442-86da-35a6cdbadd6e`, switched to `教学上下文`.
+- Result: material cards expose `查看解析` and `删除`.
+- Opened `个人理财-课程标准-编码表.xls`.
+- Result: detail dialog shows status/type/tags, AI summary, concept tags, structured course outline draft, objectives/knowledge points, task suggestions, and extracted text preview.
+- Opened `编辑课程`.
+- Result: dialog includes `AI 解析大纲管理`, listing syllabus/Excel sources and AI directory draft counts without overwriting the live course structure.
+
+### Speech-to-Text
+
+- Confirmed Simulation input exposes `语音` / `停止` / `识别中` states.
+- Tested `/api/ai/speech-to-text` with an authenticated request and a valid silent WAV payload.
+- Result: request reached MiMo `mimo-v2-omni`; the provider returned a prompt echo for silence.
+- Fix added: prompt echoes and empty audio outputs are normalized to an empty transcription with a clear fallback message, so invalid output is not inserted into the input box.
+
+### Verification Commands
+
+- `npx vitest run tests/ai-provider.test.ts tests/ai-tool-settings.test.ts` passed.
+- `npm run typecheck` passed.
+- `npm run lint` passed.

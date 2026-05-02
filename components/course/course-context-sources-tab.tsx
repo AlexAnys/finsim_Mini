@@ -1,11 +1,19 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
-import { BookOpen, FileText, Layers, ListChecks, Loader2, RefreshCw, Upload } from "lucide-react";
+import { BookOpen, Eye, FileText, Layers, ListChecks, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -102,8 +110,10 @@ export function CourseContextSourcesTab({
   const [selectedSectionId, setSelectedSectionId] = useState(SECTION_SCOPE);
   const [selectedTaskId, setSelectedTaskId] = useState(TASK_SCOPE);
   const [sources, setSources] = useState<KnowledgeSourceItem[]>([]);
+  const [activeSource, setActiveSource] = useState<KnowledgeSourceItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const flattenedTasks = useMemo(() => {
@@ -224,6 +234,28 @@ export function CourseContextSourcesTab({
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function handleDelete(source: KnowledgeSourceItem) {
+    if (!window.confirm(`删除素材「${source.fileName}」？该操作不会删除已经生成的任务或统计。`)) return;
+    setDeletingSourceId(source.id);
+    try {
+      const res = await fetch(`/api/lms/course-knowledge-sources?id=${encodeURIComponent(source.id)}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "素材删除失败");
+        return;
+      }
+      toast.success("素材已删除");
+      if (activeSource?.id === source.id) setActiveSource(null);
+      await fetchSources();
+    } catch {
+      toast.error("素材删除失败");
+    } finally {
+      setDeletingSourceId(null);
     }
   }
 
@@ -439,6 +471,33 @@ export function CourseContextSourcesTab({
                           )}
                         </div>
                       )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setActiveSource(source)}
+                        >
+                          <Eye className="mr-1 size-3" />
+                          查看解析
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                          disabled={deletingSourceId === source.id}
+                          onClick={() => handleDelete(source)}
+                        >
+                          {deletingSourceId === source.id ? (
+                            <Loader2 className="mr-1 size-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="mr-1 size-3" />
+                          )}
+                          删除
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -468,18 +527,224 @@ export function CourseContextSourcesTab({
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!activeSource} onOpenChange={(open) => !open && setActiveSource(null)}>
+        <DialogContent className="max-h-[84vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{activeSource?.fileName || "素材解析结果"}</DialogTitle>
+            <DialogDescription>
+              查看系统抽取的文本、AI 摘要、概念标签和课程大纲结构草稿。后续 AI 出题、学习伙伴和统计诊断会按范围引用这些内容。
+            </DialogDescription>
+          </DialogHeader>
+          {activeSource && (
+            <div className="space-y-4 py-2">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">{statusLabel(activeSource.status)}</Badge>
+                {activeSource.sourceType && <Badge variant="outline">{activeSource.sourceType}</Badge>}
+                {activeSource.kind && <Badge variant="outline">{activeSource.kind}</Badge>}
+                {activeSource.tags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="bg-paper-alt text-ink-4">
+                    #{tag}
+                  </Badge>
+                ))}
+              </div>
+
+              {activeSource.summary && (
+                <section className="rounded-lg border border-line bg-paper-alt p-3">
+                  <h3 className="text-sm font-semibold text-ink">AI 摘要</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-3">{activeSource.summary}</p>
+                </section>
+              )}
+
+              {activeSource.conceptTags.length > 0 && (
+                <section className="rounded-lg border border-line bg-paper-alt p-3">
+                  <h3 className="text-sm font-semibold text-ink">概念标签</h3>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {activeSource.conceptTags.map((tag) => (
+                      <Badge key={tag} variant="outline" className="bg-surface text-ink-3">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {hasOutlineDraft(activeSource.structuredData) && (
+                <section className="rounded-lg border border-line bg-paper-alt p-3">
+                  <h3 className="text-sm font-semibold text-ink">课程目录与目标草稿</h3>
+                  <OutlineDraftView draft={activeSource.structuredData} />
+                </section>
+              )}
+
+              <section className="rounded-lg border border-line bg-paper-alt p-3">
+                <h3 className="text-sm font-semibold text-ink">抽取文本预览</h3>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-ink-4">
+                  {activeSource.excerpt || activeSource.error || "暂无可显示文本。"}
+                </p>
+              </section>
+            </div>
+          )}
+          <DialogFooter>
+            {activeSource && (
+              <Button
+                type="button"
+                variant="outline"
+                className="mr-auto text-destructive hover:text-destructive"
+                disabled={deletingSourceId === activeSource.id}
+                onClick={() => handleDelete(activeSource)}
+              >
+                <Trash2 className="mr-2 size-4" />
+                删除素材
+              </Button>
+            )}
+            <Button type="button" onClick={() => setActiveSource(null)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function hasOutlineDraft(value: unknown): value is {
-  chapters: Array<{ title: string; sections: Array<{ title: string }> }>;
+type OutlineDraft = {
+  courseGoals?: string[];
+  knowledgeObjectives?: string[];
+  skillObjectives?: string[];
+  valueObjectives?: string[];
+  assessmentRequirements?: string[];
+  globalKnowledgePoints?: string[];
+  chapters: Array<{
+    title: string;
+    learningGoals?: string[];
+    knowledgeObjectives?: string[];
+    skillObjectives?: string[];
+    sections: Array<{
+      title: string;
+      learningGoals?: string[];
+      knowledgeObjectives?: string[];
+      skillObjectives?: string[];
+      knowledgePoints?: string[];
+      taskSuggestions?: Array<{
+        slot: "pre" | "in" | "post";
+        taskType: "quiz" | "simulation" | "subjective";
+        title: string;
+        rationale?: string;
+      }>;
+    }>;
+  }>;
   notes?: string;
-} {
+};
+
+function hasOutlineDraft(value: unknown): value is OutlineDraft {
   return (
     !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Array.isArray((value as { chapters?: unknown }).chapters)
   );
+}
+
+function OutlineDraftView({ draft }: { draft: OutlineDraft }) {
+  return (
+    <div className="mt-3 space-y-3">
+      <ObjectiveBlock
+        title="课程目标"
+        items={[
+          ...labelItems("总体目标", draft.courseGoals),
+          ...labelItems("知识目标", draft.knowledgeObjectives),
+          ...labelItems("技能目标", draft.skillObjectives),
+          ...labelItems("素养/思政目标", draft.valueObjectives),
+          ...labelItems("评价要求", draft.assessmentRequirements),
+          ...labelItems("全局知识点", draft.globalKnowledgePoints),
+        ]}
+      />
+
+      <div className="space-y-2">
+        {draft.chapters.map((chapter, chapterIndex) => (
+          <div key={`${chapter.title}-${chapterIndex}`} className="rounded-md border border-line bg-surface p-3">
+            <div className="text-sm font-semibold text-ink">
+              {chapterIndex + 1}. {chapter.title || "未命名章节"}
+            </div>
+            <ObjectiveBlock
+              compact
+              title="章节目标"
+              items={[
+                ...labelItems("学习", chapter.learningGoals),
+                ...labelItems("知识", chapter.knowledgeObjectives),
+                ...labelItems("技能", chapter.skillObjectives),
+              ]}
+            />
+            {chapter.sections.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {chapter.sections.map((section, sectionIndex) => (
+                  <div key={`${section.title}-${sectionIndex}`} className="rounded border border-line bg-paper-alt px-2 py-2">
+                    <div className="text-xs font-semibold text-ink-2">
+                      {chapterIndex + 1}.{sectionIndex + 1} {section.title || "未命名小节"}
+                    </div>
+                    <ObjectiveBlock
+                      compact
+                      title="小节目标"
+                      items={[
+                        ...labelItems("学习", section.learningGoals),
+                        ...labelItems("知识", section.knowledgeObjectives),
+                        ...labelItems("技能", section.skillObjectives),
+                        ...labelItems("知识点", section.knowledgePoints),
+                      ]}
+                    />
+                    {section.taskSuggestions && section.taskSuggestions.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {section.taskSuggestions.map((task, taskIndex) => (
+                          <Badge key={`${task.title}-${taskIndex}`} variant="outline" className="bg-surface text-[10.5px] text-ink-3">
+                            {SLOT_LABELS[task.slot] ?? task.slot} · {TASK_TYPE_LABELS[task.taskType] ?? task.taskType} · {task.title}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {draft.notes && (
+        <p className="rounded-md border border-line bg-surface px-3 py-2 text-xs leading-relaxed text-ink-4">
+          {draft.notes}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ObjectiveBlock({
+  title,
+  items,
+  compact,
+}: {
+  title: string;
+  items: Array<{ label: string; value: string }>;
+  compact?: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className={compact ? "mt-2 space-y-1" : "space-y-1"}>
+      <div className="text-[11px] font-semibold text-ink-4">{title}</div>
+      <div className="space-y-1">
+        {items.slice(0, compact ? 8 : 16).map((item, index) => (
+          <p key={`${item.label}-${item.value}-${index}`} className="text-[11.5px] leading-relaxed text-ink-4">
+            <span className="font-medium text-ink-3">{item.label}：</span>
+            {item.value}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function labelItems(label: string, values?: string[]) {
+  return (values || [])
+    .filter((value) => value && value.trim())
+    .map((value) => ({ label, value }));
 }

@@ -32,10 +32,11 @@ export interface AiCallOptions {
 export function getProviderConfig(name: string): ProviderConfig | null {
   switch (name) {
     case "mimo":
+      const mimoApiKey = process.env.MIMO_API_KEY || "";
       return {
         name: "mimo",
-        apiKey: process.env.MIMO_API_KEY || "",
-        baseURL: process.env.MIMO_BASE_URL || "https://api.xiaomimimo.com/v1",
+        apiKey: mimoApiKey,
+        baseURL: resolveMimoBaseUrl(mimoApiKey),
         defaultModel: process.env.MIMO_MODEL || "mimo-v2.5-pro",
       };
     case "qwen":
@@ -62,6 +63,14 @@ export function getProviderConfig(name: string): ProviderConfig | null {
     default:
       return null;
   }
+}
+
+export function resolveMimoBaseUrl(apiKey = process.env.MIMO_API_KEY || "") {
+  const configured = process.env.MIMO_BASE_URL?.trim();
+  if (configured) return configured;
+  return apiKey.startsWith("tp-")
+    ? "https://token-plan-cn.xiaomimimo.com/v1"
+    : "https://api.xiaomimimo.com/v1";
 }
 
 // Feature -> Temperature 映射

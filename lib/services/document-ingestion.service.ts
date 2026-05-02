@@ -407,7 +407,7 @@ async function extractImageTextWithMimoOcr(input: ExtractDocumentInput): Promise
     return { text: "", error: "OCR provider 未配置：缺少 MIMO_API_KEY" };
   }
 
-  const baseUrl = (process.env.MIMO_BASE_URL || "https://api.xiaomimimo.com/v1").replace(/\/+$/, "");
+  const baseUrl = resolveMimoBaseUrl(apiKey).replace(/\/+$/, "");
   const model = process.env.MIMO_OCR_MODEL || "mimo-v2-omni";
   const mimeType = input.mimeType || "image/png";
   const dataUrl = `data:${mimeType};base64,${input.buffer.toString("base64")}`;
@@ -446,6 +446,14 @@ async function extractImageTextWithMimoOcr(input: ExtractDocumentInput): Promise
   } catch (err) {
     return { text: "", error: `OCR provider 调用失败：${errorMessage(err)}` };
   }
+}
+
+function resolveMimoBaseUrl(apiKey: string) {
+  const configured = process.env.MIMO_BASE_URL?.trim();
+  if (configured) return configured;
+  return apiKey.startsWith("tp-")
+    ? "https://token-plan-cn.xiaomimimo.com/v1"
+    : "https://api.xiaomimimo.com/v1";
 }
 
 function normalizeText(text: string) {

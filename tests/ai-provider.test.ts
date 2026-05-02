@@ -3,6 +3,7 @@ import {
   getProviderConfig,
   getProviderForFeature,
   getProviderOptions,
+  resolveMimoBaseUrl,
 } from "@/lib/services/ai.service";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -52,6 +53,13 @@ describe("AI provider selection", () => {
 
     expect(provider.name).toBe("mimo");
     expect(model).toBe("mimo-v2.5-pro");
+  });
+
+  it("routes MiMo token-plan keys to the token-plan OpenAI-compatible base", () => {
+    delete process.env.MIMO_BASE_URL;
+
+    expect(resolveMimoBaseUrl("tp-test-key")).toBe("https://token-plan-cn.xiaomimimo.com/v1");
+    expect(resolveMimoBaseUrl("sk-test-key")).toBe("https://api.xiaomimimo.com/v1");
   });
 
   it("falls back to the MiMo default model when stale Qwen feature models remain in env", () => {
