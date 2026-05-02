@@ -25,8 +25,8 @@ function moodKeyToScoreFallback(label?: string): number {
  * Insights aggregation service.
  *
  * Reads all submissions for a task instance, harvests their AI-extracted
- * conceptTags + evaluation summaries, and asks an LLM (qwen-max via the
- * AI_INSIGHTS_MODEL env) to produce a class-level summary:
+ * conceptTags + evaluation summaries, and asks MiMo via the AI_INSIGHTS_MODEL
+ * env to produce a class-level summary:
  *  - common issues (3-5 bullet points)
  *  - highlights (notable student answers)
  *  - weakness concepts (concept tag → student count)
@@ -130,7 +130,7 @@ export async function getCachedInsights(
 
 /**
  * Trigger AI aggregation. Reads graded submissions + conceptTags, calls
- * qwen-max (AI_INSIGHTS_MODEL), persists to AnalysisReport.
+ * MiMo via AI_INSIGHTS_MODEL, persists to AnalysisReport.
  *
  * Throws:
  *  - NO_GRADED_SUBMISSIONS — when no submission is in 'graded' status

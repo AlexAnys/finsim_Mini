@@ -9,7 +9,7 @@ import { teacherCourseFilter } from "@/lib/services/course.service";
  * 拉过去 7 天该教师 courses 下所有 graded + released submissions（含 evaluation/conceptTags/score），
  * 关联的 task instances + tasks + chapters + sections，
  * 以及接下来 7 天有哪些课。
- * 调 AI（qwen-max via AI_WEEKLY_INSIGHT_MODEL，长 context）输出结构化 JSON：
+ * 调 MiMo（via AI_WEEKLY_INSIGHT_MODEL，长 context）输出结构化 JSON：
  *  - weakConceptsByCourse — 各课弱点概念聚合
  *  - classDifferences — 班级差异
  *  - studentClusters — 学生聚类

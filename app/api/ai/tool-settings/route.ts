@@ -12,7 +12,7 @@ import {
 
 const updateSchema = z.object({
   toolKey: z.string().min(1),
-  provider: z.enum(["mimo", "qwen", "deepseek", "openai"]).optional().nullable(),
+  provider: z.enum(["mimo"]).optional().nullable(),
   model: z.string().optional().nullable(),
   thinking: z.enum(["disabled", "enabled"]).optional(),
   temperature: z.number().min(0).max(1.5).optional().nullable(),

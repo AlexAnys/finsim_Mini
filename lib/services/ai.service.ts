@@ -141,11 +141,14 @@ export function getProviderForFeature(
   setting?: AiRuntimeSetting | null,
 ): { provider: ProviderConfig; model: string } {
   const envPrefix = FEATURE_ENV_MAP[feature];
-  const providerName =
+  const requestedProviderName =
     setting?.provider ||
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
     "mimo";
+  // Teaching AI calls are intentionally locked to MiMo. OCR has a separate
+  // adapter/provider path in document ingestion.
+  const providerName = requestedProviderName === "mimo" ? requestedProviderName : "mimo";
   const requestedModel = setting?.model || process.env[`${envPrefix}_MODEL`] || "";
 
   const provider = getProviderConfig(providerName);
@@ -158,10 +161,11 @@ export function getProviderForFeature(
     }
 
     // 尝试 fallback
-    const fallbackName =
+    const requestedFallbackName =
       process.env[`${envPrefix}_FALLBACK_PROVIDER`] ||
       process.env.AI_FALLBACK_PROVIDER ||
-      "deepseek";
+      "mimo";
+    const fallbackName = requestedFallbackName === "mimo" ? requestedFallbackName : "mimo";
     const fallback = getProviderConfig(fallbackName);
     if (!fallback || !fallback.apiKey) {
       throw new Error(`AI_PROVIDER_NOT_CONFIGURED: ${providerName}`);

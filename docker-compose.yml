@@ -17,7 +17,7 @@ services:
       - AUTH_TRUST_HOST=true
       - ADMIN_KEY=${ADMIN_KEY:?ADMIN_KEY must be set}
       - AI_PROVIDER=${AI_PROVIDER:-mimo}
-      - AI_FALLBACK_PROVIDER=${AI_FALLBACK_PROVIDER:-deepseek}
+      - AI_FALLBACK_PROVIDER=${AI_FALLBACK_PROVIDER:-mimo}
       - MIMO_API_KEY=${MIMO_API_KEY:-}
       - MIMO_BASE_URL=${MIMO_BASE_URL:-}
       - MIMO_MODEL=${MIMO_MODEL:-mimo-v2.5-pro}

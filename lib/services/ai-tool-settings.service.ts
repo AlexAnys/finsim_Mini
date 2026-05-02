@@ -159,9 +159,6 @@ export const AI_MODEL_OPTIONS = [
 
 export const AI_PROVIDER_OPTIONS = [
   { value: "mimo", label: "小米 MiMo", description: "默认 OpenAI-compatible provider" },
-  { value: "qwen", label: "阿里云百炼 Qwen", description: "适合 OCR/中文文档任务的备用 provider" },
-  { value: "deepseek", label: "DeepSeek", description: "备用文本 provider" },
-  { value: "openai", label: "OpenAI-compatible", description: "自定义 OpenAI 协议 provider" },
 ] as const;
 
 const AI_PROVIDER_VALUES = new Set(AI_PROVIDER_OPTIONS.map((provider) => provider.value));
@@ -179,10 +176,11 @@ export async function listAiToolSettings(teacherId: string) {
 
   return AI_TOOL_DEFINITIONS.map((definition) => {
     const row = map.get(definition.key) ?? map.get(LEGACY_TOOL_KEY_FALLBACKS[definition.key] ?? "");
+    const model = row?.model?.startsWith("mimo-") ? row.model : definition.defaultModel;
     return {
       ...definition,
-      provider: row?.provider || "mimo",
-      model: row?.model || definition.defaultModel,
+      provider: "mimo",
+      model,
       thinking: row?.thinking || "disabled",
       temperature: row?.temperature ?? null,
       systemPromptSuffix: row?.systemPromptSuffix || "",

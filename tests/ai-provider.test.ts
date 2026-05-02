@@ -73,6 +73,32 @@ describe("AI provider selection", () => {
     expect(model).toBe("mimo-v2.5-pro");
   });
 
+  it("uses MiMo as the implicit fallback provider", () => {
+    delete process.env.AI_PROVIDER;
+    delete process.env.AI_FALLBACK_PROVIDER;
+    delete process.env.QWEN_API_KEY;
+    process.env.MIMO_API_KEY = "mimo-key";
+    process.env.AI_TASK_DRAFT_PROVIDER = "qwen";
+
+    const { provider, model } = getProviderForFeature("taskDraft");
+
+    expect(provider.name).toBe("mimo");
+    expect(model).toBe("mimo-v2.5-pro");
+  });
+
+  it("normalizes non-MiMo runtime provider overrides back to MiMo", () => {
+    process.env.MIMO_API_KEY = "mimo-key";
+    process.env.QWEN_API_KEY = "qwen-key";
+
+    const { provider, model } = getProviderForFeature("weeklyInsight", {
+      provider: "qwen",
+      model: "qwen-max",
+    });
+
+    expect(provider.name).toBe("mimo");
+    expect(model).toBe("mimo-v2.5-pro");
+  });
+
   it("sends MiMo thinking disabled without applying Qwen options", () => {
     const mimo = {
       name: "mimo" as const,
