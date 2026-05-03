@@ -13,6 +13,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { InsightsFilterBar } from "@/components/analytics-v2/insights-filter-bar";
 import { KpiRow } from "@/components/analytics-v2/kpi-row";
 import { InsightsGrid } from "@/components/analytics-v2/insights-grid";
+import type {
+  ScopeSimulationInsight as ScopeSimulationInsightShape,
+  ScopeStudyBuddySummary as ScopeStudyBuddySummaryShape,
+} from "@/lib/services/scope-insights.service";
 import { cn } from "@/lib/utils";
 
 type TaskType = "simulation" | "quiz" | "subjective";
@@ -259,6 +263,12 @@ export function AnalyticsV2Dashboard() {
   const [recomputeJob, setRecomputeJob] = useState<AsyncJobSnapshot | null>(null);
   const [recomputeStarting, setRecomputeStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scopeInsights, setScopeInsights] = useState<{
+    simulation: ScopeSimulationInsightShape | null;
+    studyBuddy: ScopeStudyBuddySummaryShape | null;
+  }>({ simulation: null, studyBuddy: null });
+  const [scopeInsightsLoading, setScopeInsightsLoading] = useState(false);
+  const [scopeInsightsRefreshing, setScopeInsightsRefreshing] = useState(false);
 
   const courseId = searchParams.get("courseId") ?? "";
   const classIds = useMemo(() => {
@@ -326,6 +336,64 @@ export function AnalyticsV2Dashboard() {
     fetchDiagnosis();
     return () => controller.abort();
   }, [courseId, searchParams]);
+
+  useEffect(() => {
+    if (!courseId) {
+      setScopeInsights({ simulation: null, studyBuddy: null });
+      return;
+    }
+    const controller = new AbortController();
+    async function fetchScopeInsights() {
+      setScopeInsightsLoading(true);
+      try {
+        const params = new URLSearchParams(searchParams.toString());
+        const res = await fetch(`/api/lms/analytics-v2/scope-insights?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const json = await res.json();
+        if (json.success) {
+          setScopeInsights({
+            simulation: json.data.simulation ?? null,
+            studyBuddy: json.data.studyBuddy ?? null,
+          });
+        } else {
+          setScopeInsights({ simulation: null, studyBuddy: null });
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setScopeInsights({ simulation: null, studyBuddy: null });
+        }
+      } finally {
+        if (!controller.signal.aborted) setScopeInsightsLoading(false);
+      }
+    }
+    fetchScopeInsights();
+    return () => controller.abort();
+  }, [courseId, searchParams]);
+
+  async function refreshScopeInsights() {
+    if (!courseId || scopeInsightsRefreshing) return;
+    setScopeInsightsRefreshing(true);
+    try {
+      const params = new URLSearchParams(searchParams.toString());
+      const res = await fetch(`/api/lms/analytics-v2/scope-insights?${params.toString()}`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json.success) {
+        setScopeInsights({
+          simulation: json.data.simulation ?? null,
+          studyBuddy: json.data.studyBuddy ?? null,
+        });
+      } else {
+        setError(json.error?.message ?? "重新生成失败");
+      }
+    } catch {
+      setError("重新生成失败");
+    } finally {
+      setScopeInsightsRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     if (!recomputeJob || recomputeJob.status === "succeeded" || recomputeJob.status === "failed" || recomputeJob.status === "canceled") {
@@ -483,6 +551,10 @@ export function AnalyticsV2Dashboard() {
 
           <InsightsGrid
             diagnosis={diagnosis}
+            scopeInsights={scopeInsights}
+            scopeInsightsLoading={scopeInsightsLoading}
+            scopeInsightsRefreshing={scopeInsightsRefreshing}
+            onRefreshScopeInsights={refreshScopeInsights}
             onBinClick={(bin, classId) => {
               console.log("score-distribution click", { bin: bin.label, classId });
             }}

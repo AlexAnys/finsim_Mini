@@ -142,6 +142,7 @@ enum AsyncJobType {
   submission_grade
   ai_work_assistant
   analytics_recompute
+  data_insight_advice
 }
 
 enum TaskBuildDraftStatus {
@@ -815,6 +816,8 @@ model AnalysisReport {
   id             String   @id @default(uuid())
   taskId         String?
   taskInstanceId String?  @unique
+  scopeHash      String?
+  scopeSummary   Json?
   createdBy      String
   studentCount   Int
   report         Json
@@ -829,6 +832,7 @@ model AnalysisReport {
 
   @@index([createdBy])
   @@index([taskId])
+  @@index([scopeHash])
 }
 
 // ============================================
