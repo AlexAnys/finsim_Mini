@@ -3,17 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  Activity,
   AlertCircle,
+  ArrowRight,
   BarChart3,
   Brain,
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Info,
+  LineChart,
   Loader2,
   MessageSquareText,
   RefreshCw,
+  ShieldAlert,
   Sparkles,
   Target,
+  TrendingUp,
+  Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +47,7 @@ type TaskType = "simulation" | "quiz" | "subjective";
 type ScorePolicy = "latest" | "best" | "first";
 type RangeValue = "7d" | "30d" | "term" | "custom";
 type ScoreBinMode = "standard" | "ten";
+type LayoutVariant = "overview" | "charts";
 
 interface CourseOption {
   id: string;
@@ -291,6 +299,7 @@ export function AnalyticsV2Dashboard() {
   const dateFrom = searchParams.get("dateFrom") ?? "";
   const dateTo = searchParams.get("dateTo") ?? "";
   const scoreBins = (searchParams.get("scoreBins") ?? "standard") as ScoreBinMode;
+  const layout = searchParams.get("layout") === "charts" ? "charts" : "overview";
 
   useEffect(() => {
     let cancelled = false;
@@ -395,6 +404,14 @@ export function AnalyticsV2Dashboard() {
     router.replace(query ? `${pathname}?${query}` : pathname);
   }
 
+  function resetFilters() {
+    const next = new URLSearchParams();
+    if (courseId) next.set("courseId", courseId);
+    next.set("layout", layout);
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }
+
   async function openEvidence(summary: EvidenceSummary) {
     setEvidenceOpen(true);
     setEvidenceLoading(true);
@@ -435,33 +452,17 @@ export function AnalyticsV2Dashboard() {
   if (coursesLoading) return <CenteredState icon={Loader2} title="正在加载课程" spinning />;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <BarChart3 className="size-5 text-brand" />
-            <h1 className="text-2xl font-semibold tracking-normal">数据洞察</h1>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {diagnosis ? `${diagnosis.scope.courseTitle} · 更新 ${formatDateTime(diagnosis.generatedAt)}` : "选择课程后查看完成、成绩、问题与教学建议"}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={startAdvice} disabled={!diagnosis || adviceStarting || isJobRunning(adviceJob)}>
-            {isJobRunning(adviceJob) || adviceStarting ? <Loader2 className="mr-2 size-3.5 animate-spin" /> : <Sparkles className="mr-2 size-3.5" />}
-            {isJobRunning(adviceJob) ? `AI 生成中 ${adviceJob?.progress ?? 0}%` : "生成 AI 建议"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => courseId && router.replace(`${pathname}?courseId=${encodeURIComponent(courseId)}`)}
-            disabled={!courseId}
-          >
-            <RefreshCw className="mr-2 size-3.5" />
-            重置筛选
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-4">
+      <AnalyticsHeader
+        diagnosis={diagnosis}
+        layout={layout}
+        onLayoutChange={(nextLayout) => replaceQuery({ layout: nextLayout })}
+        onGenerateAdvice={startAdvice}
+        adviceBusy={adviceStarting || isJobRunning(adviceJob)}
+        adviceProgress={adviceJob?.progress ?? 0}
+        onReset={resetFilters}
+        canReset={Boolean(courseId)}
+      />
 
       <FilterBar
         courses={courses}
@@ -480,23 +481,36 @@ export function AnalyticsV2Dashboard() {
         <CenteredState icon={Loader2} title="正在生成数据洞察" spinning />
       ) : diagnosis ? (
         <>
-          <KpiRow diagnosis={diagnosis} onOpen={setDetailSheet} />
           <DataQualityPanel flags={diagnosis.dataQualityFlags} />
-
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
-            <ScoreDistributionCard
+          {layout === "charts" ? (
+            <ChartsLayout
               diagnosis={diagnosis}
               scoreBins={scoreBins}
+              advice={advice}
+              adviceJob={adviceJob}
+              adviceDisabled={adviceStarting || isJobRunning(adviceJob)}
               onModeChange={(mode) => replaceQuery({ scoreBins: mode })}
+              onOpenDetail={setDetailSheet}
               onOpenBin={(bin) => setDetailSheet({ type: "distribution", title: `${bin.label} 分学生`, bin })}
+              onSelectTask={(id) => replaceQuery({ taskInstanceId: id })}
+              onEvidence={openEvidence}
+              onGenerateAdvice={startAdvice}
             />
-            <TaskPerformanceCard diagnosis={diagnosis} onSelectTask={(id) => replaceQuery({ taskInstanceId: id })} onEvidence={openEvidence} />
-          </div>
-
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-            <StudyBuddyCard diagnosis={diagnosis} />
-            <AiAdviceCard advice={advice} job={adviceJob} onGenerate={startAdvice} disabled={adviceStarting || isJobRunning(adviceJob)} />
-          </div>
+          ) : (
+            <OverviewLayout
+              diagnosis={diagnosis}
+              scoreBins={scoreBins}
+              advice={advice}
+              adviceJob={adviceJob}
+              adviceDisabled={adviceStarting || isJobRunning(adviceJob)}
+              onModeChange={(mode) => replaceQuery({ scoreBins: mode })}
+              onOpenDetail={setDetailSheet}
+              onOpenBin={(bin) => setDetailSheet({ type: "distribution", title: `${bin.label} 分学生`, bin })}
+              onSelectTask={(id) => replaceQuery({ taskInstanceId: id })}
+              onEvidence={openEvidence}
+              onGenerateAdvice={startAdvice}
+            />
+          )}
         </>
       ) : null}
 
@@ -504,6 +518,203 @@ export function AnalyticsV2Dashboard() {
       <EvidenceSheet open={evidenceOpen} loading={evidenceLoading} data={evidence} onOpenChange={setEvidenceOpen} />
     </div>
   );
+}
+
+function AnalyticsHeader({
+  diagnosis,
+  layout,
+  adviceBusy,
+  adviceProgress,
+  canReset,
+  onLayoutChange,
+  onGenerateAdvice,
+  onReset,
+}: {
+  diagnosis: AnalyticsV2Diagnosis | null;
+  layout: LayoutVariant;
+  adviceBusy: boolean;
+  adviceProgress: number;
+  canReset: boolean;
+  onLayoutChange: (layout: LayoutVariant) => void;
+  onGenerateAdvice: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="size-5 text-brand" />
+          <h1 className="text-2xl font-semibold tracking-normal">数据洞察</h1>
+          <Badge variant="outline" className="rounded-full px-2 font-normal">
+            {layout === "overview" ? "方案 A · 单屏总览" : "方案 B · 图表诊断"}
+          </Badge>
+        </div>
+        <p className="mt-1 truncate text-sm text-muted-foreground">
+          {diagnosis ? `${diagnosis.scope.courseTitle} · 更新 ${formatDateTime(diagnosis.generatedAt)}` : "选择课程后查看完成、成绩、问题与教学建议"}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border bg-background p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => onLayoutChange("overview")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              layout === "overview" ? "bg-brand text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            方案 A
+          </button>
+          <button
+            type="button"
+            onClick={() => onLayoutChange("charts")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              layout === "charts" ? "bg-brand text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            方案 B
+          </button>
+        </div>
+        <Button variant="outline" size="sm" onClick={onGenerateAdvice} disabled={!diagnosis || adviceBusy}>
+          {adviceBusy ? <Loader2 className="mr-2 size-3.5 animate-spin" /> : <Sparkles className="mr-2 size-3.5" />}
+          {adviceBusy ? `AI ${adviceProgress}%` : "生成建议"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={onReset} disabled={!canReset}>
+          <RefreshCw className="mr-2 size-3.5" />
+          重置
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function OverviewLayout({
+  diagnosis,
+  scoreBins,
+  advice,
+  adviceJob,
+  adviceDisabled,
+  onModeChange,
+  onOpenDetail,
+  onOpenBin,
+  onSelectTask,
+  onEvidence,
+  onGenerateAdvice,
+}: AnalyticsLayoutProps) {
+  return (
+    <div className="space-y-4">
+      <KpiRow diagnosis={diagnosis} onOpen={onOpenDetail} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,1fr)_320px]">
+        <ScoreDistributionCard
+          diagnosis={diagnosis}
+          scoreBins={scoreBins}
+          density="compact"
+          onModeChange={onModeChange}
+          onOpenBin={onOpenBin}
+        />
+        <TaskPerformanceCard
+          diagnosis={diagnosis}
+          density="compact"
+          onSelectTask={onSelectTask}
+          onEvidence={onEvidence}
+        />
+        <StudyBuddyCard diagnosis={diagnosis} density="compact" />
+      </div>
+      <AiAdviceCard
+        advice={advice}
+        job={adviceJob}
+        density="wide"
+        onGenerate={onGenerateAdvice}
+        disabled={adviceDisabled}
+      />
+    </div>
+  );
+}
+
+function ChartsLayout({
+  diagnosis,
+  scoreBins,
+  advice,
+  adviceJob,
+  adviceDisabled,
+  onModeChange,
+  onOpenDetail,
+  onOpenBin,
+  onSelectTask,
+  onEvidence,
+  onGenerateAdvice,
+}: AnalyticsLayoutProps) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="space-y-4">
+        <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1fr_1.45fr]">
+          <KpiMiniCard
+            icon={CheckCircle2}
+            label="完成率"
+            value={formatRate(diagnosis.kpis.completionRate)}
+            sub={`${diagnosis.kpis.submittedStudents}/${diagnosis.kpis.assignedStudents} 人次`}
+            onClick={() => onOpenDetail({ type: "completion", title: "完成风险" })}
+          />
+          <KpiMiniCard
+            icon={TrendingUp}
+            label="归一化均分"
+            value={formatPercentNumber(diagnosis.kpis.avgNormalizedScore)}
+            sub={`中位数 ${formatPercentNumber(diagnosis.kpis.medianNormalizedScore)}`}
+            onClick={() => onOpenDetail({ type: "score", title: "成绩风险" })}
+          />
+          <KpiMiniCard
+            icon={Clock3}
+            label="成绩待发布"
+            value={`${diagnosis.kpis.pendingReleaseCount}`}
+            sub={`${diagnosis.kpis.gradedStudents} 份已批改`}
+            onClick={() => onOpenDetail({ type: "pending", title: "成绩待发布" })}
+          />
+          <RiskSignalCard diagnosis={diagnosis} onOpen={() => onOpenDetail({ type: "risk", title: "风险章节与学生" })} />
+        </div>
+        <div className="grid gap-4">
+          <ScoreDistributionCard
+            diagnosis={diagnosis}
+            scoreBins={scoreBins}
+            density="chart"
+            onModeChange={onModeChange}
+            onOpenBin={onOpenBin}
+          />
+          <TaskPerformanceCard
+            diagnosis={diagnosis}
+            density="chart"
+            onSelectTask={onSelectTask}
+            onEvidence={onEvidence}
+          />
+        </div>
+        <AiAdviceCard
+          advice={advice}
+          job={adviceJob}
+          density="wide"
+          onGenerate={onGenerateAdvice}
+          disabled={adviceDisabled}
+        />
+      </div>
+      <div className="space-y-4">
+        <StudyBuddyCard diagnosis={diagnosis} density="chart" />
+        <RiskListCard diagnosis={diagnosis} />
+      </div>
+    </div>
+  );
+}
+
+interface AnalyticsLayoutProps {
+  diagnosis: AnalyticsV2Diagnosis;
+  scoreBins: ScoreBinMode;
+  advice: DataInsightAdvice | null;
+  adviceJob: AsyncJobSnapshot | null;
+  adviceDisabled: boolean;
+  onModeChange: (mode: ScoreBinMode) => void;
+  onOpenDetail: (detail: DetailSheet) => void;
+  onOpenBin: (bin: AnalyticsV2Diagnosis["scoreDistribution"]["bins"][number]) => void;
+  onSelectTask: (id: string) => void;
+  onEvidence: (summary: EvidenceSummary) => void;
+  onGenerateAdvice: () => void;
 }
 
 function FilterBar({
@@ -531,8 +742,8 @@ function FilterBar({
   onChange: (updates: Record<string, string | null>) => void;
 }) {
   return (
-    <Card className="rounded-lg py-4">
-      <CardContent className="grid gap-3 px-4 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1.4fr_1fr_1fr_1fr]">
+    <Card className="rounded-xl border-border/70 bg-white/80 py-3 shadow-sm">
+      <CardContent className="grid gap-2.5 px-3 md:grid-cols-2 xl:grid-cols-[1.25fr_0.8fr_1fr_1fr_1.35fr_0.85fr_0.9fr_0.9fr]">
         <FilterSelect
           label="课程"
           value={values.courseId || ALL}
@@ -582,13 +793,13 @@ function FilterBar({
             { value: "custom", label: RANGE_LABELS.custom },
           ]}
         />
-        <label className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">开始</span>
-          <Input type="date" value={values.dateFrom} disabled={values.range !== "custom"} onChange={(event) => onChange({ dateFrom: event.target.value, range: "custom" })} />
+        <label className="space-y-1">
+          <span className="text-[11px] font-medium text-muted-foreground">开始</span>
+          <Input className="h-8 text-xs" type="date" value={values.dateFrom} disabled={values.range !== "custom"} onChange={(event) => onChange({ dateFrom: event.target.value, range: "custom" })} />
         </label>
-        <label className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">结束</span>
-          <Input type="date" value={values.dateTo} disabled={values.range !== "custom"} onChange={(event) => onChange({ dateTo: event.target.value, range: "custom" })} />
+        <label className="space-y-1">
+          <span className="text-[11px] font-medium text-muted-foreground">结束</span>
+          <Input className="h-8 text-xs" type="date" value={values.dateTo} disabled={values.range !== "custom"} onChange={(event) => onChange({ dateTo: event.target.value, range: "custom" })} />
         </label>
       </CardContent>
     </Card>
@@ -611,10 +822,10 @@ function FilterSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+    <label className="space-y-1">
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
       <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="h-9 w-full rounded-md">
+        <SelectTrigger className="h-8 w-full rounded-md text-xs">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -684,13 +895,15 @@ function KpiCard({
 }) {
   return (
     <button type="button" onClick={onClick} className="text-left">
-      <Card className={cn("rounded-lg py-4 transition-colors hover:border-brand/60", tone === "warn" && "border-amber-200 bg-amber-50/50", tone === "risk" && "border-rose-200 bg-rose-50/50")}>
+      <Card className={cn("rounded-xl border-border/70 bg-white py-3 shadow-sm transition-colors hover:border-brand/60", tone === "warn" && "border-amber-200 bg-amber-50/50", tone === "risk" && "border-rose-200 bg-rose-50/50")}>
         <CardContent className="px-4">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">{label}</span>
-            <Icon className="size-4 text-muted-foreground" />
+            <span className="grid size-8 place-items-center rounded-lg bg-muted/70">
+              <Icon className="size-4 text-muted-foreground" />
+            </span>
           </div>
-          <div className="mt-3 text-2xl font-semibold tracking-normal">{value}</div>
+          <div className="mt-2 text-2xl font-semibold tracking-normal">{value}</div>
           <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>{sub}</span>
             <ChevronRight className="size-3" />
@@ -701,29 +914,112 @@ function KpiCard({
   );
 }
 
+function KpiMiniCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  onClick,
+}: {
+  icon: typeof BarChart3;
+  label: string;
+  value: string;
+  sub: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} className="text-left">
+      <Card className="rounded-xl border-border/70 bg-white py-3 shadow-sm transition-colors hover:border-brand/60">
+        <CardContent className="px-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-muted-foreground">{label}</span>
+            <Info className="size-3.5 text-muted-foreground" />
+          </div>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-2xl font-semibold tracking-normal">{value}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+            </div>
+            <Icon className="size-8 text-brand/70" />
+          </div>
+        </CardContent>
+      </Card>
+    </button>
+  );
+}
+
+function RiskSignalCard({ diagnosis, onOpen }: { diagnosis: AnalyticsV2Diagnosis; onOpen: () => void }) {
+  const highRisk = diagnosis.risks.chapters.slice(0, 3);
+  return (
+    <button type="button" onClick={onOpen} className="text-left">
+      <Card className="rounded-xl border-rose-200 bg-rose-50/60 py-3 shadow-sm transition-colors hover:border-rose-300">
+        <CardContent className="px-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-rose-900">
+                <ShieldAlert className="size-4" />
+                风险信号
+              </div>
+              <div className="mt-3 text-2xl font-semibold tracking-normal text-rose-700">
+                {diagnosis.kpis.riskChapterCount + diagnosis.kpis.riskStudentCount}
+              </div>
+              <div className="mt-1 text-xs text-rose-800/70">
+                章节 {diagnosis.kpis.riskChapterCount} · 学生 {diagnosis.kpis.riskStudentCount}
+              </div>
+            </div>
+            <ArrowRight className="size-5 text-rose-500" />
+          </div>
+          {highRisk.length > 0 && (
+            <div className="mt-3 space-y-1">
+              {highRisk.map((chapter) => (
+                <div key={chapter.chapterId ?? chapter.title} className="truncate rounded-md bg-white/70 px-2 py-1 text-xs text-rose-900">
+                  {chapter.title} · 均分 {formatPercentNumber(chapter.avgNormalizedScore)}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </button>
+  );
+}
+
 function ScoreDistributionCard({
   diagnosis,
   scoreBins,
+  density = "compact",
   onModeChange,
   onOpenBin,
 }: {
   diagnosis: AnalyticsV2Diagnosis;
   scoreBins: ScoreBinMode;
+  density?: "compact" | "chart";
   onModeChange: (mode: ScoreBinMode) => void;
   onOpenBin: (bin: AnalyticsV2Diagnosis["scoreDistribution"]["bins"][number]) => void;
 }) {
-  const maxCount = Math.max(...diagnosis.scoreDistribution.bins.map((bin) => bin.count), 1);
+  const bins = diagnosis.scoreDistribution.bins;
+  const maxCount = Math.max(...bins.map((bin) => bin.count), 1);
+  const total = bins.reduce((sum, bin) => sum + bin.count, 0);
+  const chartHeight = density === "chart" ? "h-64" : "h-36";
   return (
-    <Card className="rounded-lg">
+    <Card className="rounded-xl border-border/70 bg-white shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <CardTitle className="text-base">学生成绩分布</CardTitle>
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <LineChart className="size-4 text-brand" />
+              学生成绩分布
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {total > 0 ? `当前范围 ${total} 名学生，点击分数段查看名单` : "当前筛选范围暂无已评分学生"}
+            </p>
+          </div>
           <div className="flex rounded-md border p-0.5">
             {(["standard", "ten"] as ScoreBinMode[]).map((mode) => (
               <button
                 key={mode}
                 type="button"
-                className={cn("rounded px-2.5 py-1 text-xs", scoreBins === mode ? "bg-foreground text-background" : "text-muted-foreground")}
+                className={cn("rounded px-2.5 py-1 text-xs transition-colors", scoreBins === mode ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground")}
                 onClick={() => onModeChange(mode)}
               >
                 {BIN_LABELS[mode]}
@@ -732,31 +1028,53 @@ function ScoreDistributionCard({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {diagnosis.scoreDistribution.bins.every((bin) => bin.count === 0) ? (
+      <CardContent className="space-y-4">
+        {bins.every((bin) => bin.count === 0) ? (
           <EmptyInline text="当前范围暂无已评分学生" />
         ) : (
-          diagnosis.scoreDistribution.bins.map((bin) => {
-            const classCounts = countBy(bin.students, (student) => student.className);
-            return (
-              <button key={bin.id} type="button" className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/40" onClick={() => onOpenBin(bin)}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="font-medium">{bin.label}</div>
-                  <div className="text-sm text-muted-foreground">{bin.count} 人</div>
-                </div>
-                <div className="h-3 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(3, (bin.count / maxCount) * 100)}%` }} />
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {classCounts.map((row) => (
-                    <Badge key={row.label} variant="outline" className="rounded-md text-[11px]">
-                      {row.label} {row.count}
-                    </Badge>
-                  ))}
-                </div>
-              </button>
-            );
-          })
+          <>
+            <div className={cn("grid items-end gap-2 rounded-lg border bg-muted/20 px-3 pb-3 pt-6", chartHeight)} style={{ gridTemplateColumns: `repeat(${bins.length}, minmax(0, 1fr))` }}>
+              {bins.map((bin) => {
+                const percent = bin.count === 0 ? 0 : Math.max(8, (bin.count / maxCount) * 100);
+                const active = bin.count > 0;
+                return (
+                  <button
+                    key={bin.id}
+                    type="button"
+                    className="group flex h-full min-w-0 flex-col items-center justify-end gap-2 text-center"
+                    onClick={() => onOpenBin(bin)}
+                    disabled={!active}
+                    title={`${bin.label}: ${bin.count} 人`}
+                  >
+                    <span className={cn("text-[11px] font-medium", active ? "text-foreground" : "text-muted-foreground")}>{bin.count}</span>
+                    <span className="flex h-full w-full items-end justify-center">
+                      <span
+                        className={cn(
+                          "w-full max-w-12 rounded-t-md transition-colors",
+                          active ? "bg-gradient-to-t from-brand to-blue-400 group-hover:from-brand/90" : "bg-muted",
+                        )}
+                        style={{ height: `${percent}%` }}
+                      />
+                    </span>
+                    <span className="line-clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">{bin.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className={cn("grid gap-2", density === "chart" ? "md:grid-cols-5" : "md:grid-cols-2")}>
+              {(density === "chart" ? bins : bins.filter((bin) => bin.count > 0)).map((bin) => (
+                <button
+                  key={`${bin.id}-summary`}
+                  type="button"
+                  className="flex items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition-colors hover:border-brand/50 hover:bg-muted/30"
+                  onClick={() => onOpenBin(bin)}
+                >
+                  <span className="truncate text-muted-foreground">{bin.label}</span>
+                  <span className="ml-2 font-semibold">{bin.count} 人</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -765,144 +1083,214 @@ function ScoreDistributionCard({
 
 function TaskPerformanceCard({
   diagnosis,
+  density = "compact",
   onSelectTask,
   onEvidence,
 }: {
   diagnosis: AnalyticsV2Diagnosis;
+  density?: "compact" | "chart";
   onSelectTask: (id: string) => void;
   onEvidence: (summary: EvidenceSummary) => void;
 }) {
   const perf = diagnosis.taskPerformance;
+  const taskLimit = density === "chart" ? 6 : 5;
   if (perf.mode === "single") {
     return (
-      <Card className="rounded-lg">
+      <Card className="rounded-xl border-border/70 bg-white shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">任务表现</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Activity className="size-4 text-brand" />
+            任务表现
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <EvidenceSection title="高分典型例子" items={perf.highExamples} emptyText="当前任务暂无高分证据" onEvidence={onEvidence} />
-          <div className="space-y-2">
-            <div className="text-sm font-medium">低分主要问题</div>
-            {perf.lowIssues.length === 0 ? (
-              <EmptyInline text="当前任务暂无明显低分问题" />
-            ) : (
-              perf.lowIssues.map((issue) => (
-                <div key={issue.id} className="rounded-md border p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-medium leading-5">{issue.title}</div>
-                    <Badge variant="secondary" className="rounded-md">
-                      {issue.metric === null ? "无" : `${Math.round(issue.metric * 100) / 100}${issue.metric <= 1 ? "" : "%"}`}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">{issue.detail}</p>
-                  <div className="mt-2 grid gap-2">
-                    {issue.evidence.map((item) => (
-                      <EvidenceButton key={item.submissionId} item={item} onEvidence={onEvidence} />
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+        <CardContent className="grid gap-3 lg:grid-cols-2">
+          <EvidenceSection title="高分典型表现" items={perf.highExamples} emptyText="当前任务暂无高分证据" onEvidence={onEvidence} tone="success" />
+          <LowIssueSection issues={perf.lowIssues} onEvidence={onEvidence} />
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className="rounded-lg">
+    <Card className="rounded-xl border-border/70 bg-white shadow-sm">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">任务表现</CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="size-4 text-brand" />
+              任务表现
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {perf.taskComparisons.length > 0 ? `按当前筛选范围展示 ${perf.taskComparisons.length} 个任务` : "当前范围暂无任务实例"}
+            </p>
+          </div>
+          <Badge variant="outline" className="rounded-full">
+            {diagnosis.scope.taskType ? TASK_TYPE_LABELS[diagnosis.scope.taskType] : "全部模式"}
+          </Badge>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-3">
         {perf.taskComparisons.length === 0 ? (
           <EmptyInline text="当前范围暂无任务实例" />
         ) : (
-          perf.taskComparisons.slice(0, 9).map((task) => (
-            <button key={task.instanceId} type="button" className="w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/40" onClick={() => onSelectTask(task.instanceId)}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{task.title}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {TASK_TYPE_LABELS[task.taskType]} · {task.className} · {task.chapterTitle ?? "未绑定章节"}
+          <>
+            {density === "chart" && (
+              <div className="grid gap-3 md:grid-cols-2">
+                <EvidenceSection title="高分典型表现" items={perf.highExamples.slice(0, 3)} emptyText="暂无高分证据" onEvidence={onEvidence} tone="success" />
+                <LowIssueSection issues={perf.lowIssues.slice(0, 3)} onEvidence={onEvidence} />
+              </div>
+            )}
+            <div className="space-y-2">
+              {perf.taskComparisons.slice(0, taskLimit).map((task) => (
+                <button
+                  key={task.instanceId}
+                  type="button"
+                  className="w-full rounded-lg border px-3 py-2.5 text-left transition-colors hover:border-brand/50 hover:bg-muted/30"
+                  onClick={() => onSelectTask(task.instanceId)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{task.title}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <Badge variant="outline" className="rounded-md px-1.5 py-0 text-[10px]">{TASK_TYPE_LABELS[task.taskType]}</Badge>
+                        <span>{task.className}</span>
+                        <span>·</span>
+                        <span className="truncate">{task.sectionTitle ?? task.chapterTitle ?? "未绑定章节"}</span>
+                      </div>
+                    </div>
+                    <Badge variant={task.riskLevel === "high" ? "destructive" : task.riskLevel === "medium" ? "secondary" : "outline"} className="shrink-0 rounded-md">
+                      {task.riskLevel === "high" ? "高风险" : task.riskLevel === "medium" ? "需关注" : "稳定"}
+                    </Badge>
                   </div>
-                </div>
-                <Badge variant={task.riskLevel === "high" ? "destructive" : task.riskLevel === "medium" ? "secondary" : "outline"} className="shrink-0 rounded-md">
-                  {task.riskLevel === "high" ? "高风险" : task.riskLevel === "medium" ? "需关注" : "稳定"}
-                </Badge>
-              </div>
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <MetricBar label="完成率" value={task.completionRate} kind="rate" />
-                <MetricBar label="均分" value={task.avgNormalizedScore} kind="percent" />
-              </div>
-            </button>
-          ))
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <MetricBar label="完成率" value={task.completionRate} kind="rate" />
+                    <MetricBar label="均分" value={task.avgNormalizedScore} kind="percent" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
   );
 }
 
-function EvidenceSection({ title, items, emptyText, onEvidence }: { title: string; items: EvidenceSummary[]; emptyText: string; onEvidence: (summary: EvidenceSummary) => void }) {
+function EvidenceSection({
+  title,
+  items,
+  emptyText,
+  tone = "default",
+  onEvidence,
+}: {
+  title: string;
+  items: EvidenceSummary[];
+  emptyText: string;
+  tone?: "default" | "success";
+  onEvidence: (summary: EvidenceSummary) => void;
+}) {
   return (
-    <div className="space-y-2">
-      <div className="text-sm font-medium">{title}</div>
-      {items.length === 0 ? <EmptyInline text={emptyText} /> : items.map((item) => <EvidenceButton key={item.submissionId} item={item} onEvidence={onEvidence} />)}
+    <div className={cn("space-y-2 rounded-lg border p-3", tone === "success" && "border-emerald-200 bg-emerald-50/50")}>
+      <div className={cn("text-sm font-medium", tone === "success" && "text-emerald-900")}>{title}</div>
+      {items.length === 0 ? (
+        <EmptyInline text={emptyText} />
+      ) : (
+        items.slice(0, 4).map((item) => <EvidenceButton key={item.submissionId} item={item} onEvidence={onEvidence} />)
+      )}
+    </div>
+  );
+}
+
+function LowIssueSection({
+  issues,
+  onEvidence,
+}: {
+  issues: AnalyticsV2Diagnosis["taskPerformance"]["lowIssues"];
+  onEvidence: (summary: EvidenceSummary) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-rose-200 bg-rose-50/40 p-3">
+      <div className="text-sm font-medium text-rose-900">低分共性问题</div>
+      {issues.length === 0 ? (
+        <EmptyInline text="当前范围暂无明显低分问题" />
+      ) : (
+        issues.slice(0, 4).map((issue) => (
+          <div key={issue.id} className="rounded-md bg-white/80 p-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 text-sm font-medium leading-5">{issue.title}</div>
+              <Badge variant="outline" className="shrink-0 rounded-md border-rose-200 text-rose-700">
+                {formatIssueMetric(issue.metric)}
+              </Badge>
+            </div>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{issue.detail}</p>
+            {issue.evidence[0] && (
+              <div className="mt-2">
+                <EvidenceButton item={issue.evidence[0]} onEvidence={onEvidence} />
+              </div>
+            )}
+          </div>
+        ))
+      )}
     </div>
   );
 }
 
 function EvidenceButton({ item, onEvidence }: { item: EvidenceSummary; onEvidence: (summary: EvidenceSummary) => void }) {
   return (
-    <button type="button" onClick={() => onEvidence(item)} className="w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted/40">
+    <button type="button" onClick={() => onEvidence(item)} className="w-full rounded-md border bg-white px-3 py-2 text-left transition-colors hover:border-brand/50 hover:bg-muted/20">
       <div className="flex items-center justify-between gap-2">
-        <div className="font-medium">{item.title}</div>
-        <Badge variant="outline" className="rounded-md">{TASK_TYPE_LABELS[item.evidenceKind]}</Badge>
+        <div className="truncate text-sm font-medium">{item.title}</div>
+        <Badge variant="outline" className="shrink-0 rounded-md">{TASK_TYPE_LABELS[item.evidenceKind]}</Badge>
       </div>
-      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.excerpt}</p>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.excerpt}</p>
     </button>
   );
 }
 
-function StudyBuddyCard({ diagnosis }: { diagnosis: AnalyticsV2Diagnosis }) {
+function StudyBuddyCard({ diagnosis, density = "compact" }: { diagnosis: AnalyticsV2Diagnosis; density?: "compact" | "chart" }) {
   const data = diagnosis.studyBuddySignals;
+  const limit = density === "chart" ? 8 : 5;
   return (
-    <Card className="rounded-lg">
+    <Card className="rounded-xl border-border/70 bg-white shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageSquareText className="size-4" />
-            Study Buddy
-          </CardTitle>
-          <div className="flex flex-wrap gap-1.5">
-            <Badge variant="outline" className="rounded-md">{data.totalQuestions} 问</Badge>
-            <Badge variant="outline" className="rounded-md">{data.activeStudents} 人</Badge>
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquareText className="size-4 text-brand" />
+              Study Buddy 典型问题
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {data.totalQuestions} 个问题 · {data.activeStudents} 名学生 · {data.pendingQuestions} 个待处理
+            </p>
           </div>
+          <Badge variant="outline" className="shrink-0 rounded-full">{data.groups.length} 组</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
         {data.groups.length === 0 ? (
           <EmptyInline text="当前范围暂无学生提问" />
         ) : (
-          data.groups.slice(0, 8).map((group) => (
-            <div key={group.id} className="rounded-md border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{group.taskTitle}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{group.chapterTitle} / {group.sectionTitle}</div>
-                </div>
-                <Badge variant={group.pendingCount > 0 ? "secondary" : "outline"} className="rounded-md">
-                  {group.questionCount} 问
-                </Badge>
-              </div>
-              <div className="mt-2 space-y-1">
-                {group.topQuestions.slice(0, 3).map((question) => (
-                  <div key={question.question} className="rounded bg-muted/50 px-2 py-1.5 text-xs">
-                    <span className="font-medium">{question.count}x</span>
-                    <span className="ml-2 text-muted-foreground">{question.question}</span>
+          data.groups.slice(0, limit).map((group, index) => (
+            <div key={group.id} className="rounded-lg border px-3 py-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 gap-2">
+                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-brand text-[11px] font-semibold text-white">{index + 1}</span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{group.sectionTitle || group.chapterTitle || group.taskTitle}</div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">{group.taskTitle}</div>
                   </div>
-                ))}
+                </div>
+                <div className="shrink-0 text-right text-xs">
+                  <div className="font-semibold">{group.questionCount} 次</div>
+                  <div className="text-muted-foreground">{group.studentCount} 人</div>
+                </div>
               </div>
+              {group.topQuestions[0] && (
+                <div className="mt-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs leading-5">
+                  <span className="font-medium">{group.topQuestions[0].count}x</span>
+                  <span className="ml-2 text-muted-foreground">{group.topQuestions[0].question}</span>
+                </div>
+              )}
             </div>
           ))
         )}
@@ -914,22 +1302,27 @@ function StudyBuddyCard({ diagnosis }: { diagnosis: AnalyticsV2Diagnosis }) {
 function AiAdviceCard({
   advice,
   job,
+  density = "wide",
   disabled,
   onGenerate,
 }: {
   advice: DataInsightAdvice | null;
   job: AsyncJobSnapshot | null;
+  density?: "wide" | "compact";
   disabled: boolean;
   onGenerate: () => void;
 }) {
   return (
-    <Card className="rounded-lg">
+    <Card className="rounded-xl border-border/70 bg-white shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Brain className="size-4" />
-            AI 教学建议
-          </CardTitle>
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Brain className="size-4 text-brand" />
+              AI 教学建议
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">基于当前筛选范围生成可执行的下一步建议</p>
+          </div>
           <Button size="sm" onClick={onGenerate} disabled={disabled}>
             {disabled ? <Loader2 className="mr-2 size-3.5 animate-spin" /> : <Sparkles className="mr-2 size-3.5" />}
             生成
@@ -943,11 +1336,13 @@ function AiAdviceCard({
           </div>
         ) : advice ? (
           <div className="space-y-3">
-            <p className="text-sm leading-6">{advice.summary}</p>
-            <AdviceList title="知识目标" items={advice.knowledgeGoals} />
-            <AdviceList title="教学方式" items={advice.teachingMethods} />
-            <AdviceList title="关注群体" items={advice.focusGroups} />
-            <AdviceList title="下一步" items={advice.nextActions} />
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-sm leading-6">{advice.summary}</p>
+            <div className={cn("grid gap-3", density === "wide" && "lg:grid-cols-3")}>
+              <AdvicePanel icon={Target} title="知识目标" items={advice.knowledgeGoals} />
+              <AdvicePanel icon={Brain} title="教学方式" items={advice.teachingMethods} />
+              <AdvicePanel icon={Users} title="关注群体" items={advice.focusGroups} />
+            </div>
+            <AdviceList title="下一步动作" items={advice.nextActions} />
             <div className="space-y-1">
               <div className="text-xs font-medium text-muted-foreground">依据</div>
               {advice.evidenceRefs.slice(0, 4).map((ref) => (
@@ -963,6 +1358,78 @@ function AiAdviceCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function RiskListCard({ diagnosis }: { diagnosis: AnalyticsV2Diagnosis }) {
+  return (
+    <Card className="rounded-xl border-border/70 bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShieldAlert className="size-4 text-rose-600" />
+          风险明细
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">高风险章节</div>
+          {diagnosis.risks.chapters.length === 0 ? (
+            <EmptyInline text="暂无风险章节" />
+          ) : (
+            diagnosis.risks.chapters.slice(0, 5).map((chapter) => (
+              <div key={chapter.chapterId ?? chapter.title} className="rounded-lg border border-rose-100 bg-rose-50/40 px-3 py-2">
+                <div className="truncate text-sm font-medium text-rose-950">{chapter.title}</div>
+                <div className="mt-1 text-xs text-rose-800/70">
+                  完成 {formatRate(chapter.completionRate)} · 均分 {formatPercentNumber(chapter.avgNormalizedScore)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">需关注学生</div>
+          {diagnosis.risks.students.length === 0 ? (
+            <EmptyInline text="暂无学生风险" />
+          ) : (
+            diagnosis.risks.students.slice(0, 6).map((student) => (
+              <div key={student.studentId} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{student.studentName}</div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">{student.className}</div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {student.reasons.map((reason) => (
+                    <Badge key={reason} variant="secondary" className="rounded-md text-[10px]">
+                      {REASON_LABELS[reason]}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdvicePanel({ icon: Icon, title, items }: { icon: typeof BarChart3; title: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-lg border bg-blue-50/30 p-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-brand">
+        <Icon className="size-4" />
+        {title}
+      </div>
+      <ul className="space-y-1 text-sm leading-6">
+        {items.slice(0, 4).map((item, index) => (
+          <li key={`${title}-${index}`} className="flex gap-2">
+            <span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand/60" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -1278,15 +1745,6 @@ function isAdvice(value: unknown): value is DataInsightAdvice {
   return Boolean(value && typeof value === "object" && "summary" in value && "fingerprint" in value);
 }
 
-function countBy<T>(items: T[], pick: (item: T) => string) {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const label = pick(item);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-}
-
 function clampProgress(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
@@ -1310,6 +1768,12 @@ function formatPointChange(value: number | null | undefined) {
 function formatRawScore(score: number | null | undefined, maxScore: number | null | undefined) {
   if (score === null || score === undefined) return "无";
   return `${Math.round(score * 10) / 10}/${maxScore ?? "?"}`;
+}
+
+function formatIssueMetric(value: number | null | undefined) {
+  if (value === null || value === undefined) return "无数据";
+  if (value <= 1) return `${Math.round(value * 1000) / 10}%`;
+  return `${Math.round(value * 10) / 10}`;
 }
 
 function formatDateTime(value: string | null | undefined) {
