@@ -208,3 +208,80 @@ describe("getLowScorers / getPendingReleaseList smoke", () => {
     expect(result).toEqual([]);
   });
 });
+
+describe("getScoreBinStudents", () => {
+  it("returns students from the specific bin label across classes", async () => {
+    mk(getAnalyticsV2Diagnosis).mockResolvedValue({
+      ...diagnosisStub({}),
+      scoreDistribution: {
+        bins: [
+          {
+            label: "60-80",
+            min: 60,
+            max: 80,
+            classes: [
+              {
+                classId: "cl-A",
+                classLabel: "A 班",
+                students: [
+                  { id: "s1", name: "Alice", score: 70, taskInstanceId: "inst-1" },
+                ],
+              },
+              {
+                classId: "cl-B",
+                classLabel: "B 班",
+                students: [{ id: "s2", name: "Bob", score: 65 }],
+              },
+            ],
+          },
+        ],
+        binCount: 5,
+        scope: "single_task",
+        totalStudents: 2,
+      },
+    });
+    const { getScoreBinStudents } = await import(
+      "@/lib/services/scope-drilldown.service"
+    );
+    const result = await getScoreBinStudents({ courseId: "c-1" }, "60-80");
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.studentId).sort()).toEqual(["s1", "s2"]);
+    expect(result[0].binLabel).toBe("60-80");
+  });
+
+  it("filters students by classFilter when provided", async () => {
+    mk(getAnalyticsV2Diagnosis).mockResolvedValue({
+      ...diagnosisStub({}),
+      scoreDistribution: {
+        bins: [
+          {
+            label: "0-20",
+            min: 0,
+            max: 20,
+            classes: [
+              {
+                classId: "cl-A",
+                classLabel: "A 班",
+                students: [{ id: "s1", name: "Alice", score: 10 }],
+              },
+              {
+                classId: "cl-B",
+                classLabel: "B 班",
+                students: [{ id: "s2", name: "Bob", score: 5 }],
+              },
+            ],
+          },
+        ],
+        binCount: 5,
+        scope: "single_task",
+        totalStudents: 2,
+      },
+    });
+    const { getScoreBinStudents } = await import(
+      "@/lib/services/scope-drilldown.service"
+    );
+    const result = await getScoreBinStudents({ courseId: "c-1" }, "0-20", "cl-B");
+    expect(result).toHaveLength(1);
+    expect(result[0].studentId).toBe("s2");
+  });
+});

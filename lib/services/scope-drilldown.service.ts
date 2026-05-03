@@ -327,3 +327,40 @@ export async function getRiskStudents(scope: ScopeKey): Promise<RiskStudentDetai
     .slice(0, RESULT_LIMIT);
 }
 
+
+export interface ScoreBinStudent {
+  studentId: string;
+  studentName: string;
+  className: string;
+  classId: string;
+  binLabel: string;
+  score: number;
+  taskInstanceId: string | null;
+}
+
+export async function getScoreBinStudents(
+  scope: ScopeKey,
+  binLabel: string,
+  classFilter?: string,
+): Promise<ScoreBinStudent[]> {
+  const diagnosis = await loadDiagnosis(scope);
+  const bin = diagnosis.scoreDistribution.bins.find((b) => b.label === binLabel);
+  if (!bin) return [];
+  const result: ScoreBinStudent[] = [];
+  for (const bucket of bin.classes) {
+    if (classFilter && bucket.classId !== classFilter) continue;
+    for (const student of bucket.students) {
+      result.push({
+        studentId: student.id,
+        studentName: student.name,
+        className: bucket.classLabel,
+        classId: bucket.classId,
+        binLabel: bin.label,
+        score: student.score,
+        taskInstanceId: student.taskInstanceId ?? null,
+      });
+      if (result.length >= RESULT_LIMIT) return result;
+    }
+  }
+  return result;
+}

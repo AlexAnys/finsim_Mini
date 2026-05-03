@@ -5,6 +5,7 @@ import { assertCourseAccess } from "@/lib/auth/course-access";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import {
   getMissingStudents,
+  getScoreBinStudents,
   getLowScorers,
   getPendingReleaseList,
   getRiskChapters,
@@ -14,6 +15,7 @@ import type { ScopeKey } from "@/lib/services/scope-insights.service";
 
 const TASK_TYPES = new Set<TaskType>(["simulation", "quiz", "subjective"]);
 const KINDS = new Set([
+  "score_bin",
   "completion_rate",
   "avg_score",
   "pending_release",
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
   const kindParam = searchParams.get("kind");
   if (!kindParam || !KINDS.has(kindParam as DrilldownKind)) {
     return validationError(
-      "kind must be one of: completion_rate, avg_score, pending_release, risk_chapter, risk_student",
+      "kind must be one of: score_bin, completion_rate, avg_score, pending_release, risk_chapter, risk_student",
     );
   }
 
@@ -69,6 +71,13 @@ export async function GET(request: NextRequest) {
     await assertCourseAccess(scope.courseId, user.id, user.role);
 
     switch (kindParam as DrilldownKind) {
+      case "score_bin": {
+        const binLabel = searchParams.get("binLabel");
+        const classFilter = searchParams.get("binClassId");
+        if (!binLabel) return validationError("binLabel is required for score_bin");
+        const items = await getScoreBinStudents(scope, binLabel, classFilter ?? undefined);
+        return success({ kind: "score_bin", items });
+      }
       case "completion_rate": {
         const items = await getMissingStudents(scope);
         return success({ kind: "completion_rate", items });

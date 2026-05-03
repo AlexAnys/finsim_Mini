@@ -56,6 +56,10 @@ export interface AnalyticsV2Diagnosis {
     medianNormalizedScore: number | null;
     passRate: number | null;
     pendingReleaseCount: number;
+    pendingReleaseTaskCount: number;
+    weeklyHistory: WeeklyMetricPoint[];
+    previousWeekCompletionRate: number | null;
+    previousWeekAvgScore: number | null;
   };
   chapterClassHeatmap: ChapterClassHeatmapRow[];
   actionItems: ActionItem[];
@@ -70,6 +74,12 @@ export interface AnalyticsV2Diagnosis {
   scoreDistribution: ScoreDistribution;
 }
 
+
+export interface WeeklyMetricPoint {
+  weekStart: string;
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+}
 export interface ScoreDistribution {
   bins: ScoreDistributionBin[];
   binCount: number;
@@ -639,6 +649,10 @@ export async function getAnalyticsV2Diagnosis(
     medianNormalizedScore: median(allScores),
     passRate: rate(allScores.filter((score) => score >= PASS_THRESHOLD).length, allScores.length),
     pendingReleaseCount: 0,
+    pendingReleaseTaskCount: 0,
+    weeklyHistory: [],
+    previousWeekCompletionRate: null,
+    previousWeekAvgScore: null,
   };
   const chapterClassHeatmap = buildChapterClassHeatmap(instanceMetrics);
   const actionItems = buildActionItems(instanceMetrics);
@@ -657,7 +671,24 @@ export async function getAnalyticsV2Diagnosis(
       },
     },
   });
+  const pendingReleaseInstances = await prisma.submission.findMany({
+    where: {
+      releasedAt: null,
+      taskInstance: {
+        ...buildInstanceWhere(input, null),
+        dueAt: { lt: now },
+      },
+    },
+    select: { taskInstanceId: true },
+    distinct: ["taskInstanceId"],
+  });
+  const pendingReleaseTaskCount = pendingReleaseInstances.filter((row) => row.taskInstanceId !== null).length;
   kpis.pendingReleaseCount = pendingReleaseCount;
+  kpis.pendingReleaseTaskCount = pendingReleaseTaskCount;
+  const weeklyMetrics = buildWeeklyHistory(instanceMetrics, now);
+  kpis.weeklyHistory = weeklyMetrics.history;
+  kpis.previousWeekCompletionRate = weeklyMetrics.previousWeekCompletionRate;
+  kpis.previousWeekAvgScore = weeklyMetrics.previousWeekAvgScore;
   const filterOptions = buildFilterOptions(course, optionInstances);
   const scoreDistribution = computeScoreDistribution(input, instanceMetrics, filterOptions.classes);
   const dataQualityFlags = buildDataQualityFlags(instanceMetrics, kpis);
@@ -2204,4 +2235,104 @@ function round1(value: number): number {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function getWeekStartUtc(date: Date): Date {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay();
+  const diff = day === 0 ? 6 : day - 1;
+  d.setUTCDate(d.getUTCDate() - diff);
+  return d;
+}
+
+interface WeeklyHistoryResult {
+  history: WeeklyMetricPoint[];
+  previousWeekCompletionRate: number | null;
+  previousWeekAvgScore: number | null;
+}
+
+function buildWeeklyHistory(
+  metrics: InstanceMetrics[],
+  now: Date,
+): WeeklyHistoryResult {
+  const WEEK_COUNT = 12;
+  const currentWeekStart = getWeekStartUtc(now);
+  const weekKeys: string[] = [];
+  for (let i = WEEK_COUNT - 1; i >= 0; i -= 1) {
+    const ws = new Date(currentWeekStart);
+    ws.setUTCDate(ws.getUTCDate() - i * 7);
+    weekKeys.push(ws.toISOString());
+  }
+
+  const completionByWeek = new Map<string, { submitted: number; assigned: number }>();
+  const scoresByWeek = new Map<string, number[]>();
+
+  for (const metric of metrics) {
+    for (const submission of metric.instance.submissions) {
+      const submittedAt = submission.submittedAt
+        ? new Date(submission.submittedAt)
+        : null;
+      if (!submittedAt || Number.isNaN(submittedAt.getTime())) continue;
+      const weekStart = getWeekStartUtc(submittedAt).toISOString();
+      if (!weekKeys.includes(weekStart)) continue;
+      const completionRow = completionByWeek.get(weekStart) ?? {
+        submitted: 0,
+        assigned: 0,
+      };
+      completionRow.submitted += 1;
+      completionByWeek.set(weekStart, completionRow);
+      const normalized = normalizeScore(submission.score, submission.maxScore);
+      if (submission.status === "graded" && normalized !== null) {
+        const arr = scoresByWeek.get(weekStart) ?? [];
+        arr.push(normalized);
+        scoresByWeek.set(weekStart, arr);
+      }
+    }
+    if (metric.assignedCount > 0) {
+      for (const wk of weekKeys) {
+        const row = completionByWeek.get(wk);
+        if (row) {
+          row.assigned += metric.assignedCount;
+          completionByWeek.set(wk, row);
+        }
+      }
+    }
+  }
+
+  const history: WeeklyMetricPoint[] = weekKeys.map((wk) => {
+    const completionRow = completionByWeek.get(wk);
+    const completionRate =
+      completionRow && completionRow.assigned > 0
+        ? rate(completionRow.submitted, completionRow.assigned)
+        : null;
+    const scores = scoresByWeek.get(wk);
+    const avgNormalizedScore = scores && scores.length > 0 ? average(scores) : null;
+    return { weekStart: wk, completionRate, avgNormalizedScore };
+  });
+
+  const previous = history[history.length - 2] ?? null;
+  return {
+    history,
+    previousWeekCompletionRate: previous?.completionRate ?? null,
+    previousWeekAvgScore: previous?.avgNormalizedScore ?? null,
+  };
+}
+
+export function getScoreBinStudents(
+  distribution: ScoreDistribution,
+  binLabel: string,
+  classId?: string,
+): ScoreDistributionStudent[] {
+  const bin = distribution.bins.find((b) => b.label === binLabel);
+  if (!bin) return [];
+  const buckets = classId
+    ? bin.classes.filter((b) => b.classId === classId)
+    : bin.classes;
+  const students: ScoreDistributionStudent[] = [];
+  for (const bucket of buckets) {
+    for (const s of bucket.students) {
+      students.push(s);
+    }
+  }
+  return students;
 }

@@ -16,9 +16,11 @@ import type {
   PendingSubmission,
   RiskChapterDetail,
   RiskStudentDetail,
+  ScoreBinStudent,
 } from "@/lib/services/scope-drilldown.service";
 
 export type RiskDrawerKind =
+  | "score_bin"
   | "completion_rate"
   | "avg_score"
   | "pending_release"
@@ -89,6 +91,21 @@ function RenderState({ state }: { state: RiskDrawerState }) {
 }
 
 function RenderList({ kind, items }: { kind: RiskDrawerKind; items: unknown[] }) {
+  if (kind === "score_bin") {
+    return (
+      <div className="space-y-2">
+        {(items as ScoreBinStudent[]).map((item, idx) => (
+          <Row
+            key={`${item.studentId}-${item.taskInstanceId ?? "none"}-${idx}`}
+            primary={`${item.studentName} · ${item.className}`}
+            secondary={`分数区间 ${item.binLabel}`}
+            badge={<Badge variant="outline" className="rounded-md font-mono">{item.score}%</Badge>}
+            links={[insightsLink(item.taskInstanceId)]}
+          />
+        ))}
+      </div>
+    );
+  }
   if (kind === "completion_rate") {
     return (
       <div className="space-y-2">
@@ -281,6 +298,7 @@ function ErrorState({ message }: { message: string }) {
 
 function EmptyHint({ kind }: { kind: RiskDrawerKind }) {
   const labels: Record<RiskDrawerKind, string> = {
+    score_bin: "该分数区间学生",
     completion_rate: "未提交学生",
     avg_score: "低分学生",
     pending_release: "待发布作业",
@@ -296,6 +314,7 @@ function EmptyHint({ kind }: { kind: RiskDrawerKind }) {
 
 function headerTitle(kind: RiskDrawerKind, count: number, loading: boolean): string {
   const labels: Record<RiskDrawerKind, [string, string]> = {
+    score_bin: ["分数区间学生", "人"],
     completion_rate: ["未提交学生", "人"],
     avg_score: ["低分学生", "人"],
     pending_release: ["待发布作业", "件"],
@@ -309,6 +328,7 @@ function headerTitle(kind: RiskDrawerKind, count: number, loading: boolean): str
 
 function headerDescription(kind: RiskDrawerKind): string {
   const map: Record<RiskDrawerKind, string> = {
+    score_bin: "该分数区间内的学生 · 限 50 行",
     completion_rate: "尚未提交当前范围任务的学生 · 限 50 行",
     avg_score: "归一化得分低于 60% 的提交 · 限 50 行",
     pending_release: "DDL 已到但分数尚未发布给学生 · 限 50 行",

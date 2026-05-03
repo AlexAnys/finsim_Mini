@@ -6,12 +6,13 @@ vi.mock("@/lib/db/prisma", () => ({
     taskInstance: { findMany: vi.fn() },
     user: { findMany: vi.fn() },
     studentGroup: { findMany: vi.fn() },
-    submission: { count: vi.fn(async () => 0) },
+    submission: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
   },
 }));
 
 import { prisma } from "@/lib/db/prisma";
 import {
+  getScoreBinStudents,
   buildStudentInstanceAttempts,
   extractWeaknessSignals,
   getAnalyticsV2Diagnosis,
@@ -735,5 +736,193 @@ describe("getAnalyticsV2Diagnosis", () => {
         expect.objectContaining({ id: "inst-2:assignment-missing-with-submissions", category: "assignment" }),
       ]),
     );
+  });
+});
+
+describe("phase 7 KPI extension", () => {
+  it("returns 12 weekly history points and computes previous-week deltas", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-current",
+              studentId: "s1",
+              status: "graded",
+              score: 8,
+              maxScore: 10,
+              submittedAt: "2026-01-12T00:00:00Z",
+            }),
+            submission({
+              id: "sub-previous",
+              studentId: "s2",
+              status: "graded",
+              score: 6,
+              maxScore: 10,
+              submittedAt: "2026-01-05T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-13T00:00:00Z"),
+    });
+
+    expect(result.kpis.weeklyHistory).toHaveLength(12);
+    const lastWeek = result.kpis.weeklyHistory[result.kpis.weeklyHistory.length - 1];
+    expect(lastWeek.weekStart).toBe("2026-01-12T00:00:00.000Z");
+    expect(result.kpis.previousWeekAvgScore).toBe(60);
+    expect(result.kpis.weeklyHistory[10].avgNormalizedScore).toBe(60);
+    expect(result.kpis.weeklyHistory[11].avgNormalizedScore).toBe(80);
+  });
+
+  it("counts pending release task count by distinct task instance", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.submission.count).mockResolvedValue(12);
+    mk(prisma.submission.findMany).mockResolvedValue([
+      { taskInstanceId: "inst-1" },
+      { taskInstanceId: "inst-2" },
+      { taskInstanceId: "inst-3" },
+    ]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-13T00:00:00Z"),
+    });
+
+    expect(result.kpis.pendingReleaseCount).toBe(12);
+    expect(result.kpis.pendingReleaseTaskCount).toBe(3);
+  });
+
+  it("returns null previous week when nothing in that bucket", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-now",
+              studentId: "s1",
+              status: "graded",
+              score: 8,
+              maxScore: 10,
+              submittedAt: "2026-01-12T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-13T00:00:00Z"),
+    });
+
+    expect(result.kpis.previousWeekAvgScore).toBeNull();
+    expect(result.kpis.previousWeekCompletionRate).toBeNull();
+  });
+});
+
+describe("getScoreBinStudents", () => {
+  it("collects students from a specific bin across all classes when classId omitted", () => {
+    const students = getScoreBinStudents(
+      {
+        bins: [
+          {
+            label: "60-80",
+            min: 60,
+            max: 80,
+            classes: [
+              {
+                classId: "c1",
+                classLabel: "A 班",
+                students: [{ id: "s1", name: "S1", score: 70 }],
+              },
+              {
+                classId: "c2",
+                classLabel: "B 班",
+                students: [{ id: "s2", name: "S2", score: 65 }],
+              },
+            ],
+          },
+        ],
+        binCount: 5,
+        scope: "single_task",
+        totalStudents: 2,
+      },
+      "60-80",
+    );
+    expect(students).toHaveLength(2);
+    expect(students.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("filters students by classId when provided", () => {
+    const students = getScoreBinStudents(
+      {
+        bins: [
+          {
+            label: "60-80",
+            min: 60,
+            max: 80,
+            classes: [
+              {
+                classId: "c1",
+                classLabel: "A 班",
+                students: [{ id: "s1", name: "S1", score: 70 }],
+              },
+              {
+                classId: "c2",
+                classLabel: "B 班",
+                students: [{ id: "s2", name: "S2", score: 65 }],
+              },
+            ],
+          },
+        ],
+        binCount: 5,
+        scope: "single_task",
+        totalStudents: 2,
+      },
+      "60-80",
+      "c2",
+    );
+    expect(students).toHaveLength(1);
+    expect(students[0].id).toBe("s2");
+  });
+
+  it("returns empty array when bin label not found", () => {
+    const students = getScoreBinStudents(
+      {
+        bins: [],
+        binCount: 5,
+        scope: "single_task",
+        totalStudents: 0,
+      },
+      "0-20",
+    );
+    expect(students).toEqual([]);
   });
 });
