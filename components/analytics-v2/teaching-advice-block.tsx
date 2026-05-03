@@ -15,7 +15,6 @@ import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ComingSoon } from "@/components/analytics-v2/coming-soon";
 import { cn } from "@/lib/utils";
 import type {
   AdviceFocusGroup,
@@ -53,15 +52,15 @@ export function TeachingAdviceBlock({
   const sourceLabel = data?.source === "cache" ? "缓存" : data?.source === "fallback" ? "降级" : "已生成";
 
   return (
-    <Card className="rounded-lg">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Lightbulb className="size-4 text-brand" />
+    <Card className="rounded-lg flex flex-col overflow-hidden">
+      <CardHeader className="pb-2 shrink-0">
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-0.5">
+            <CardTitle className="flex items-center gap-1.5 text-sm">
+              <Lightbulb className="size-3.5 text-brand" />
               AI 教学建议
             </CardTitle>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {generatedLabel ? `${sourceLabel} · ${generatedLabel}` : "尚未生成"}
             </p>
           </div>
@@ -69,162 +68,166 @@ export function TeachingAdviceBlock({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 text-xs"
+              className="h-7 gap-1 text-[11px]"
               onClick={onRefresh}
               disabled={refreshing || loading}
             >
               {refreshing ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Loader2 className="size-3 animate-spin" />
               ) : (
-                <RefreshCw className="size-3.5" />
+                <RefreshCw className="size-3" />
               )}
               重新生成
             </Button>
           )}
         </div>
         {data?.notice && (
-          <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-800">
-            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+          <div className="mt-1 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/50 px-2 py-1 text-[11px] text-amber-800">
+            <AlertCircle className="mt-0.5 size-3 shrink-0" />
             <span>{data.notice}</span>
           </div>
         )}
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="px-4 pb-3 pt-0">
         {loading ? (
           <LoadingState />
         ) : isEmpty ? (
-          <ComingSoon
-            icon={Lightbulb}
-            title="AI 教学建议 · 暂无数据"
-            description="当前范围内没有足够数据生成教学建议；请等学生提交批改后再试。"
-          />
+          <EmptyPanel icon={Lightbulb} title="AI 教学建议 · 暂无数据" description="当前范围内没有足够数据生成教学建议；请等学生提交批改后再试。" />
         ) : data ? (
-          <>
-            <KnowledgeGoalsSection items={data.knowledgeGoals} />
-            <PedagogySection items={data.pedagogyAdvice} />
-            <FocusGroupsSection items={data.focusGroups} studentNamesById={studentNamesById} />
-            <NextStepsSection items={data.nextSteps} />
-          </>
+          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+            <ColumnCard
+              icon={Lightbulb}
+              iconClass="text-brand"
+              title="知识目标"
+              count={data.knowledgeGoals.length}
+            >
+              <ColumnList
+                items={data.knowledgeGoals}
+                renderPrimary={(item: AdviceKnowledgeGoal) => item.point}
+                renderEvidence={(item) => item.evidence}
+              />
+            </ColumnCard>
+            <ColumnCard
+              icon={BookOpen}
+              iconClass="text-success"
+              title="教学方式"
+              count={data.pedagogyAdvice.length}
+            >
+              <ColumnList
+                items={data.pedagogyAdvice}
+                renderPrimary={(item: AdvicePedagogyAdvice) => item.method}
+                renderEvidence={(item) => item.evidence}
+              />
+            </ColumnCard>
+            <ColumnCard
+              icon={Users}
+              iconClass="text-brand-violet"
+              title="关注群体"
+              count={data.focusGroups.length}
+            >
+              <ColumnList
+                items={data.focusGroups}
+                renderPrimary={(item: AdviceFocusGroup) => item.group}
+                renderSub={(item) => item.action}
+                renderEvidence={(item) => item.evidence}
+                renderFooter={(item) => {
+                  const studentNames = item.studentIds
+                    .map((id) => studentNamesById?.get(id) ?? null)
+                    .filter((name): name is string => Boolean(name));
+                  if (studentNames.length === 0) return null;
+                  return (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {studentNames.slice(0, 6).map((name, idx) => (
+                        <Badge
+                          key={`${name}-${idx}`}
+                          variant="outline"
+                          className="rounded-md text-[10px]"
+                        >
+                          {name}
+                        </Badge>
+                      ))}
+                      {studentNames.length > 6 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          ...等 {studentNames.length - 6} 人
+                        </span>
+                      )}
+                    </div>
+                  );
+                }}
+              />
+            </ColumnCard>
+            <ColumnCard
+              icon={ArrowRight}
+              iconClass="text-ochre"
+              title="接下来怎么教"
+              count={data.nextSteps.length}
+            >
+              <ColumnList
+                items={data.nextSteps}
+                renderPrimary={(item: AdviceNextStep) => item.step}
+                renderEvidence={(item) => item.evidence}
+              />
+            </ColumnCard>
+          </div>
         ) : null}
       </CardContent>
     </Card>
   );
 }
 
-function KnowledgeGoalsSection({ items }: { items: AdviceKnowledgeGoal[] }) {
-  return (
-    <SectionShell icon={Lightbulb} title="知识目标" count={items.length}>
-      <ItemList
-        items={items}
-        renderItem={(item, idx, expanded, toggle) => (
-          <AdviceItemRow key={idx} primary={item.point} evidence={item.evidence} expanded={expanded} toggle={toggle} />
-        )}
-      />
-    </SectionShell>
-  );
-}
-
-function PedagogySection({ items }: { items: AdvicePedagogyAdvice[] }) {
-  return (
-    <SectionShell icon={BookOpen} title="教学方式" count={items.length}>
-      <ItemList
-        items={items}
-        renderItem={(item, idx, expanded, toggle) => (
-          <AdviceItemRow key={idx} primary={item.method} evidence={item.evidence} expanded={expanded} toggle={toggle} />
-        )}
-      />
-    </SectionShell>
-  );
-}
-
-function FocusGroupsSection({
-  items,
-  studentNamesById,
-}: {
-  items: AdviceFocusGroup[];
-  studentNamesById?: Map<string, string>;
-}) {
-  return (
-    <SectionShell icon={Users} title="关注群体" count={items.length}>
-      <ItemList
-        items={items}
-        renderItem={(item, idx, expanded, toggle) => (
-          <FocusGroupRow
-            key={idx}
-            item={item}
-            expanded={expanded}
-            toggle={toggle}
-            studentNamesById={studentNamesById}
-          />
-        )}
-      />
-    </SectionShell>
-  );
-}
-
-function NextStepsSection({ items }: { items: AdviceNextStep[] }) {
-  return (
-    <SectionShell icon={ArrowRight} title="接下来怎么教" count={items.length}>
-      <ItemList
-        items={items}
-        renderItem={(item, idx, expanded, toggle) => (
-          <AdviceItemRow key={idx} primary={item.step} evidence={item.evidence} expanded={expanded} toggle={toggle} />
-        )}
-      />
-    </SectionShell>
-  );
-}
-
-function SectionShell({
+function ColumnCard({
   icon: Icon,
+  iconClass,
   title,
   count,
   children,
 }: {
   icon: LucideIcon;
+  iconClass: string;
   title: string;
   count: number;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Icon className="size-3.5 text-muted-foreground" />
-        <span>{title}</span>
+    <div className="flex flex-col rounded-md border bg-background overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-2.5 py-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-medium">
+          <Icon className={cn("size-3.5", iconClass)} />
+          <span>{title}</span>
+        </div>
         <Badge variant="outline" className="rounded-md text-[10px]">
           {count}
         </Badge>
       </div>
-      {count === 0 ? (
-        <div className="rounded-md border border-dashed py-3 text-center text-xs text-muted-foreground">
-          暂无相关建议
-        </div>
-      ) : (
-        <div className="space-y-1.5">{children}</div>
-      )}
+      <div className="max-h-[240px] flex-1 overflow-y-auto px-2 py-2">
+        {count === 0 ? (
+          <div className="rounded-md border border-dashed py-3 text-center text-[11px] text-muted-foreground">
+            暂无相关建议
+          </div>
+        ) : (
+          children
+        )}
+      </div>
     </div>
   );
 }
 
-const VISIBLE_THRESHOLD = 4;
-
-function ItemList<T>({
+function ColumnList<T>({
   items,
-  renderItem,
+  renderPrimary,
+  renderSub,
+  renderEvidence,
+  renderFooter,
 }: {
   items: T[];
-  renderItem: (
-    item: T,
-    idx: number,
-    expanded: boolean,
-    toggle: () => void,
-  ) => React.ReactNode;
+  renderPrimary: (item: T) => string;
+  renderSub?: (item: T) => string;
+  renderEvidence: (item: T) => string;
+  renderFooter?: (item: T) => React.ReactNode;
 }) {
-  const [showAll, setShowAll] = useState(false);
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set());
-  const visible = showAll ? items : items.slice(0, VISIBLE_THRESHOLD);
-  function toggleRow(idx: number) {
-    setExpandedRows((prev) => {
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  function toggle(idx: number) {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(idx)) next.delete(idx);
       else next.add(idx);
@@ -232,113 +235,49 @@ function ItemList<T>({
     });
   }
   return (
-    <>
-      {visible.map((item, idx) => renderItem(item, idx, expandedRows.has(idx), () => toggleRow(idx)))}
-      {items.length > VISIBLE_THRESHOLD && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-full text-xs"
-          onClick={() => setShowAll((s) => !s)}
-        >
-          {showAll ? "收起" : `展开剩余 ${items.length - VISIBLE_THRESHOLD} 条`}
-        </Button>
-      )}
-    </>
-  );
-}
-
-function AdviceItemRow({
-  primary,
-  evidence,
-  expanded,
-  toggle,
-}: {
-  primary: string;
-  evidence: string;
-  expanded: boolean;
-  toggle: () => void;
-}) {
-  return (
-    <div className="rounded-md border bg-background px-3 py-2">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium leading-5">{primary}</p>
-        <button
-          type="button"
-          onClick={toggle}
-          className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-        >
-          <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
-          {expanded ? "收起依据" : "依据"}
-        </button>
-      </div>
-      {expanded && <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{evidence}</p>}
-    </div>
-  );
-}
-
-function FocusGroupRow({
-  item,
-  expanded,
-  toggle,
-  studentNamesById,
-}: {
-  item: AdviceFocusGroup;
-  expanded: boolean;
-  toggle: () => void;
-  studentNamesById?: Map<string, string>;
-}) {
-  const studentNames = item.studentIds
-    .map((id) => studentNamesById?.get(id) ?? null)
-    .filter((name): name is string => Boolean(name));
-  return (
-    <div className="rounded-md border bg-background px-3 py-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-medium leading-5">
-            {item.group}
-            {item.studentIds.length > 0 && (
-              <Badge variant="outline" className="ml-2 rounded-md text-[10px]">
-                {item.studentIds.length} 名学生
-              </Badge>
-            )}
-          </p>
-          <p className="text-xs text-muted-foreground">{item.action}</p>
-        </div>
-        <button
-          type="button"
-          onClick={toggle}
-          className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-        >
-          <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
-          {expanded ? "收起" : "依据"}
-        </button>
-      </div>
-      {expanded && (
-        <div className="mt-2 space-y-2">
-          <p className="text-xs leading-5 text-muted-foreground">{item.evidence}</p>
-          {studentNames.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {studentNames.slice(0, 12).map((name, idx) => (
-                <Badge key={`${name}-${idx}`} variant="outline" className="rounded-md text-[10px]">
-                  {name}
-                </Badge>
-              ))}
-              {studentNames.length > 12 && (
-                <span className="text-[10px] text-muted-foreground">...等 {studentNames.length - 12} 人</span>
-              )}
+    <div className="space-y-1.5">
+      {items.map((item, idx) => {
+        const isExpanded = expanded.has(idx);
+        return (
+          <div
+            key={idx}
+            className="rounded-md border bg-background px-2 py-1.5"
+          >
+            <div className="flex items-start justify-between gap-1">
+              <p className="text-[11px] leading-4 font-medium">{renderPrimary(item)}</p>
+              <button
+                type="button"
+                onClick={() => toggle(idx)}
+                className="flex shrink-0 items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown
+                  className={cn("size-3 transition-transform", isExpanded && "rotate-180")}
+                />
+                {isExpanded ? "收" : "据"}
+              </button>
             </div>
-          )}
-        </div>
-      )}
+            {renderSub && (
+              <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                {renderSub(item)}
+              </p>
+            )}
+            {isExpanded && (
+              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                {renderEvidence(item)}
+              </p>
+            )}
+            {renderFooter && renderFooter(item)}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="flex min-h-[280px] items-center justify-center text-sm text-muted-foreground">
-      <Loader2 className="mr-2 size-4 animate-spin" />
+    <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
+      <Loader2 className="mr-2 size-3.5 animate-spin" />
       正在生成 AI 教学建议
     </div>
   );
@@ -351,4 +290,24 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function EmptyPanel({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: import("lucide-react").LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 px-4 text-center">
+      <div className="flex size-9 items-center justify-center rounded-full bg-muted/50">
+        <Icon className="size-4 text-muted-foreground" />
+      </div>
+      <p className="text-xs font-medium">{title}</p>
+      <p className="max-w-[240px] text-[11px] leading-4 text-muted-foreground">{description}</p>
+    </div>
+  );
 }
