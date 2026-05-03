@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,6 +47,7 @@ interface FilterOptionsSection {
 }
 
 interface AnalyticsV2DiagnosisShape {
+  scope?: { courseTitle?: string };
   filterOptions: {
     classes: FilterOptionsClass[];
     chapters: FilterOptionsChapter[];
@@ -78,6 +79,7 @@ export interface InsightsFilterBarProps {
   recomputeJob: AsyncJobSnapshot | null;
   recomputeStarting: boolean;
   scopeTags: string[];
+  generatedAt?: string | null;
   onReplaceQuery: (updates: Record<string, string | string[] | null>) => void;
   onReset: () => void;
   onStartRecompute: () => void;
@@ -105,6 +107,7 @@ export function InsightsFilterBar({
   recomputeJob,
   recomputeStarting,
   scopeTags,
+  generatedAt,
   onReplaceQuery,
   onReset,
   onStartRecompute,
@@ -140,200 +143,142 @@ export function InsightsFilterBar({
   const recomputeRunning =
     recomputeJob?.status === "queued" || recomputeJob?.status === "running";
 
+  const detailedFilterCount =
+    (sectionId ? 1 : 0) + (taskInstanceId ? 1 : 0) + (range !== "term" ? 1 : 0);
+
   return (
     <section
       aria-label="数据洞察筛选"
-      className="space-y-3 rounded-lg border bg-card px-4 py-3"
+      className="flex flex-wrap items-center gap-2"
     >
-      <div className="flex flex-wrap items-end gap-3">
-        <FilterField label="课程" minWidth={180}>
-          <Select
-            value={courseId || ALL}
-            onValueChange={(value) =>
-              onReplaceQuery({
-                courseId: value === ALL ? null : value,
-                chapterId: null,
-                sectionId: null,
-                classIds: null,
-                taskType: null,
-                taskInstanceId: null,
-              })
-            }
-            disabled={coursesLoading}
-          >
-            <SelectTrigger className="h-9 w-full rounded-md">
-              <SelectValue placeholder="选择课程" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>选择课程</SelectItem>
-              {courses.map((course) => (
-                <SelectItem key={course.id} value={course.id}>
-                  {course.class?.name
-                    ? `${course.courseTitle} · ${course.class.name}`
-                    : course.courseTitle}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FilterField>
+      <CourseSelect
+        courses={courses}
+        courseId={courseId}
+        coursesLoading={coursesLoading}
+        onChange={(value) =>
+          onReplaceQuery({
+            courseId: value,
+            chapterId: null,
+            sectionId: null,
+            classIds: null,
+            taskType: null,
+            taskInstanceId: null,
+          })
+        }
+      />
 
-        <FilterField label="章节" minWidth={160}>
-          <Select
-            value={chapterId || ALL}
-            onValueChange={(value) =>
-              onReplaceQuery({
-                chapterId: value === ALL ? null : value,
-                sectionId: null,
-                taskInstanceId: null,
-              })
-            }
-            disabled={!diagnosis}
-          >
-            <SelectTrigger className="h-9 w-full rounded-md">
-              <SelectValue placeholder="全部" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>全部章节</SelectItem>
-              {(diagnosis?.filterOptions.chapters ?? []).map((chapter) => (
-                <SelectItem key={chapter.id} value={chapter.id}>
-                  {chapter.order}. {chapter.title}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FilterField>
+      <ClassMultiSelect
+        classes={diagnosis?.filterOptions.classes ?? []}
+        selected={classIds}
+        disabled={!diagnosis}
+        onChange={(next) =>
+          onReplaceQuery({ classIds: next.length === 0 ? null : next })
+        }
+      />
 
-        <FilterField label="小节" minWidth={160}>
-          <Select
-            value={sectionId || ALL}
-            onValueChange={(value) =>
-              onReplaceQuery({
-                sectionId: value === ALL ? null : value,
-                taskInstanceId: null,
-              })
-            }
-            disabled={!diagnosis}
-          >
-            <SelectTrigger className="h-9 w-full rounded-md">
-              <SelectValue placeholder="全部" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>全部小节</SelectItem>
-              {filteredSections.map((section) => (
-                <SelectItem key={section.id} value={section.id}>
-                  {section.order}. {section.title}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FilterField>
+      <ChapterSelect
+        chapters={diagnosis?.filterOptions.chapters ?? []}
+        chapterId={chapterId}
+        disabled={!diagnosis}
+        onChange={(value) =>
+          onReplaceQuery({
+            chapterId: value,
+            sectionId: null,
+            taskInstanceId: null,
+          })
+        }
+      />
 
-        <FilterField label="任务" minWidth={200}>
-          <Select
-            value={taskInstanceId || ALL}
-            onValueChange={(value) =>
-              onReplaceQuery({
-                taskInstanceId: value === ALL ? null : value,
-              })
-            }
-            disabled={!diagnosis}
-          >
-            <SelectTrigger className="h-9 w-full rounded-md">
-              <SelectValue placeholder="全部" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>全部任务</SelectItem>
-              {filteredInstances.map((instance) => (
-                <SelectItem key={instance.id} value={instance.id}>
-                  {instance.title} · {TASK_TYPE_LABELS[instance.taskType]} · {instance.className}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FilterField>
+      <DetailedFilterPopover
+        diagnosis={diagnosis}
+        sections={filteredSections}
+        instances={filteredInstances}
+        sectionId={sectionId}
+        taskInstanceId={taskInstanceId}
+        range={range}
+        scopeTags={scopeTags}
+        recomputeRunning={recomputeRunning}
+        recomputeStarting={recomputeStarting}
+        recomputeProgress={recomputeJob?.progress ?? 0}
+        countBadge={detailedFilterCount}
+        onReplaceQuery={onReplaceQuery}
+        onReset={onReset}
+        onStartRecompute={onStartRecompute}
+        canReset={Boolean(courseId)}
+      />
 
-        <FilterField label="班级" minWidth={180}>
-          <ClassMultiSelect
-            classes={diagnosis?.filterOptions.classes ?? []}
-            selected={classIds}
-            disabled={!diagnosis}
-            onChange={(next) =>
-              onReplaceQuery({ classIds: next.length === 0 ? null : next })
-            }
-          />
-        </FilterField>
-
-        <FilterField label="时间" minWidth={140}>
-          <Select
-            value={range}
-            onValueChange={(value) => onReplaceQuery({ range: value })}
-          >
-            <SelectTrigger className="h-9 w-full rounded-md">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="term">{RANGE_LABELS.term}</SelectItem>
-              <SelectItem value="30d">{RANGE_LABELS["30d"]}</SelectItem>
-              <SelectItem value="7d">{RANGE_LABELS["7d"]}</SelectItem>
-            </SelectContent>
-          </Select>
-        </FilterField>
-
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onStartRecompute}
-            disabled={!courseId || recomputeStarting || recomputeRunning}
-          >
-            <RefreshCw
-              className={cn("mr-2 size-3.5", recomputeRunning && "animate-spin")}
-            />
-            {recomputeRunning
-              ? `重算中 ${recomputeJob?.progress ?? 0}%`
-              : "后台重算"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onReset}
-            disabled={!courseId}
-          >
-            重置筛选
-          </Button>
-        </div>
-      </div>
-
-      {scopeTags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-          <span className="text-xs font-medium text-muted-foreground">
-            当前范围
-          </span>
-          {scopeTags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="rounded-md">
-              {tag}
-            </Badge>
-          ))}
-        </div>
+      {generatedAt && (
+        <span className="ml-auto text-xs text-muted-foreground">
+          更新于 {formatGeneratedAt(generatedAt)}
+        </span>
       )}
     </section>
   );
 }
 
-function FilterField({
-  label,
-  minWidth,
-  children,
+function CourseSelect({
+  courses,
+  courseId,
+  coursesLoading,
+  onChange,
 }: {
-  label: string;
-  minWidth: number;
-  children: React.ReactNode;
+  courses: CourseOption[];
+  courseId: string;
+  coursesLoading: boolean;
+  onChange: (value: string | null) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1.5" style={{ minWidth, flex: "1 1 0" }}>
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      {children}
-    </label>
+    <Select
+      value={courseId || ALL}
+      onValueChange={(value) => onChange(value === ALL ? null : value)}
+      disabled={coursesLoading}
+    >
+      <SelectTrigger size="sm" className="h-8 w-[200px] rounded-md">
+        <SelectValue placeholder="选择课程" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ALL}>选择课程</SelectItem>
+        {courses.map((course) => (
+          <SelectItem key={course.id} value={course.id}>
+            {course.class?.name
+              ? `${course.courseTitle} · ${course.class.name}`
+              : course.courseTitle}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ChapterSelect({
+  chapters,
+  chapterId,
+  disabled,
+  onChange,
+}: {
+  chapters: FilterOptionsChapter[];
+  chapterId: string;
+  disabled: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <Select
+      value={chapterId || ALL}
+      onValueChange={(value) => onChange(value === ALL ? null : value)}
+      disabled={disabled}
+    >
+      <SelectTrigger size="sm" className="h-8 w-[160px] rounded-md">
+        <SelectValue placeholder="全部章节" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ALL}>全部章节</SelectItem>
+        {chapters.map((chapter) => (
+          <SelectItem key={chapter.id} value={chapter.id}>
+            {chapter.order}. {chapter.title}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -388,17 +333,17 @@ function ClassMultiSelect({
           variant="outline"
           size="sm"
           disabled={disabled}
-          className="h-9 w-full justify-between rounded-md font-normal"
+          className="h-8 w-[160px] justify-between rounded-md font-normal"
           aria-haspopup="listbox"
         >
-          <span className="truncate">{triggerLabel}</span>
+          <span className="truncate">班级：{triggerLabel}</span>
           <ChevronDown className="ml-2 size-3.5 shrink-0 opacity-60" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
         sideOffset={4}
-        className="w-[260px] p-0"
+        className="w-[240px] p-0"
       >
         {classes.length === 0 ? (
           <div className="px-3 py-4 text-sm text-muted-foreground">
@@ -439,4 +384,209 @@ function ClassMultiSelect({
       </PopoverContent>
     </Popover>
   );
+}
+
+function DetailedFilterPopover({
+  diagnosis,
+  sections,
+  instances,
+  sectionId,
+  taskInstanceId,
+  range,
+  scopeTags,
+  recomputeRunning,
+  recomputeStarting,
+  recomputeProgress,
+  countBadge,
+  onReplaceQuery,
+  onReset,
+  onStartRecompute,
+  canReset,
+}: {
+  diagnosis: AnalyticsV2DiagnosisShape | null;
+  sections: FilterOptionsSection[];
+  instances: AnalyticsV2DiagnosisShape["filterOptions"]["taskInstances"];
+  sectionId: string;
+  taskInstanceId: string;
+  range: RangeValue;
+  scopeTags: string[];
+  recomputeRunning: boolean;
+  recomputeStarting: boolean;
+  recomputeProgress: number;
+  countBadge: number;
+  onReplaceQuery: (updates: Record<string, string | string[] | null>) => void;
+  onReset: () => void;
+  onStartRecompute: () => void;
+  canReset: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!diagnosis}
+          className="h-8 rounded-md gap-1.5"
+        >
+          详细筛选
+          {countBadge > 0 && (
+            <Badge
+              variant="secondary"
+              className="rounded-md px-1.5 py-0 text-[10px] font-mono"
+            >
+              {countBadge}
+            </Badge>
+          )}
+          <ChevronDown className="size-3.5 opacity-60" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={4}
+        className="w-[480px] p-0"
+      >
+        <div className="space-y-3 px-4 py-3">
+          <div className="grid grid-cols-2 gap-3">
+            <FilterField label="小节">
+              <Select
+                value={sectionId || ALL}
+                onValueChange={(value) =>
+                  onReplaceQuery({
+                    sectionId: value === ALL ? null : value,
+                    taskInstanceId: null,
+                  })
+                }
+                disabled={!diagnosis}
+              >
+                <SelectTrigger size="sm" className="h-8 w-full rounded-md">
+                  <SelectValue placeholder="全部小节" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>全部小节</SelectItem>
+                  {sections.map((section) => (
+                    <SelectItem key={section.id} value={section.id}>
+                      {section.order}. {section.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+
+            <FilterField label="任务">
+              <Select
+                value={taskInstanceId || ALL}
+                onValueChange={(value) =>
+                  onReplaceQuery({
+                    taskInstanceId: value === ALL ? null : value,
+                  })
+                }
+                disabled={!diagnosis}
+              >
+                <SelectTrigger size="sm" className="h-8 w-full rounded-md">
+                  <SelectValue placeholder="全部任务" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>全部任务</SelectItem>
+                  {instances.map((instance) => (
+                    <SelectItem key={instance.id} value={instance.id}>
+                      {instance.title} · {TASK_TYPE_LABELS[instance.taskType]} · {instance.className}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FilterField>
+
+            <FilterField label="时间">
+              <Select
+                value={range}
+                onValueChange={(value) => onReplaceQuery({ range: value })}
+              >
+                <SelectTrigger size="sm" className="h-8 w-full rounded-md">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="term">{RANGE_LABELS.term}</SelectItem>
+                  <SelectItem value="30d">{RANGE_LABELS["30d"]}</SelectItem>
+                  <SelectItem value="7d">{RANGE_LABELS["7d"]}</SelectItem>
+                </SelectContent>
+              </Select>
+            </FilterField>
+          </div>
+
+          {scopeTags.length > 0 && (
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              <div className="font-medium mb-1">当前范围</div>
+              <div className="flex flex-wrap gap-1">
+                {scopeTags.map((tag) => (
+                  <Badge
+                    key={tag}
+                    variant="outline"
+                    className="rounded-md text-[10px] font-normal"
+                  >
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2 border-t pt-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={onReset}
+              disabled={!canReset}
+            >
+              <RotateCcw className="size-3" />
+              重置筛选
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={onStartRecompute}
+              disabled={!diagnosis || recomputeStarting || recomputeRunning}
+            >
+              <RefreshCw
+                className={cn("size-3", recomputeRunning && "animate-spin")}
+              />
+              {recomputeRunning
+                ? `重算中 ${recomputeProgress}%`
+                : "后台重算"}
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FilterField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function formatGeneratedAt(value: string) {
+  const d = new Date(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
 }

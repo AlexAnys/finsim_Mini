@@ -1,29 +1,55 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useSession } from "next-auth/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   BarChart3,
+  ChevronDown,
   Loader2,
   Target,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { InsightsFilterBar } from "@/components/analytics-v2/insights-filter-bar";
-import { KpiRow } from "@/components/analytics-v2/kpi-row";
-import { InsightsGrid } from "@/components/analytics-v2/insights-grid";
+import { KpiRow, type KpiKind } from "@/components/analytics-v2/kpi-row";
+import { TaskPerformanceBlock } from "@/components/analytics-v2/task-performance-block";
+import { StudyBuddyBlock } from "@/components/analytics-v2/study-buddy-block";
+import { TeachingAdviceBlock } from "@/components/analytics-v2/teaching-advice-block";
+import {
+  EvidenceDrawer,
+  type EvidenceItem,
+} from "@/components/analytics-v2/evidence-drawer";
 import {
   RiskDrawer,
   type RiskDrawerKind,
   type RiskDrawerState,
 } from "@/components/analytics-v2/risk-drawer";
 import type {
+  ScoreDistributionBin,
+} from "@/components/analytics-v2/score-distribution-chart";
+import type {
   ScopeSimulationInsight as ScopeSimulationInsightShape,
   ScopeStudyBuddySummary as ScopeStudyBuddySummaryShape,
   ScopeTeachingAdvice as ScopeTeachingAdviceShape,
 } from "@/lib/services/scope-insights.service";
 import { cn } from "@/lib/utils";
+
+const ScoreDistributionChart = dynamic(
+  () => import("@/components/analytics-v2/score-distribution-chart"),
+  {
+    ssr: false,
+    loading: () => (
+      <Card className="rounded-lg flex h-full flex-col">
+        <CardContent className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+          正在加载图表
+        </CardContent>
+      </Card>
+    ),
+  },
+);
 
 type TaskType = "simulation" | "quiz" | "subjective";
 type ScorePolicy = "latest" | "best" | "first";
@@ -75,23 +101,13 @@ interface AnalyticsV2Diagnosis {
     medianNormalizedScore: number | null;
     passRate: number | null;
     pendingReleaseCount: number;
+    pendingReleaseTaskCount: number;
+    weeklyHistory: Array<{ weekStart: string; completionRate: number | null; avgNormalizedScore: number | null }>;
+    previousWeekCompletionRate: number | null;
+    previousWeekAvgScore: number | null;
   };
-  chapterClassHeatmap: Array<{
-    chapterId: string | null;
-    chapterTitle: string;
-    classId: string;
-    className: string;
-    assignedStudents: number;
-    submittedStudents: number;
-    completionRate: number | null;
-    avgNormalizedScore: number | null;
-  }>;
-  actionItems: Array<{
-    type: "low_completion" | "low_score" | "weak_concept";
-    severity: "high" | "medium";
-    title: string;
-    metric: number;
-  }>;
+  chapterClassHeatmap: Array<unknown>;
+  actionItems: Array<unknown>;
   chapterDiagnostics: Array<{
     chapterId: string | null;
     title: string;
@@ -118,23 +134,8 @@ interface AnalyticsV2Diagnosis {
     attemptCount: number;
     weaknesses: Array<{ tag: string; count: number }>;
   }>;
-  quizDiagnostics: Array<{
-    questionId: string;
-    order: number;
-    prompt: string;
-    correctRate: number | null;
-    unansweredRate: number | null;
-    avgScoreRate: number | null;
-    weakTags: string[];
-  }>;
-  simulationDiagnostics: Array<{
-    criterionId: string;
-    criterionName: string;
-    avgScoreRate: number | null;
-    lowScoreCount: number;
-    weakStudents: Array<{ studentId: string; studentName: string }>;
-    sampleComments: string[];
-  }>;
+  quizDiagnostics: Array<unknown>;
+  simulationDiagnostics: Array<unknown>;
   studentInterventions: Array<{
     studentId: string;
     studentName: string;
@@ -162,50 +163,8 @@ interface AnalyticsV2Diagnosis {
     scope: "single_task" | "multi_task";
     totalStudents: number;
   };
-  weeklyInsight: {
-    generatedAt: string;
-    mode: "local_fallback";
-    label: string;
-    highlights: InsightItem[];
-    risks: InsightItem[];
-    recommendations: InsightItem[];
-  };
-  trends: {
-    generatedAt: string;
-    range: RangeValue;
-    chapterTrend: Array<{
-      chapterId: string | null;
-      title: string;
-      order: number | null;
-      instanceCount: number;
-      completionRate: number | null;
-      avgNormalizedScore: number | null;
-      latestActivityAt: string | null;
-    }>;
-    classTrend: Array<{
-      classId: string;
-      className: string;
-      instanceCount: number;
-      assignedStudents: number;
-      submittedStudents: number;
-      completionRate: number | null;
-      avgNormalizedScore: number | null;
-      latestActivityAt: string | null;
-    }>;
-    studentGrowth: Array<{
-      studentId: string;
-      studentName: string;
-      classId: string;
-      className: string;
-      selectedScore: number | null;
-      bestScore: number | null;
-      improvement: number | null;
-      attemptCount: number;
-      completedInstances: number;
-      firstSubmittedAt: string | null;
-      latestSubmittedAt: string | null;
-    }>;
-  };
+  weeklyInsight: unknown;
+  trends: unknown;
 }
 
 interface DataQualityFlag {
@@ -219,14 +178,6 @@ interface DataQualityFlag {
   entityLabel?: string | null;
   metric?: number | null;
   rawValue?: string | null;
-}
-
-interface InsightItem {
-  id: string;
-  title: string;
-  detail: string;
-  evidence: string;
-  severity: "info" | "medium" | "high";
 }
 
 interface AsyncJobSnapshot {
@@ -258,10 +209,15 @@ const RANGE_LABELS: Record<RangeValue, string> = {
   "7d": "近 7 天",
 };
 
+const LAST_COURSE_KEY_PREFIX = "insights:last-course:";
+
 export function AnalyticsV2Dashboard() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  const userId = session?.user?.id ?? null;
+
   const [courses, setCourses] = useState<CourseOption[]>([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [diagnosis, setDiagnosis] = useState<AnalyticsV2Diagnosis | null>(null);
@@ -278,6 +234,10 @@ export function AnalyticsV2Dashboard() {
   const [scopeInsightsRefreshing, setScopeInsightsRefreshing] = useState(false);
   const [riskDrawerOpen, setRiskDrawerOpen] = useState(false);
   const [riskDrawerState, setRiskDrawerState] = useState<RiskDrawerState | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceItem | null>(null);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [taskPerfTaskId, setTaskPerfTaskId] = useState<string>("");
+  const [dataQualityOpen, setDataQualityOpen] = useState(false);
 
   const courseId = searchParams.get("courseId") ?? "";
   const classIds = useMemo(() => {
@@ -309,6 +269,56 @@ export function AnalyticsV2Dashboard() {
       cancelled = true;
     };
   }, []);
+
+  const lastCourseAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (lastCourseAppliedRef.current) return;
+    if (!userId || coursesLoading) return;
+    if (courseId) {
+      lastCourseAppliedRef.current = true;
+      return;
+    }
+    if (courses.length === 0) {
+      lastCourseAppliedRef.current = true;
+      return;
+    }
+    let candidate: string | null = null;
+    try {
+      const stored = window.localStorage.getItem(`${LAST_COURSE_KEY_PREFIX}${userId}`);
+      if (stored && courses.some((c) => c.id === stored)) {
+        candidate = stored;
+      }
+    } catch {
+      // ignore
+    }
+    if (!candidate) {
+      candidate = courses[0]?.id ?? null;
+    }
+    if (candidate) {
+      lastCourseAppliedRef.current = true;
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("courseId", candidate);
+      router.replace(`${pathname}?${next.toString()}`);
+    }
+  }, [
+    userId,
+    coursesLoading,
+    courses,
+    courseId,
+    pathname,
+    router,
+    searchParams,
+  ]);
+
+  useEffect(() => {
+    if (!userId || !courseId) return;
+    try {
+      window.localStorage.setItem(`${LAST_COURSE_KEY_PREFIX}${userId}`, courseId);
+    } catch {
+      // ignore
+    }
+  }, [userId, courseId]);
 
   useEffect(() => {
     if (!courseId) {
@@ -458,6 +468,13 @@ export function AnalyticsV2Dashboard() {
 
   const scopeTags = useMemo(() => buildScopeTags(diagnosis), [diagnosis]);
 
+  const simulationTaskOptions = useMemo(() => {
+    if (!diagnosis) return [];
+    return diagnosis.filterOptions.taskInstances
+      .filter((t) => t.taskType === "simulation")
+      .map((t) => ({ id: t.id, title: t.title, className: t.className }));
+  }, [diagnosis]);
+
   function replaceQuery(updates: Record<string, string | string[] | null>) {
     const next = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(updates)) {
@@ -516,13 +533,19 @@ export function AnalyticsV2Dashboard() {
     return map;
   }, [diagnosis]);
 
-  async function openRiskDrawer(kind: RiskDrawerKind) {
+  async function openRiskDrawerByKind(
+    kind: RiskDrawerKind,
+    extra?: Record<string, string>,
+  ) {
     if (!courseId) return;
     setRiskDrawerOpen(true);
     setRiskDrawerState({ kind, loading: true, items: [], error: null });
     try {
       const params = new URLSearchParams(searchParams.toString());
       params.set("kind", kind);
+      if (extra) {
+        for (const [k, v] of Object.entries(extra)) params.set(k, v);
+      }
       const res = await fetch(`/api/lms/analytics-v2/drilldown?${params.toString()}`);
       const json = await res.json();
       if (json.success) {
@@ -535,42 +558,68 @@ export function AnalyticsV2Dashboard() {
     }
   }
 
+  function handleKpiClick(kind: KpiKind) {
+    if (kind === "risk_signal") {
+      void openRiskDrawerByKind("risk_chapter");
+      return;
+    }
+    void openRiskDrawerByKind(kind);
+  }
+
+  function openEvidence(item: EvidenceItem) {
+    setEvidence(item);
+    setEvidenceOpen(true);
+  }
+
+  function handleBinClick(bin: ScoreDistributionBin, classId: string) {
+    void openRiskDrawerByKind("score_bin", {
+      binLabel: bin.label,
+      binClassId: classId,
+    });
+  }
+
+  function handleViewAllScores() {
+    if (!courseId || !diagnosis) return;
+    const firstBin = diagnosis.scoreDistribution.bins[0];
+    if (!firstBin) return;
+    void openRiskDrawerByKind("score_bin", {
+      binLabel: firstBin.label,
+    });
+  }
+
   if (coursesLoading) {
     return <CenteredState icon={Loader2} title="正在加载课程" spinning />;
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <BarChart3 className="size-5 text-brand" />
-            <h1 className="text-2xl font-semibold tracking-normal">数据洞察</h1>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            课程范围内的完成、掌握、共性问题和教学建议诊断
-          </p>
+    <div
+      className={cn(
+        "flex flex-col gap-3",
+        "h-[calc(100vh-3.5rem-3rem)]",
+        "overflow-hidden",
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="size-5 text-brand" />
+          <h1 className="text-xl font-semibold tracking-normal">数据洞察</h1>
         </div>
-        {diagnosis && (
-          <span className="text-xs text-muted-foreground">
-            最后计算 {formatDateTime(diagnosis.scope.generatedAt)}
-            {recomputeJob && ` · ${jobStatusLabel(recomputeJob)}`}
-          </span>
-        )}
+        <div className="flex flex-1 min-w-0 items-center justify-end">
+          <InsightsFilterBar
+            courses={courses}
+            diagnosis={diagnosis}
+            coursesLoading={coursesLoading}
+            searchParams={searchParams}
+            recomputeJob={recomputeJob}
+            recomputeStarting={recomputeStarting}
+            scopeTags={scopeTags}
+            generatedAt={diagnosis?.scope.generatedAt ?? null}
+            onReplaceQuery={replaceQuery}
+            onReset={resetFilters}
+            onStartRecompute={startRecompute}
+          />
+        </div>
       </div>
-
-      <InsightsFilterBar
-        courses={courses}
-        diagnosis={diagnosis}
-        coursesLoading={coursesLoading}
-        searchParams={searchParams}
-        recomputeJob={recomputeJob}
-        recomputeStarting={recomputeStarting}
-        scopeTags={scopeTags}
-        onReplaceQuery={replaceQuery}
-        onReset={resetFilters}
-        onStartRecompute={startRecompute}
-      />
 
       {!courseId ? (
         <CenteredState
@@ -584,23 +633,51 @@ export function AnalyticsV2Dashboard() {
         <InsightsSkeleton />
       ) : diagnosis ? (
         <>
-          <DataQualityPanel flags={diagnosis.dataQualityFlags ?? []} />
+          <div className="shrink-0">
+            <KpiRow diagnosis={diagnosis} onKpiClick={handleKpiClick} />
+          </div>
 
-          <KpiRow diagnosis={diagnosis} onKpiClick={openRiskDrawer} />
+          <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-3 overflow-hidden">
+            <ScoreDistributionChart
+              distribution={diagnosis.scoreDistribution}
+              onBinClick={handleBinClick}
+              onViewAll={handleViewAllScores}
+            />
+            <TaskPerformanceBlock
+              data={scopeInsights.simulation}
+              loading={scopeInsightsLoading && !scopeInsights.simulation}
+              refreshing={scopeInsightsRefreshing}
+              onRefresh={refreshScopeInsights}
+              onOpenEvidence={openEvidence}
+              taskOptions={simulationTaskOptions}
+              selectedTaskId={taskPerfTaskId}
+              onTaskChange={setTaskPerfTaskId}
+            />
+            <StudyBuddyBlock
+              data={scopeInsights.studyBuddy}
+              loading={scopeInsightsLoading && !scopeInsights.studyBuddy}
+              onOpenEvidence={openEvidence}
+            />
+          </div>
 
-          <InsightsGrid
-            diagnosis={diagnosis}
-            scopeInsights={scopeInsights}
-            scopeInsightsLoading={scopeInsightsLoading}
-            scopeInsightsRefreshing={scopeInsightsRefreshing}
-            onRefreshScopeInsights={refreshScopeInsights}
-            studentNamesById={studentNamesById}
-            onBinClick={(bin, classId) => {
-              console.log("score-distribution click", { bin: bin.label, classId });
-            }}
+          <div className="shrink-0">
+            <TeachingAdviceBlock
+              data={scopeInsights.teachingAdvice}
+              loading={scopeInsightsLoading && !scopeInsights.teachingAdvice}
+              refreshing={scopeInsightsRefreshing}
+              onRefresh={refreshScopeInsights}
+              studentNamesById={studentNamesById}
+            />
+          </div>
+
+          <DataQualityCollapsible
+            flags={diagnosis.dataQualityFlags ?? []}
+            open={dataQualityOpen}
+            onToggle={() => setDataQualityOpen((v) => !v)}
           />
         </>
       ) : null}
+
       <RiskDrawer
         open={riskDrawerOpen}
         onOpenChange={(open) => {
@@ -609,72 +686,109 @@ export function AnalyticsV2Dashboard() {
         }}
         state={riskDrawerState}
       />
+      <EvidenceDrawer
+        open={evidenceOpen}
+        onOpenChange={(open) => {
+          setEvidenceOpen(open);
+          if (!open) setTimeout(() => setEvidence(null), 200);
+        }}
+        evidence={evidence}
+      />
     </div>
   );
 }
 
-function DataQualityPanel({ flags }: { flags: DataQualityFlag[] }) {
+function DataQualityCollapsible({
+  flags,
+  open,
+  onToggle,
+}: {
+  flags: DataQualityFlag[];
+  open: boolean;
+  onToggle: () => void;
+}) {
   if (flags.length === 0) return null;
   const criticalCount = flags.filter((flag) => flag.severity === "critical").length;
   const warningCount = flags.filter((flag) => flag.severity === "warning").length;
-  const topFlags = [...flags].sort(compareDataQualityFlag).slice(0, 5);
+  const sortedFlags = [...flags].sort(compareDataQualityFlag);
   return (
-    <Card className="rounded-lg border-amber-200 bg-amber-50/50">
-      <CardContent className="space-y-3 px-4 py-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="size-4 text-amber-700" />
-            <div className="font-medium">数据质量提示</div>
-            <Badge variant="outline" className="rounded-md border-amber-300 bg-background">
-              {flags.length} 项
-            </Badge>
-          </div>
-          <div className="text-xs text-muted-foreground">
+    <div className="shrink-0 rounded-md border border-amber-200 bg-amber-50/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-amber-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <div className="flex items-center gap-2">
+          <AlertCircle className="size-3.5 text-amber-700" />
+          <span className="text-xs font-medium">数据质量提示</span>
+          <Badge variant="outline" className="rounded-md border-amber-300 bg-background text-[10px]">
+            {flags.length} 项
+          </Badge>
+          <span className="text-[11px] text-muted-foreground">
             严重 {criticalCount} · 需核对 {warningCount} · 信息 {flags.length - criticalCount - warningCount}
+          </span>
+        </div>
+        <ChevronDown
+          className={cn(
+            "size-3.5 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-amber-200 bg-background/40 max-h-[180px] overflow-y-auto px-3 py-2">
+          <div className="grid gap-2 lg:grid-cols-2">
+            {sortedFlags.map((flag) => (
+              <div
+                key={flag.id}
+                className="rounded-md border bg-background px-2.5 py-1.5"
+                title={flag.detail}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 truncate text-[11px] font-medium">{flag.title}</div>
+                  <Badge
+                    variant={flag.severity === "critical" ? "destructive" : "outline"}
+                    className="shrink-0 rounded-md text-[10px]"
+                  >
+                    {dataQualitySeverityLabel(flag.severity)}
+                  </Badge>
+                </div>
+                <div className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-muted-foreground">
+                  {flag.entityLabel ? `${flag.entityLabel}：` : ""}
+                  {flag.detail}
+                </div>
+                {flag.rawValue && (
+                  <div className="mt-0.5 text-[10px] text-amber-700">原始值：{flag.rawValue}</div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
-        <div className="grid gap-2 lg:grid-cols-2">
-          {topFlags.map((flag) => (
-            <div key={flag.id} className="rounded-md border bg-background px-3 py-2" title={flag.detail}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 truncate text-sm font-medium">{flag.title}</div>
-                <Badge variant={flag.severity === "critical" ? "destructive" : "outline"} className="shrink-0 rounded-md">
-                  {dataQualitySeverityLabel(flag.severity)}
-                </Badge>
-              </div>
-              <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                {flag.entityLabel ? `${flag.entityLabel}：` : ""}
-                {flag.detail}
-              </div>
-              {flag.rawValue && <div className="mt-1 text-xs text-amber-700">原始值：{flag.rawValue}</div>}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
-
 function InsightsSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="正在生成诊断">
-      <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-[110px] animate-pulse rounded-lg border bg-muted/30"
-          />
-        ))}
-      </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <div className="flex flex-col gap-3 flex-1 min-h-0" aria-busy="true" aria-label="正在生成诊断">
+      <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4 shrink-0">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="h-[280px] animate-pulse rounded-lg border bg-muted/30"
+            className="h-[100px] animate-pulse rounded-lg border bg-muted/30"
           />
         ))}
       </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3 flex-1 min-h-0">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="animate-pulse rounded-lg border bg-muted/30"
+          />
+        ))}
+      </div>
+      <div className="h-[200px] animate-pulse rounded-lg border bg-muted/30 shrink-0" />
     </div>
   );
 }
@@ -691,8 +805,8 @@ function CenteredState({
   spinning?: boolean;
 }) {
   return (
-    <Card className="rounded-lg">
-      <CardContent className="flex min-h-[320px] flex-col items-center justify-center text-center">
+    <Card className="rounded-lg flex-1">
+      <CardContent className="flex h-full min-h-[320px] flex-col items-center justify-center text-center">
         <Icon className={cn("size-9 text-muted-foreground", spinning && "animate-spin")} />
         <div className="mt-4 font-medium">{title}</div>
         {description && <p className="mt-1 max-w-md text-sm text-muted-foreground">{description}</p>}
@@ -745,14 +859,6 @@ function isJobRunning(job: AsyncJobSnapshot | null) {
   return job?.status === "queued" || job?.status === "running";
 }
 
-function jobStatusLabel(job: AsyncJobSnapshot) {
-  if (job.status === "queued") return "等待重算";
-  if (job.status === "running") return `重算中 ${job.progress}%`;
-  if (job.status === "succeeded") return `重算完成${job.completedAt ? ` ${formatDateTime(job.completedAt)}` : ""}`;
-  if (job.status === "failed") return `重算失败：${job.error ?? "未知错误"}`;
-  return "重算已取消";
-}
-
 function isAnalyticsDiagnosis(value: unknown): value is AnalyticsV2Diagnosis {
   return Boolean(
     value &&
@@ -762,14 +868,3 @@ function isAnalyticsDiagnosis(value: unknown): value is AnalyticsV2Diagnosis {
       "chapterClassHeatmap" in value,
   );
 }
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "无";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-

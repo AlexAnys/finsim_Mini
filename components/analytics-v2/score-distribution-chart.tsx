@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BarChart3 } from "lucide-react";
+import { ArrowRight, BarChart3 } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -10,7 +10,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ComingSoon } from "@/components/analytics-v2/coming-soon";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -19,6 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
 import {
   type ChartConfig,
   ChartContainer,
@@ -55,7 +58,9 @@ export interface ScoreDistribution {
 }
 
 const STORAGE_KEY = "insights:score-distribution-bins";
+const MODE_STORAGE_KEY = "insights:score-distribution-mode";
 type BinCount = 5 | 10;
+type ViewMode = "single" | "multi";
 
 const CLASS_COLOR_VARS = [
   "var(--color-brand)",
@@ -68,6 +73,7 @@ const CLASS_COLOR_VARS = [
 interface Props {
   distribution: ScoreDistribution | null | undefined;
   onBinClick?: (bin: ScoreDistributionBin, classId: string) => void;
+  onViewAll?: () => void;
 }
 
 function readStoredBinCount(): BinCount {
@@ -82,13 +88,38 @@ function readStoredBinCount(): BinCount {
   return 5;
 }
 
-export default function ScoreDistributionChart({ distribution, onBinClick }: Props) {
+function readStoredMode(): ViewMode {
+  if (typeof window === "undefined") return "single";
+  try {
+    const raw = window.localStorage.getItem(MODE_STORAGE_KEY);
+    if (raw === "single" || raw === "multi") return raw;
+  } catch {
+    // ignore
+  }
+  return "single";
+}
+
+export default function ScoreDistributionChart({
+  distribution,
+  onBinClick,
+  onViewAll,
+}: Props) {
   const [binCount, setBinCount] = useState<BinCount>(readStoredBinCount);
+  const [mode, setMode] = useState<ViewMode>(readStoredMode);
 
   function persistBinCount(next: BinCount) {
     setBinCount(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, String(next));
+    } catch {
+      // ignore
+    }
+  }
+
+  function persistMode(next: ViewMode) {
+    setMode(next);
+    try {
+      window.localStorage.setItem(MODE_STORAGE_KEY, next);
     } catch {
       // ignore
     }
@@ -102,7 +133,7 @@ export default function ScoreDistributionChart({ distribution, onBinClick }: Pro
     return rebinDistribution(incoming, binCount);
   }, [incoming, binCount, matchesPreference]);
 
-  const classConfig = useMemo<{
+  const allClasses = useMemo<{
     classes: Array<{ id: string; label: string; color: string }>;
     config: ChartConfig;
   }>(() => {
@@ -127,21 +158,44 @@ export default function ScoreDistributionChart({ distribution, onBinClick }: Pro
     return { classes, config };
   }, [view]);
 
+  const visibleClasses = useMemo(() => {
+    if (mode === "multi") return allClasses.classes;
+    return allClasses.classes.slice(0, 1);
+  }, [allClasses.classes, mode]);
+
   const chartData = useMemo(() => {
     if (!view) return [];
     return view.bins.map((bin) => {
       const row: Record<string, string | number> = { label: bin.label };
-      for (const c of classConfig.classes) {
-        const bucket = bin.classes.find((b) => b.classId === c.id);
-        row[c.id] = bucket ? bucket.students.length : 0;
+      if (mode === "single") {
+        const total = bin.classes
+          .filter((c) =>
+            visibleClasses.length > 0 ? c.classId === visibleClasses[0].id : true,
+          )
+          .reduce((acc, b) => acc + b.students.length, 0);
+        row["__single__"] = total;
+      } else {
+        for (const c of visibleClasses) {
+          const bucket = bin.classes.find((b) => b.classId === c.id);
+          row[c.id] = bucket ? bucket.students.length : 0;
+        }
       }
       return row;
     });
-  }, [view, classConfig.classes]);
+  }, [view, visibleClasses, mode]);
 
   const totalStudents = view?.totalStudents ?? 0;
   const scopeLabel = view?.scope === "single_task" ? "单任务" : "多任务";
   const isClickable = Boolean(onBinClick);
+
+  const singleConfig: ChartConfig = useMemo(() => {
+    return {
+      __single__: {
+        label: visibleClasses[0]?.label ?? "学生",
+        color: "var(--color-brand)",
+      },
+    };
+  }, [visibleClasses]);
 
   const handleClick = (data: unknown) => {
     if (!view || !onBinClick) return;
@@ -151,49 +205,78 @@ export default function ScoreDistributionChart({ distribution, onBinClick }: Pro
     const bin = view.bins.find((b) => b.label === label);
     if (!bin) return;
     const item = payload.activePayload?.[0];
-    const classId = (item?.dataKey ?? item?.name) as string | undefined;
+    let classId = (item?.dataKey ?? item?.name) as string | undefined;
+    if (mode === "single") {
+      classId = visibleClasses[0]?.id;
+    }
     if (!classId) return;
     onBinClick(bin, classId);
   };
 
   return (
-    <Card className="rounded-lg">
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-3">
-        <div>
-          <CardTitle className="text-base">学生成绩分布</CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">
-            按归一化分数 (0-100) 分组｜{totalStudents} 名学生｜{scopeLabel}
-            {view?.scope === "multi_task"
-              ? "（按学生在范围内均分聚合）"
-              : "（当前任务每位学生归一化分数）"}
-          </p>
+    <Card className="rounded-lg flex h-full flex-col overflow-hidden">
+      <CardHeader className="space-y-2 pb-2 shrink-0">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <CardTitle className="text-sm">学生成绩分布</CardTitle>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {totalStudents} 名学生｜{scopeLabel}
+              {view?.scope === "multi_task" ? "（按学生在范围内均分聚合）" : ""}
+            </p>
+          </div>
+          <ToggleGroup
+            type="single"
+            size="sm"
+            value={mode}
+            onValueChange={(v) => {
+              if (v === "single" || v === "multi") persistMode(v);
+            }}
+          >
+            <ToggleGroupItem value="single" aria-label="单班级">
+              单班级
+            </ToggleGroupItem>
+            <ToggleGroupItem value="multi" aria-label="多班级对比">
+              多班级对比
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
-        <Select
-          value={String(binCount)}
-          onValueChange={(v) => persistBinCount(Number(v) as BinCount)}
-        >
-          <SelectTrigger size="sm" className="w-[110px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="5">5 段区间</SelectItem>
-            <SelectItem value="10">10 段区间</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center justify-between gap-2">
+          <Select
+            value={String(binCount)}
+            onValueChange={(v) => persistBinCount(Number(v) as BinCount)}
+          >
+            <SelectTrigger size="sm" className="h-7 w-[100px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="5">5 段区间</SelectItem>
+              <SelectItem value="10">10 段区间</SelectItem>
+            </SelectContent>
+          </Select>
+          {onViewAll && (
+            <button
+              type="button"
+              onClick={onViewAll}
+              className="inline-flex items-center gap-0.5 text-[11px] text-brand hover:underline"
+            >
+              查看学生成绩详情 <ArrowRight className="size-3" />
+            </button>
+          )}
+        </div>
       </CardHeader>
-      <CardContent>
-        {!view || classConfig.classes.length === 0 ? (
-          <ComingSoon
-            icon={BarChart3}
-            title="学生成绩分布 · 暂无数据"
-            description="当前范围内尚无已批改的提交；请先批改若干提交或扩大筛选范围。"
-          />
+      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-0 pb-3 px-4">
+        {!view || allClasses.classes.length === 0 ? (
+          <EmptyPanel icon={BarChart3} title="学生成绩分布 · 暂无数据" description="当前范围内尚无已批改的提交；请先批改若干提交或扩大筛选范围。" />
         ) : (
           <div
             role="img"
             aria-label="学生成绩分布柱状图，X 轴分数区间，Y 轴学生人数，按班级分组"
+            className="h-full"
           >
-            <ChartContainer config={classConfig.config} className="h-[280px] w-full">
+            <ChartContainer
+              config={mode === "single" ? singleConfig : allClasses.config}
+              className="h-[260px] w-full"
+            >
               <BarChart
                 data={chartData}
                 margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
@@ -220,8 +303,12 @@ export default function ScoreDistributionChart({ distribution, onBinClick }: Pro
                     <ChartTooltipContent
                       labelFormatter={(label) => `区间 ${String(label)}`}
                       formatter={(value, name) => {
-                        const cfg = classConfig.config[name as string];
-                        const display = (cfg?.label as string | undefined) ?? String(name);
+                        const cfg =
+                          mode === "single"
+                            ? singleConfig[name as string]
+                            : allClasses.config[name as string];
+                        const display =
+                          (cfg?.label as string | undefined) ?? String(name);
                         return (
                           <div className="flex w-full items-center justify-between gap-3">
                             <span className="text-muted-foreground">{display}</span>
@@ -234,24 +321,37 @@ export default function ScoreDistributionChart({ distribution, onBinClick }: Pro
                     />
                   }
                 />
-                <Legend
-                  content={(props) => (
-                    <ChartLegendContent
-                      payload={props.payload}
-                      verticalAlign={props.verticalAlign}
-                    />
-                  )}
-                />
-                {classConfig.classes.map((c) => (
+                {mode === "multi" && (
+                  <Legend
+                    content={(props) => (
+                      <ChartLegendContent
+                        payload={props.payload}
+                        verticalAlign={props.verticalAlign}
+                      />
+                    )}
+                  />
+                )}
+                {mode === "single" ? (
                   <Bar
-                    key={c.id}
-                    dataKey={c.id}
-                    name={c.label}
-                    fill={`var(--color-${c.id})`}
+                    key="__single__"
+                    dataKey="__single__"
+                    name={visibleClasses[0]?.label ?? "学生"}
+                    fill="var(--color-brand)"
                     radius={[4, 4, 0, 0]}
                     style={isClickable ? { cursor: "pointer" } : undefined}
                   />
-                ))}
+                ) : (
+                  visibleClasses.map((c) => (
+                    <Bar
+                      key={c.id}
+                      dataKey={c.id}
+                      name={c.label}
+                      fill={`var(--color-${c.id})`}
+                      radius={[4, 4, 0, 0]}
+                      style={isClickable ? { cursor: "pointer" } : undefined}
+                    />
+                  ))
+                )}
               </BarChart>
             </ChartContainer>
           </div>
@@ -313,4 +413,24 @@ function rebinDistribution(source: ScoreDistribution, binCount: number): ScoreDi
     scope: source.scope,
     totalStudents: source.totalStudents,
   };
+}
+
+function EmptyPanel({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: import("lucide-react").LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 px-4 text-center">
+      <div className="flex size-9 items-center justify-center rounded-full bg-muted/50">
+        <Icon className="size-4 text-muted-foreground" />
+      </div>
+      <p className="text-xs font-medium">{title}</p>
+      <p className="max-w-[240px] text-[11px] leading-4 text-muted-foreground">{description}</p>
+    </div>
+  );
 }

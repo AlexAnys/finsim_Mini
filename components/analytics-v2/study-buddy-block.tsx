@@ -1,20 +1,20 @@
 "use client";
 
 import { Loader2, MessageCircleQuestionMark } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ComingSoon } from "@/components/analytics-v2/coming-soon";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { ScopeStudyBuddySummary } from "@/lib/services/scope-insights.service";
 import type { EvidenceItem } from "@/components/analytics-v2/evidence-drawer";
 
@@ -24,80 +24,74 @@ interface Props {
   onOpenEvidence?: (evidence: EvidenceItem) => void;
 }
 
+const MAX_ROWS = 5;
+
 export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
   const sections = data?.bySection ?? [];
   const generatedLabel = data?.generatedAt ? formatDateTime(data.generatedAt) : null;
   const isEmpty = !loading && sections.length === 0;
+  const rows = sections
+    .filter((s) => s.topQuestions.length > 0)
+    .slice(0, MAX_ROWS)
+    .map((s) => ({
+      sectionLabel: s.sectionLabel,
+      sectionId: s.sectionId,
+      question: s.topQuestions[0],
+    }));
   const totalQuestions = sections.reduce((acc, s) => acc + s.topQuestions.length, 0);
 
   return (
-    <Card className="rounded-lg">
-      <CardHeader className="pb-3">
-        <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageCircleQuestionMark className="size-4 text-brand" />
-            Study Buddy 共性问题
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            {generatedLabel ? `更新 ${generatedLabel}` : "尚未生成"}
-            {totalQuestions > 0 ? ` · 共 ${sections.length} 节 / ${totalQuestions} 个问题` : ""}
-          </p>
-        </div>
+    <Card className="rounded-lg flex h-full flex-col overflow-hidden">
+      <CardHeader className="space-y-1 pb-2 shrink-0">
+        <CardTitle className="flex items-center gap-1.5 text-sm">
+          <MessageCircleQuestionMark className="size-3.5 text-brand" />
+          Study Buddy 共性问题
+        </CardTitle>
+        <p className="text-[11px] text-muted-foreground">
+          {generatedLabel ? `更新 ${generatedLabel}` : "尚未生成"}
+          {totalQuestions > 0 ? ` · ${sections.length} 节 / ${totalQuestions} 个问题` : ""}
+        </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-0 pb-3 px-4">
         {loading ? (
           <LoadingState />
-        ) : isEmpty ? (
-          <ComingSoon
-            icon={MessageCircleQuestionMark}
-            title="Study Buddy · 暂无数据"
-            description="当前范围内学生未在 Study Buddy 提出可聚合的问题；请等数据累积或扩大筛选范围。"
-          />
+        ) : isEmpty || rows.length === 0 ? (
+          <EmptyPanel icon={MessageCircleQuestionMark} title="Study Buddy · 暂无数据" description="当前范围内学生未在 Study Buddy 提出可聚合的问题；请等数据累积或扩大筛选范围。" />
         ) : (
-          <Accordion
-            type="multiple"
-            defaultValue={sections.slice(0, 1).map((s) => s.sectionId ?? "__null__")}
-            className="space-y-1"
-          >
-            {sections.map((section) => {
-              const value = section.sectionId ?? "__null__";
-              return (
-                <AccordionItem key={value} value={value} className="rounded-md border bg-background px-3">
-                  <AccordionTrigger className="py-2.5">
-                    <div className="flex flex-1 items-center gap-2">
-                      <span className="text-sm font-medium">{section.sectionLabel}</span>
-                      <Badge variant="outline" className="rounded-md text-[10px]">
-                        {section.topQuestions.length} 题
-                      </Badge>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-1.5">
-                      {section.topQuestions.map((q, idx) => (
-                        <button
-                          key={`${q.text}-${idx}`}
-                          type="button"
-                          onClick={() =>
-                            onOpenEvidence?.({
-                              type: "studybuddy_question",
-                              data: q,
-                              sectionLabel: section.sectionLabel,
-                            })
-                          }
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          <Badge variant="secondary" className="shrink-0 rounded-md font-mono text-[10px]">
-                            ×{q.count}
-                          </Badge>
-                          <span className="line-clamp-2 flex-1 text-xs leading-5">{q.text}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-          </Accordion>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="h-7 px-2 text-[11px]">章节/节</TableHead>
+                <TableHead className="h-7 px-2 text-[11px]">典型问题</TableHead>
+                <TableHead className="h-7 px-2 text-right text-[11px]">提问</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row, idx) => (
+                <TableRow
+                  key={`${row.sectionId ?? "null"}-${idx}`}
+                  className="cursor-pointer hover:bg-muted/40"
+                  onClick={() =>
+                    onOpenEvidence?.({
+                      type: "studybuddy_question",
+                      data: row.question,
+                      sectionLabel: row.sectionLabel,
+                    })
+                  }
+                >
+                  <TableCell className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                    {row.sectionLabel}
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-xs">
+                    <span className="line-clamp-2">{row.question.text}</span>
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right font-mono text-[11px]">
+                    ×{row.question.count}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
@@ -106,9 +100,9 @@ export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
 
 function LoadingState() {
   return (
-    <div className="flex min-h-[280px] items-center justify-center text-sm text-muted-foreground">
-      <Loader2 className="mr-2 size-4 animate-spin" />
-      正在加载 Study Buddy 共性问题
+    <div className="flex h-[180px] items-center justify-center text-xs text-muted-foreground">
+      <Loader2 className="mr-2 size-3.5 animate-spin" />
+      正在加载共性问题
     </div>
   );
 }
@@ -120,4 +114,24 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function EmptyPanel({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: import("lucide-react").LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 px-4 text-center">
+      <div className="flex size-9 items-center justify-center rounded-full bg-muted/50">
+        <Icon className="size-4 text-muted-foreground" />
+      </div>
+      <p className="text-xs font-medium">{title}</p>
+      <p className="max-w-[240px] text-[11px] leading-4 text-muted-foreground">{description}</p>
+    </div>
+  );
 }
