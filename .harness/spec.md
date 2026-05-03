@@ -1,421 +1,322 @@
-# Spec — 数据洞察重构 · Phase 4：任务表现 + Study Buddy（Prisma + LLM + Drawer）
+# Spec — 数据洞察重构 · Phase 5：AI 教学建议 + KPI 下钻 + UUID→name UX 修复
 
-> Phase 1-3 已 commit (`0f823d0` / `40b504a` / `a311478` / `22dc29c`)。本 spec 仅负责 Phase 4。
-> 完整 plan：`~/.claude/plans/main-session-snug-tide.md`。
+> Phase 1-4 已 commit (`0f823d0` / `40b504a` / `a311478` / `22dc29c` / `3831468`)。本 spec 仅负责 Phase 5。完整 plan：`~/.claude/plans/main-session-snug-tide.md`。
 
 ## Unit 标识
-- `insights-phase4`，build/qa 报告 r1, r2...
+- `insights-phase5`，build/qa 报告 r1, r2...
 - Dynamic exit：2 PASS 收工 / 同 fail 3 轮回 spec / 不跑保险轮
 
 ## 当前 Baseline
-- 分支 `claude/elastic-davinci-a0ee14`，**4 commits ahead** of main `e311571`
-- 区块 A 实装；区块 B/C/D 是 stub「即将推出」
-- service 已有 [insights.service.ts](lib/services/insights.service.ts) `aggregateInsights / getCachedInsights`（task instance 级）
-- service 已有 [study-buddy.service.ts](lib/services/study-buddy.service.ts) `generateSummary`（task 级）+ `StudyBuddySummary.topQuestions`（已存）
-- [ai.service.ts](lib/services/ai.service.ts) `aiGenerateJSON<T>` helper 可用
-- [grading-drawer.tsx](components/instance-detail/grading-drawer.tsx)：参考的 Sheet drawer 模式（599 行，含 transcript 渲染）
+- 分支 `claude/elastic-davinci-a0ee14`，**5 commits ahead** of main `e311571`
+- 区块 A/B/C 已实装；区块 D 是 phase 3 的 stub「即将推出」
+- KPI 5 卡 `onClick`/`href` props 已留（phase 2），phase 5 实装 drawer
+- service [scope-insights.service.ts](lib/services/scope-insights.service.ts) 已有 `getScopeSimulationInsights / getScopeStudyBuddySummary / scopeHash + 24h cache + LLM 失败兜底`
+- service [weekly-insight.service.ts](lib/services/weekly-insight.service.ts) 已有 `generateWeeklyInsight` LLM 模式参考
+- AnalysisReport.scopeSummary Json 已有（phase 4），可扩展加 `teachingAdvice` 字段
 
-## ⚠️ Prisma 三步铁律（CLAUDE.md anti-regression #5）
+## Phase 5 范围
 
-本 phase 改 schema，**必须严格三步且不能跳过**：
-1. 编辑 `prisma/schema.prisma`
-2. `npx prisma migrate dev --name phase4_scope_analysis_report`
-3. `npx prisma generate`
-4. **重启 worktree 内 dev server (port 3031)**：`pkill -f "next dev -p 3031"` → `cd worktree && npm run dev -- -p 3031` 或 `next dev -p 3031`
-5. **真浏览器打开 page 验证不报 500**
+### ✅ 必须做的 5 件事
 
-跳过任何一步会导致运行时 500 但 tsc --noEmit 不报错。
+#### 1. Service 新增 `generateScopeTeachingAdvice` （AI 教学建议）
 
-## Phase 4 范围
-
-### ✅ 必须做的 6 件事
-
-#### 1. Prisma schema 扩展 [AnalysisReport](prisma/schema.prisma:814)
-
-```prisma
-model AnalysisReport {
-  id             String   @id @default(uuid())
-  taskId         String?
-  taskInstanceId String?  @unique         // 保留（instance 级报告）
-  scopeHash      String?                  // 新增：scope 级报告 hash
-  scopeSummary   Json?                    // 新增：scope simulation 高分典型 + 低分问题 + studybuddy
-  createdBy      String
-  studentCount   Int
-  report         Json
-  createdAt      DateTime @default(now())
-  commonIssues   Json?
-  aggregatedAt   DateTime?
-  moodTimeline   Json?
-
-  creator      User          @relation("ReportCreator", fields: [createdBy], references: [id])
-  task         Task?         @relation("ReportTask", fields: [taskId], references: [id])
-  taskInstance TaskInstance? @relation("ReportInstance", fields: [taskInstanceId], references: [id])
-
-  @@index([createdBy])
-  @@index([taskId])
-  @@index([scopeHash])         // 新增：scope 报告查找
-}
-```
-
-注意：保持 `taskInstanceId @unique`，scope 级报告通过 `scopeHash` 区分（taskInstanceId null）。
-
-#### 2. Service：scope 级 simulation insights
-
-新增 `lib/services/scope-insights.service.ts`（独立文件，避免 analytics-v2.service.ts 进一步膨胀）：
+加入 [scope-insights.service.ts](lib/services/scope-insights.service.ts)：
 
 ```ts
-export interface ScopeSimulationInsight {
-  scope: ScopeKey;             // courseId / chapterId / sectionId / classIds / taskType / taskInstanceId
+export interface ScopeTeachingAdvice {
+  scope: ScopeKey;
   generatedAt: string;
-  highlights: Array<{          // 高分典型（启发式 + 可选 LLM 润色）
-    studentId: string;
-    studentName: string;
-    submissionId: string;
-    taskInstanceId: string;
-    taskTitle: string;
-    score: number;
-    normalizedScore: number;
-    transcript: TranscriptExcerpt[];   // 抽 ≤3 段亮点
-    reason: string;            // 启发式描述（如"该学生在第 4 轮转折点抓住了客户犹豫情绪 + 给出 60/40 配比建议"）
+  source: "fresh" | "cache" | "fallback";
+  knowledgeGoals: Array<{ point: string; evidence: string }>;
+  pedagogyAdvice: Array<{ method: string; evidence: string }>;
+  focusGroups: Array<{
+    group: string;       // "8 名 declining 学生"
+    action: string;      // "本周课前 5 分钟 1v1 复盘"
+    studentIds: string[];
+    evidence: string;    // "归一化均分 < 50% 持续 3 次"
   }>;
-  commonIssues: Array<{        // 低分问题（LLM 聚合）
-    title: string;             // 问题简称（中文）
-    description: string;       // 问题描述
-    frequency: number;         // 出现学生数
-    relatedCriterion: string;  // 关联评分维度
-    evidence: Array<{
-      studentId: string;
-      studentName: string;
-      submissionId: string;
-      transcriptExcerpt: string;
-      rubricCriterion: string;
-      score: number;
-    }>;
-  }>;
-  source: "cache" | "fresh";
-  staleAt?: string;            // cache 过期时间
+  nextSteps: Array<{ step: string; evidence: string }>;
+  notice?: string;       // fallback 时显示「LLM 暂不可用，显示模板建议」
 }
 
-export interface ScopeKey {
-  courseId: string;
-  chapterId?: string;
-  sectionId?: string;
-  classIds?: string[];
-  taskType?: TaskType;
-  taskInstanceId?: string;
-}
-
-export async function getScopeSimulationInsights(
+export async function getScopeTeachingAdvice(
   scope: ScopeKey,
   options?: { forceFresh?: boolean }
-): Promise<ScopeSimulationInsight>
+): Promise<ScopeTeachingAdvice>
 ```
 
 **实现要点**：
-- `scopeHash = sha256(JSON.stringify(scope))` 标准化排序
-- 缓存 24h：先查 `AnalysisReport WHERE scopeHash = X AND createdAt > now-24h LIMIT 1`，命中且 `!forceFresh` 直接返回 `scopeSummary`
-- 不命中：
-  - **高分典型（启发式，免费）**：拉 scope 内 simulation submissions（taskType=simulation, status=graded），按归一化分数 desc 排序取 top-N（N=4）
-    - 同一任务取 ≤2 名学生避免单任务垄断
-    - 从 transcript 抽片段：`student/user` 角色 + 长度 > 15 字 + `mood` 积极的回合，最多 3 条 / 学生
-    - reason 字段简单模板："{studentName} 在 {taskTitle} 中得分 {score}/{maxScore}，对话亮点见证据。"
-  - **低分问题（LLM）**：聚合 scope 内 simulation submissions 的 evaluation.rubricBreakdown 中 `score / maxScore < 0.6` 的 criterion + comment，按 criterionId group + count
-    - 取 top-3 高频弱项 + 每项最多 5 个学生 transcript 片段作输入
-    - 调 `aiGenerateJSON<{commonIssues}>` (provider feature `insights`，参考 [insights.service.ts:367](lib/services/insights.service.ts#L367))
-    - prompt 模板（中文）：「以下是教学场景模拟对话中，学生在 {criterion} 维度得分较低的样本，请总结 3-4 个最常见的共性问题。每个问题给出：title (≤15 字) / description (≤80 字) / 关联 criterion / 至少 2 个学生证据。输出 JSON: {commonIssues: [...]}.」
-    - LLM 失败兜底：返回模板化结果（"未找到充分样本，请增加学生提交数"），UI 不空白
-- 写回 `AnalysisReport(scopeHash, scopeSummary, ..., taskInstanceId=null)`
+- 复用 `scopeHash` + `AnalysisReport.scopeSummary` JSON（在 scopeSummary 里加 `teachingAdvice` 字段，**不动 Prisma schema**）
+- 24h 缓存：先查 `AnalysisReport WHERE scopeHash = X AND createdAt > now-24h`，如 scopeSummary.teachingAdvice 存在且未过期 → source="cache"
+- 不命中 / forceFresh：聚合 LLM 输入（**这是核心**）：
+  - KPI snapshot：completionRate, avgNormalizedScore, pendingReleaseCount, riskChapter数, riskStudent数
+  - studentInterventions（top-15 按 reason+score）
+  - **scope simulation insights**（高分典型 + 低分问题 commonIssues，复用 phase 4 service）
+  - **scope studybuddy summary**（按 section 共性问题，复用 phase 4 service）
+  - 风险章节列表（completionRate < 60% OR avgScore < 60）
+- LLM prompt（中文，结构化）：
+  ```
+  你是高校金融教育的资深教学顾问。基于以下学情数据，给出针对性教学建议：
 
-#### 3. Service：scope 级 Study Buddy 共性问题
+  【KPI 概览】... 
+  【共性问题】...
+  【学生分布】...
+  【共性提问】...
+  【风险章节】...
 
-同文件 `lib/services/scope-insights.service.ts`：
+  请输出 JSON：
+  {
+    "knowledgeGoals": [...],   // 3-4 项知识目标 + evidence
+    "pedagogyAdvice": [...],   // 3-4 项教学方式 + evidence
+    "focusGroups": [...],      // 2-3 个关注群体 + studentIds + action + evidence
+    "nextSteps": [...]         // 3-4 个接下来步骤 + evidence
+  }
+  每条 evidence 必须直接引用上述数据中的具体数字 / 学生名 / 章节名。
+  ```
+- 调 `aiGenerateJSON<ScopeTeachingAdvice>` (provider feature `insights`)
+- LLM 失败兜底（**不能让 UI 空白**，参考 [weekly-insight.service.ts:377](lib/services/weekly-insight.service.ts#L377) fallback 模式）：
+  - knowledgeGoals: 基于 KPI 自动生成（如「本周需关注归一化均分 X% 偏低，建议加强 risk-tagged 章节复习」）
+  - pedagogyAdvice: 模板化通用方法（如「针对低分维度增加 1 节翻转课堂」）
+  - focusGroups: 直接用 studentInterventions 三 reason 分组
+  - nextSteps: 模板化 step
+  - source = "fallback"，notice = "LLM 暂不可用，显示规则模板建议"
+- 写回 `AnalysisReport.scopeSummary.teachingAdvice`
 
+#### 2. API 扩展 `/api/lms/analytics-v2/scope-insights`
+
+[route.ts](app/api/lms/analytics-v2/scope-insights/route.ts) GET 返回结构扩展：
 ```ts
-export interface ScopeStudyBuddySummary {
-  scope: ScopeKey;
-  generatedAt: string;
-  bySection: Array<{
-    sectionId: string | null;
-    sectionLabel: string;     // "第 1 章 1.2 节"，null section 显示"未分配章节"
-    chapterId: string | null;
-    topQuestions: Array<{
-      text: string;
-      count: number;
-      studentSampleIds: string[];   // 提问的学生 sample（可点击展开）
-    }>;
-  }>;
-}
-
-export async function getScopeStudyBuddySummary(
-  scope: ScopeKey
-): Promise<ScopeStudyBuddySummary>
+{ success: true, data: { simulation, studyBuddy, teachingAdvice } }
 ```
 
-**实现**（**纯查询，无 LLM**，直接读已有 StudyBuddySummary）：
-- 拉 scope 内所有 task 的 `StudyBuddySummary` (`task.id IN scope task ids`)
-- 按 task → section 反向映射
-- 每节 group：合并多 task 的 `topQuestions`，按 `count` 排序取 top-5
-- 多任务相同问题不去重（用 task 级 count 直接聚合，避免去重导致 sample 信息丢失）
+POST 也调 `getScopeTeachingAdvice(..., { forceFresh: true })`，返回三者新版本。
 
-#### 4. API endpoint
-
-新建 `app/api/lms/analytics-v2/scope-insights/route.ts`：
-
-- **GET**：
-  - 入参：query 同 diagnosis（courseId 必选 + chapter/section/classIds/taskType/taskInstanceId optional）
-  - requireRole(["teacher", "admin"])
-  - 调 `getScopeSimulationInsights({...})` 和 `getScopeStudyBuddySummary({...})`
-  - 返回 `{ simulation: ScopeSimulationInsight, studyBuddy: ScopeStudyBuddySummary }`
-- **POST**：
-  - 入参同 GET
-  - 触发 `getScopeSimulationInsights({...}, { forceFresh: true })`（手动重新生成，会调 LLM）
-  - 返回新结果（不走 async-job，因为 LLM 调用 < 30s 通常 OK；超时返回 504）
-
-#### 5. 区块 B 实装（task-performance-block.tsx）
+#### 3. 区块 D 实装 `teaching-advice-block.tsx`
 
 替换 phase 3 的 stub。
 
-**布局**：
+**布局**（按 §3 设计约束保持风格一致）：
 ```tsx
 <Card className="rounded-lg">
   <CardHeader>
-    <CardTitle>任务表现典型例子</CardTitle>
-    <CardDescription>
-      {generatedAt 信息} · 
+    <CardTitle className="flex items-center gap-2">
+      <Sparkles className="size-4 text-brand" />
+      AI 教学建议
+    </CardTitle>
+    <CardDescription className="flex items-center gap-2">
+      <span>{generatedAt 中文}</span>
+      <Badge variant="outline">{source 中文标签：缓存/已生成/降级}</Badge>
       <Button variant="ghost" size="sm" onClick={regenerate}>
         <RefreshCw /> 重新生成
       </Button>
     </CardDescription>
-  </CardHeader>
-  <CardContent>
-    <Tabs defaultValue="highlights">
-      <TabsList>
-        <TabsTrigger value="highlights">高分典型 ({n})</TabsTrigger>
-        <TabsTrigger value="issues">低分问题 ({m})</TabsTrigger>
-      </TabsList>
-      <TabsContent value="highlights">
-        {highlights.map(h => (
-          <button onClick={() => openEvidence(h)}>
-            <span>{h.studentName} - {h.taskTitle} - {h.normalizedScore}%</span>
-            <span className="line-clamp-2">{h.reason}</span>
-            <ChevronRight />
-          </button>
-        ))}
-      </TabsContent>
-      <TabsContent value="issues">
-        {commonIssues.map(issue => (
-          <button onClick={() => openEvidence(issue)}>
-            <Badge>×{issue.frequency}</Badge>
-            <span className="font-medium">{issue.title}</span>
-            <span className="text-muted-foreground line-clamp-2">{issue.description}</span>
-          </button>
-        ))}
-      </TabsContent>
-    </Tabs>
-  </CardContent>
-</Card>
-```
-
-#### 6. 区块 C 实装（study-buddy-block.tsx）
-
-替换 phase 3 的 stub。
-
-**布局**：
-```tsx
-<Card>
-  <CardHeader>
-    <CardTitle>Study Buddy 共性问题</CardTitle>
-    <CardDescription>{generatedAt}</CardDescription>
-  </CardHeader>
-  <CardContent>
-    {bySection.length === 0 ? <ComingSoon ... /> : (
-      <Accordion type="multiple">
-        {bySection.map(s => (
-          <AccordionItem value={s.sectionId ?? "null"}>
-            <AccordionTrigger>
-              <span>{s.sectionLabel}</span>
-              <Badge>{s.topQuestions.length}</Badge>
-            </AccordionTrigger>
-            <AccordionContent>
-              {s.topQuestions.map(q => (
-                <button onClick={() => openStudentSamples(q)}>
-                  <Badge>×{q.count}</Badge>
-                  <span>{q.text}</span>
-                </button>
-              ))}
-            </AccordionContent>
-          </AccordionItem>
-        ))}
-      </Accordion>
+    {notice && (
+      <Alert className="mt-2"><AlertCircle /> {notice}</Alert>
     )}
+  </CardHeader>
+  <CardContent className="space-y-3">
+    <AdviceSection icon={Lightbulb} title="知识目标" items={knowledgeGoals} renderItem={(it) => ({primary: it.point, evidence: it.evidence})} />
+    <AdviceSection icon={BookOpen} title="教学方式" items={pedagogyAdvice} renderItem={(it) => ({primary: it.method, evidence: it.evidence})} />
+    <AdviceSection icon={Users} title="关注群体" items={focusGroups} renderItem={(it) => ({primary: `${it.group} · ${it.action}`, evidence: it.evidence, studentIds: it.studentIds})} />
+    <AdviceSection icon={ArrowRight} title="接下来怎么教" items={nextSteps} renderItem={(it) => ({primary: it.step, evidence: it.evidence})} />
   </CardContent>
 </Card>
 ```
 
-#### 7. 证据 Drawer 组件
+`AdviceSection` 内部组件：
+- 折叠列表（≤4 行展示，超出 collapsible「展开更多」）
+- 每条主文 + 「依据」可展开（小字 `text-xs text-muted-foreground` 带 evidence）
+- focusGroups item 额外显示 `studentIds.length` 名学生 → 点击展开学生名（用现有 studentInterventions 数据查 name）
 
-新建 `components/analytics-v2/evidence-drawer.tsx`：
+#### 4. KPI 5 卡下钻 drawer 全打通
 
-复用 [grading-drawer.tsx](components/instance-detail/grading-drawer.tsx) 的 Sheet 模式 + transcript 渲染（参考 [insights/page.tsx:559-628](app/teacher/instances/[id]/insights/page.tsx)）。
+新建 `components/analytics-v2/risk-drawer.tsx`：
 
 ```ts
-interface EvidenceDrawerProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  evidence:
-    | { type: "highlight"; data: ScopeSimulationInsight["highlights"][number] }
-    | { type: "issue"; data: ScopeSimulationInsight["commonIssues"][number] }
-    | { type: "studybuddy_question"; data: ScopeStudyBuddySummary["bySection"][number]["topQuestions"][number]; sectionLabel: string }
-    | null;
-}
+type KpiDrawerKind =
+  | { kind: "completion_rate"; missingStudents: Array<{id, name, classId, taskId, taskTitle}> }
+  | { kind: "avg_score"; lowScorers: Array<{studentId, name, taskTitle, score, taskInstanceId}> }
+  | { kind: "pending_release"; pendingSubmissions: Array<{id, studentName, taskTitle, dueAt, submittedAt, taskInstanceId}> }
+  | { kind: "risk_chapter"; chapters: Array<{chapterId, title, completionRate, avgScore, instanceCount, instances: [{id, title}]}> }
+  | { kind: "risk_student"; students: Array<{studentId, name, classId, reason, taskInstances: [{id, title}]}> };
 ```
 
-**渲染**：
-- highlight 类型：学生头 + score badge + reason 简介 + transcript（3 条片段, mr-6 / ml-6 气泡 + role 标签 + mood emoji）+ 跳「单实例洞察」链接
-- issue 类型：title + description + frequency + 关联 criterion + N 个学生证据列表（每条含 student + transcriptExcerpt + score）+ 各跳单实例洞察链接
-- studybuddy_question 类型：sectionLabel + 问题文本 + count + 提问学生列表
+**Drawer 布局**：
+- 标题：根据 kind 显示「未提交学生 · N 人」/「低分学生 · N 人」/「待发布作业 · N 件」/「风险章节 · N 个」/「风险学生 · N 名」
+- 列表：每行显示关键字段
+- 行内「→ 单实例洞察」按钮跳 `/teacher/instances/{taskInstanceId}/insights`（如适用）
+- 「→ 批改页」按钮（pending_release 类型）跳 `/teacher/instances/{taskInstanceId}`
+
+**KPI 卡接 onClick**：
+- KpiRow 组件 onClick 实装：dispatch 一个 setOpenDrawer({kind, ...data})
+- dashboard 维护 drawer state，传给 RiskDrawer
+
+**数据来源**：
+- 大部分数据已在 `diagnosis` 里（chapterDiagnostics / studentInterventions / instanceDiagnostics）
+- `pending_release` 需要新 service 函数 `getPendingReleaseList(scope) → Array<{...}>`：query 对应 submission with taskInstance + student
+- `missing_students`（未提交）：student set diff 计算（assignedStudents 减去 submittedStudentIds）
+
+新增 service `lib/services/scope-drilldown.service.ts`（避免 scope-insights.service 进一步膨胀）：
+```ts
+export async function getMissingStudents(scope: ScopeKey): Promise<Array<MissingStudent>>
+export async function getLowScorers(scope: ScopeKey, threshold = 60): Promise<Array<LowScorer>>
+export async function getPendingReleaseList(scope: ScopeKey): Promise<Array<PendingSubmission>>
+export async function getRiskChapters(scope: ScopeKey): Promise<Array<RiskChapter>>  // 复用 chapterDiagnostics 算法 + instances detail
+export async function getRiskStudents(scope: ScopeKey): Promise<Array<RiskStudent>>  // 复用 studentInterventions + 详情
+```
+
+新 API `app/api/lms/analytics-v2/drilldown/route.ts`：
+- GET `?kind=completion_rate&courseId=X&...` → 按 kind 调对应 service 函数 → 返回 list
+- requireRole(["teacher", "admin"])
+
+#### 5. 修 phase 4 Minor 1：commonIssue.relatedCriterion 显示 UUID → criterion name
+
+[scope-insights.service.ts](lib/services/scope-insights.service.ts) `getScopeSimulationInsights`：
+- 在 service 内查 criterion id → name 映射（`prisma.scoringCriterion.findMany` from related taskIds）
+- LLM prompt 输入用 criterion name（不暴露 UUID）
+- LLM 输出 commonIssues[].relatedCriterion 应该是 name 字符串
+- 双重保险：service 在 LLM 返回后做 `criterionName: nameMap.get(originalCriterionId) ?? originalCriterion`，防 LLM 不老实
+- **注意**：cache 里的旧数据 (UUID) 也要修 — 加一行迁移逻辑：cache 命中后检查 commonIssue.relatedCriterion 是否像 UUID（`/^[0-9a-f-]{36}$/`），是则用 nameMap 转换
 
 ### ❌ 必须不做的 5 件事
 
-1. ❌ 不动 区块 D（AI 教学建议）— 那是 phase 5
-2. ❌ 不动 区块 A / KPI / Filter
-3. ❌ 不引入新 npm 依赖（recharts 在 phase 2 已是唯一新依赖）
-4. ❌ 不动 [/teacher/instances/[id]/insights](app/teacher/instances/[id]/insights/page.tsx) （证据 drawer 链回它，但本身不动）
-5. ❌ KPI 卡的下钻仍不接 drawer（phase 5）
+1. ❌ 不动 Prisma schema（复用 scopeSummary Json，不加新表/字段）
+2. ❌ 不引入新依赖
+3. ❌ 不动区块 A / B / C 现有功能
+4. ❌ 不动 Filter Bar / KPI 数据计算逻辑（仅加 onClick）
+5. ❌ 不动 [/teacher/instances/[id]/insights](app/teacher/instances/[id]/insights/page.tsx)
 
 ## Acceptance Criteria
 
-### A. 类型与构建（**Prisma 三步铁律**）
+### A. 类型与构建
 1. `npx tsc --noEmit` 0 errors
 2. `npm run lint` 通过
 3. `npx vitest run` 全过
 4. `npm run build` 成功
-5. **Prisma 三步全做**：migration 文件存在 + `node_modules/.prisma/client` 含 `scopeHash` 字段（grep 验证）+ dev server 重启后 page 200（不 500）
+5. **不引入新 npm 依赖**（package.json 不变）
 
-### B. Schema 改动
-6. `AnalysisReport.scopeHash String?` + `scopeSummary Json?` + `@@index([scopeHash])` 三项都加
-7. `taskInstanceId @unique` 仍保留（不破坏 instance 级报告语义）
-8. Migration SQL 含 `ADD COLUMN scopeHash` + `CREATE INDEX`
+### B. AI 教学建议 service
+6. `getScopeTeachingAdvice(scope, opts)` 在 scope-insights.service.ts 导出
+7. 24h 缓存生效：第一次 source="fresh" 第二次 source="cache" 同 generatedAt
+8. forceFresh 选项绕过缓存
+9. LLM 真调成功（有数据课程如 e6）：返回 4 类各 3-4 项 + evidence 全中文
+10. LLM 失败兜底：mock provider 报错 → source="fallback" + 4 类模板内容非空 + notice 中文
+11. evidence 字段引用具体数字 / 学生名 / 章节名（grep 验证至少含一个数字）
 
-### C. Service 实装
-9. `lib/services/scope-insights.service.ts` 存在
-10. `getScopeSimulationInsights(scope, opts)` export 签名匹配 spec
-11. `getScopeStudyBuddySummary(scope)` export 签名匹配 spec
-12. scopeHash 算法稳定（同 scope 多次调 hash 相同；scope 字段顺序无关）
-13. 24h 缓存生效：第一次调 → DB 写 + 返回 source="fresh"；第二次同 scope 调 → DB 读 + 返回 source="cache"
-14. forceFresh 选项绕过缓存
-15. LLM 失败兜底：mock LLM 报错 → 返回模板化 commonIssues（不抛 + 不空数组）
-16. Study Buddy 按 section group + top-5 排序正确（手算 1 个 section 验证）
+### C. API 扩展
+12. GET `/api/lms/analytics-v2/scope-insights?courseId=X` 返回 `{ data: { simulation, studyBuddy, teachingAdvice } }` 三键齐
+13. POST 同上 + teachingAdvice.source="fresh" 或 "fallback"
+14. 未登录 401 / 学生角色 403
 
-### D. API endpoint
-17. GET `/api/lms/analytics-v2/scope-insights?courseId=X&classIds=A&classIds=B` 返回 200
-18. 返回结构 `{ success: true, data: { simulation, studyBuddy } }`
-19. POST `/api/lms/analytics-v2/scope-insights?courseId=X` 返回 200 + simulation.source="fresh"
-20. 未登录 401 / 学生角色 403
+### D. 区块 D 实装（teaching-advice-block）
+15. 区块 D 不再显示 ComingSoon（除非 scope 内 0 数据）
+16. Card header 显示 generatedAt 中文 + source 中文 Badge（缓存/已生成/降级）+ 重新生成按钮
+17. fallback 状态显示 notice Alert
+18. 4 类（知识目标 / 教学方式 / 关注群体 / 接下来怎么教）各 1 个 section + 不同 icon
+19. 每条主文 + 「依据」可展开（默认折叠 evidence，点击「展开依据」显示）
+20. focusGroups item 显示 group + action + studentIds 数 + 可点击展开学生名
+21. 中文文案 + 设计 token 配色（icon 用 brand / muted-foreground）
 
-### E. 区块 B 实装（task-performance）
-21. 区块 B 不再显示 ComingSoon（或仅在数据为空时显示「暂无」）
-22. 2 sub-tabs：高分典型 / 低分问题
-23. 高分典型 tab：列表显示 ≤4 例（学生名 + 任务 + 分数 + reason）
-24. 低分问题 tab：列表显示 ≤4 例（title + description + ×frequency Badge + 关联 criterion）
-25. 卡 header 显示 generatedAt + 「重新生成」按钮（带 RefreshCw icon）
-26. 「重新生成」点击 → POST API → loading 旋转 → 刷新数据
-27. 列表项点击 → openEvidence → Sheet drawer 打开
-28. 空状态：scope 内无 simulation / 无 graded → ComingSoon「当前范围无 simulation graded 数据」
+### E. KPI 下钻 drawer
+22. `components/analytics-v2/risk-drawer.tsx` 存在
+23. 5 个 KPI 卡 onClick 接通：
+    - 完成率点击 → drawer kind=completion_rate 列未提交学生
+    - 归一化均分点击 → drawer kind=avg_score 列低分学生
+    - 待发布点击 → drawer kind=pending_release 列待发布作业
+    - 风险章节点击 → drawer kind=risk_chapter 列章节 + 内任务
+    - 风险学生点击 → drawer kind=risk_student 列学生 + reason
+24. drawer 内行内有「→ 单实例洞察」链接（taskInstanceId 已知时）
+25. drawer 内 pending_release 行额外有「→ 批改页」链接
+26. 空数据 → drawer 显示「当前范围 N 项无内容」中文提示
+27. KPI 卡视觉：cursor pointer（hover 时）+ 整卡可点击
 
-### F. 区块 C 实装（study-buddy）
-29. 区块 C 不再显示 ComingSoon（或仅在数据为空时显示）
-30. Accordion 按 section 折叠
-31. 每节显示 ≤5 top questions + ×count Badge
-32. 节标题显示「{chapterTitle} {sectionTitle}」+ 问题数 Badge
-33. 问题点击 → 显示提问学生列表（可在 drawer 或 popover）
+### F. drilldown service + API
+28. `lib/services/scope-drilldown.service.ts` 存在 + 5 函数 export
+29. `app/api/lms/analytics-v2/drilldown/route.ts` GET 200 + 5 kind 全工作
+30. drilldown API 返回数据正确性：手算 a201 missing_students = assigned - submitted
 
-### G. 证据 Drawer
-34. `components/analytics-v2/evidence-drawer.tsx` 存在
-35. 三种 evidence 类型（highlight/issue/studybuddy_question）UI 渲染都正确
-36. highlight：学生 + score + transcript 气泡渲染（与 [insights/page.tsx:601-616](app/teacher/instances/[id]/insights/page.tsx) 同模式）
-37. issue：title + 多学生证据
-38. studybuddy_question：section + 问题 + 学生列表
-39. drawer 内"查看完整提交"链接 → `/teacher/instances/{id}/insights`
+### G. UUID → name UX 修复
+31. service 加 criterionId → name 映射查询
+32. 区块 B「低分问题」列表项不再显示 UUID（如 `f25293a6-...`），改显 criterion name（如「需求澄清能力」）
+33. drawer issue 类型同上不再显示 UUID
+34. 旧 cache 数据也被自动转换（cache 命中时检查 UUID pattern + 转换）
 
-### H. Phase 1-3 anti-regression
-40. KPI 5 卡数字与 phase 3 一致
-41. 区块 A 完整可用（5/10 段切换 / tooltip / cursor pointer / 多班分色）
-42. Filter Bar / 班级多选 / 默认全部班 全工作
-43. 老 URL 兼容
-44. 单实例 insights / teacher dashboard 隔离
-45. recharts bar fill 仍 CSS 变量（grep）
-46. dashboard.tsx < 800 行（phase 3 已 632，本 phase 仅微改）
+### H. Phase 1-4 anti-regression
+35. KPI 5 卡数字与 phase 4 一致
+36. 区块 A/B/C 完整可用
+37. Filter Bar / 班级多选 / 默认全部班 全工作
+38. 老 URL 兼容
+39. 单实例 insights / teacher dashboard 隔离
+40. recharts bar fill 仍 CSS 变量
+41. dashboard.tsx < 850 行（phase 4 是 704 + 本 phase 加 KPI onClick + drawer state ≈ 60 行 = 764 行）
+42. defaultClassIdsAppliedRef + courseId guard 完整保留
+43. Prisma 三步 N/A（本 phase 不动 schema）
 
 ## Risks
 
 | 风险 | 防御 |
 |---|---|
-| Prisma 三步漏步 → tsc 过但运行 500 | spec §A.5 强制 grep `.prisma/client` 含新字段 + 真浏览器 200 |
-| LLM 调用 > 30s 超时 | API 加 timeout 25s + 超时返回 504 + UI 显示「超时，请稍后重试」 |
-| LLM 调用 token 高峰 | 24h 缓存 + 手动「重新生成」按钮，避免 page load 自动调 LLM |
-| scopeHash 不稳定 | hash 前 sort keys + 数组 sort + 用 sha256 |
-| AnalysisReport.taskInstanceId @unique 与 scope 级 null 冲突 | scope 级 row taskInstanceId=null（unique 允许多 null）+ 用 scopeHash 标识 |
-| Drawer 内 transcript 大对象拖慢 | scope-insights service 已截断 transcript ≤3 片段 |
-| 多班 + 多 LLM 调用并发 | 缓存命中后无 LLM 调用 / forceFresh 用 mutex 防同 scope 并发请求 |
+| LLM 调用 token 高峰 | 24h scopeHash cache + 手动「重新生成」按钮，与 phase 4 同 |
+| LLM 输出不结构化或缺 evidence | Zod 校验失败 → 兜底模板，不抛错 |
+| KPI 5 卡 onClick 触发 drilldown API 慢 → drawer loading 不流畅 | drawer open 时立刻显示 loading skeleton + 不阻塞主页面 |
+| pending_release / missing_students SQL 慢 | 限制返回 ≤50 条 + 加 LIMIT |
+| UUID → name 映射 cache 旧数据看起来 stale | service 命中 cache 后 in-memory 转换 + 不修改 DB（避免幂等问题）|
+| 区块 D 内容过多撑高卡片 → 4 区块布局打破 | AdviceSection 默认 ≤4 行 + 「展开更多」 collapsible |
 
 ## QA 验证
 
 ### 必做
 1. tsc / lint / vitest / build
-2. **Prisma 三步验证**：
-   - `cat prisma/migrations/*phase4*` 见 ALTER TABLE
-   - `node_modules/.prisma/client/index.d.ts` grep `scopeHash`
-   - dev server 重启后 `curl /teacher/analytics-v2` 重定向 /login（200）
-3. **真浏览器** via gstack `/qa-only`：
-   - dev server worktree 3031 重启后访问
-   - 区块 B 高分典型 + 低分问题 tab 切换看数据
-   - 「重新生成」按钮触发 POST + loading + 刷新
-   - 区块 C accordion 展开每节看 top questions
-   - 列表项点击打开证据 drawer 看 transcript / studybuddy 学生列表
-   - drawer 内「查看完整提交」跳单实例 insights
-   - 4 区块布局完整 + KPI / 区块 A 不变
-   - 截图 ≥ 6 张 `/tmp/qa-insights-phase4-*.png`：B 高分典型 / B 低分问题 / B drawer transcript / C accordion / C drawer studybuddy / 整页 4 区块
-4. **数据正确性**：
-   - 手算 scope 内 simulation graded count + service highlights 数对比
-   - 手算 1 节 StudyBuddySummary topQuestions count 与 UI 显示对比
-   - cache 验证：连两次 GET → 第一次 source="fresh"；第二次 source="cache" + 数据相同
-5. **LLM 失败兜底**：mock provider env 设错值 → page 不空白 + UI 显示「LLM 暂不可用，显示模板结果」
+2. 真浏览器 via gstack `/qa-only`：
+   - dev server 3031 alive
+   - 区块 D 4 类显示 + evidence 展开 + 重新生成按钮工作
+   - KPI 5 卡 click → drawer 打开 + 5 种 kind 全测
+   - drawer 行内链接跳 single instance insights / 批改页正常
+   - 区块 B「低分问题」列表 UUID 已替换为 name
+   - 4 区块布局无破坏
+   - 截图 ≥ 8 张 `/tmp/qa-insights-phase5-*.png`：D 4 类完整 / D evidence 展开 / D fallback notice / KPI 5 个 drawer 各一张 / B UUID 已修复
+3. **数据正确性**：
+   - drilldown missing_students = SQL 直查 assigned - submitted 一致
+   - drilldown risk_chapter chapter 数与 KPI 卡数字一致
+   - drilldown risk_student 数与 KPI 卡数字一致
+4. **LLM 失败兜底**：mock provider 报错 → 区块 D fallback notice 显示 + 4 类有内容
+5. **UUID 修复回归**：phase 4 已生成的 cache（含 UUID）被 service 命中时，UI 显示 name（不显示 UUID）
 
 ### 跳过
-- ❌ /cso（无安全敏感改动）
+- ❌ Prisma 三步（本 phase 无 schema 改动）
 - ❌ Bundle size（不引入新 deps）
+- ❌ /cso（无安全敏感改动）
 
 ## 提交策略
 
 Atomic commit message：
 ```
-feat(insights): phase 4 — task performance + study buddy with evidence drawer
+feat(insights): phase 5 — AI teaching advice + KPI drilldown drawer + UUID UX fix
 
-- Prisma: AnalysisReport + scopeHash String? + scopeSummary Json? + @@index([scopeHash])
-  Migration phase4_scope_analysis_report
-- New lib/services/scope-insights.service.ts:
-  - getScopeSimulationInsights (启发式 highlights + LLM commonIssues + 24h scopeHash cache)
-  - getScopeStudyBuddySummary (纯查询 StudyBuddySummary by section)
-  - scopeHash = sha256(sorted scope JSON), failure fallback to template
-- New API: app/api/lms/analytics-v2/scope-insights/route.ts (GET cached / POST forceFresh)
-- New components/analytics-v2/evidence-drawer.tsx
-  (3 types: highlight / issue / studybuddy_question, transcript 气泡渲染,
-   "查看完整提交"链接到单实例洞察)
-- Block B: task-performance-block.tsx 实装
-  (2 sub-tabs 高分典型 / 低分问题, 卡 header generatedAt + 重新生成按钮,
-   列表项 click → evidence drawer)
-- Block C: study-buddy-block.tsx 实装
-  (Accordion by section, top-5 questions per section, click → drawer 学生列表)
+- New getScopeTeachingAdvice in scope-insights.service.ts
+  (LLM 4 类 knowledgeGoals / pedagogyAdvice / focusGroups / nextSteps + evidence,
+   24h scopeHash cache 复用 phase 4 scopeSummary JSON, 失败兜底模板 + notice)
+- New lib/services/scope-drilldown.service.ts (5 functions: getMissingStudents
+  / getLowScorers / getPendingReleaseList / getRiskChapters / getRiskStudents)
+- New API app/api/lms/analytics-v2/drilldown/route.ts (5 kinds GET, requireRole)
+- API /scope-insights GET/POST 扩展返回 teachingAdvice
+- Block D: teaching-advice-block.tsx 实装 (4 sections 不同 icon,
+  evidence collapsible, fallback notice Alert, 重新生成按钮)
+- New components/analytics-v2/risk-drawer.tsx (5 kinds list + cross-link to
+  single instance insights / 批改页)
+- KPI 5 卡 onClick 接 risk-drawer (cursor pointer + 整卡可点击)
+- Fix Phase 4 Minor 1: criterion UUID → name (service 加 nameMap, LLM input/output
+  都用 name; cache 旧数据 in-memory 转换 UUID→name)
 
-Phase 1-3 anti-regression preserved (defaultClassIdsAppliedRef + courseId guard,
-entity vs filter classIds, recharts design tokens, 4 blocks layout, dashboard < 800 lines)。
+Phase 1-4 anti-regression preserved (defaultClassIdsAppliedRef + courseId guard,
+entity vs filter classIds, recharts design tokens, 4 blocks layout, 24h cache,
+LLM fallback template, dashboard <850 行)。
 
-QA: r1 PASS X/X (tsc/lint/vitest/build 全绿, Prisma 三步严格执行)
-- LLM 24h scopeHash 缓存命中 / forceFresh 触发新调
-- LLM 失败兜底返回模板化结果 (UI 不空白)
-- 真浏览器 6 张截图 /tmp/qa-insights-phase4-*.png
-- Drawer transcript 渲染 + 跳单实例 insights 链接
+QA: r1 PASS X/X (tsc/lint/vitest/build 全绿)
+- 4 类教学建议 + evidence 中文 + LLM 兜底
+- KPI 5 个 drawer 全打通 + 跨链接到单实例 insights / 批改页
+- UUID → name 修复 (phase 4 cache 也自动转换)
+- 8 张真浏览器截图 /tmp/qa-insights-phase5-*.png
 
 See plan: ~/.claude/plans/main-session-snug-tide.md
 See spec: .harness/spec.md

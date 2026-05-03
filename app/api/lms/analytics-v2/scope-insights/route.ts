@@ -6,11 +6,12 @@ import { success, validationError, handleServiceError, error as errorResponse } 
 import {
   getScopeSimulationInsights,
   getScopeStudyBuddySummary,
+  getScopeTeachingAdvice,
   type ScopeKey,
 } from "@/lib/services/scope-insights.service";
 
 const TASK_TYPES = new Set<TaskType>(["simulation", "quiz", "subjective"]);
-const POST_TIMEOUT_MS = 25_000;
+const POST_TIMEOUT_MS = 50_000;
 
 function readClassIds(searchParams: URLSearchParams): string[] {
   const multi = searchParams.getAll("classIds").map((id) => id.trim()).filter(Boolean);
@@ -51,12 +52,13 @@ export async function GET(request: NextRequest) {
     const { user } = auth.session;
     await assertCourseAccess(scope.courseId, user.id, user.role);
 
-    const [simulation, studyBuddy] = await Promise.all([
+    const [simulation, studyBuddy, teachingAdvice] = await Promise.all([
       getScopeSimulationInsights(scope, { teacherId: user.id }),
       getScopeStudyBuddySummary(scope),
+      getScopeTeachingAdvice(scope, { teacherId: user.id }),
     ]);
 
-    return success({ simulation, studyBuddy });
+    return success({ simulation, studyBuddy, teachingAdvice });
   } catch (err) {
     return handleServiceError(err);
   }
@@ -79,11 +81,15 @@ export async function POST(request: NextRequest) {
     );
 
     const work = (async () => {
-      const [simulation, studyBuddy] = await Promise.all([
-        getScopeSimulationInsights(scope, { teacherId: user.id, forceFresh: true }),
+      const simulation = await getScopeSimulationInsights(scope, {
+        teacherId: user.id,
+        forceFresh: true,
+      });
+      const [studyBuddy, teachingAdvice] = await Promise.all([
         getScopeStudyBuddySummary(scope),
+        getScopeTeachingAdvice(scope, { teacherId: user.id, forceFresh: true }),
       ]);
-      return { simulation, studyBuddy };
+      return { simulation, studyBuddy, teachingAdvice };
     })();
 
     const result = await Promise.race([work, timeout]);

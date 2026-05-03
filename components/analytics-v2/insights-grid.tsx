@@ -17,6 +17,7 @@ import type {
 import type {
   ScopeSimulationInsight,
   ScopeStudyBuddySummary,
+  ScopeTeachingAdvice,
 } from "@/lib/services/scope-insights.service";
 
 const ScoreDistributionChart = dynamic(
@@ -42,11 +43,13 @@ interface InsightsGridProps {
   scopeInsights?: {
     simulation: ScopeSimulationInsight | null;
     studyBuddy: ScopeStudyBuddySummary | null;
+    teachingAdvice: ScopeTeachingAdvice | null;
   };
   scopeInsightsLoading?: boolean;
   scopeInsightsRefreshing?: boolean;
   onRefreshScopeInsights?: () => void;
   onBinClick?: (bin: ScoreDistributionBin, classId: string) => void;
+  studentNamesById?: Map<string, string>;
 }
 
 export function InsightsGrid({
@@ -56,8 +59,13 @@ export function InsightsGrid({
   scopeInsightsRefreshing,
   onRefreshScopeInsights,
   onBinClick,
+  studentNamesById,
 }: InsightsGridProps) {
-  const safeScopeInsights = scopeInsights ?? { simulation: null, studyBuddy: null };
+  const safeScopeInsights = scopeInsights ?? {
+    simulation: null,
+    studyBuddy: null,
+    teachingAdvice: null,
+  };
   const [evidence, setEvidence] = useState<EvidenceItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -85,7 +93,13 @@ export function InsightsGrid({
           loading={scopeInsightsLoading && !safeScopeInsights.studyBuddy}
           onOpenEvidence={openEvidence}
         />
-        <TeachingAdviceBlock />
+        <TeachingAdviceBlock
+          data={safeScopeInsights.teachingAdvice}
+          loading={scopeInsightsLoading && !safeScopeInsights.teachingAdvice}
+          refreshing={scopeInsightsRefreshing}
+          onRefresh={onRefreshScopeInsights}
+          studentNamesById={studentNamesById}
+        />
       </div>
       <EvidenceDrawer
         open={drawerOpen}

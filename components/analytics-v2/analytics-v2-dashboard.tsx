@@ -13,9 +13,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { InsightsFilterBar } from "@/components/analytics-v2/insights-filter-bar";
 import { KpiRow } from "@/components/analytics-v2/kpi-row";
 import { InsightsGrid } from "@/components/analytics-v2/insights-grid";
+import {
+  RiskDrawer,
+  type RiskDrawerKind,
+  type RiskDrawerState,
+} from "@/components/analytics-v2/risk-drawer";
 import type {
   ScopeSimulationInsight as ScopeSimulationInsightShape,
   ScopeStudyBuddySummary as ScopeStudyBuddySummaryShape,
+  ScopeTeachingAdvice as ScopeTeachingAdviceShape,
 } from "@/lib/services/scope-insights.service";
 import { cn } from "@/lib/utils";
 
@@ -266,9 +272,12 @@ export function AnalyticsV2Dashboard() {
   const [scopeInsights, setScopeInsights] = useState<{
     simulation: ScopeSimulationInsightShape | null;
     studyBuddy: ScopeStudyBuddySummaryShape | null;
-  }>({ simulation: null, studyBuddy: null });
+    teachingAdvice: ScopeTeachingAdviceShape | null;
+  }>({ simulation: null, studyBuddy: null, teachingAdvice: null });
   const [scopeInsightsLoading, setScopeInsightsLoading] = useState(false);
   const [scopeInsightsRefreshing, setScopeInsightsRefreshing] = useState(false);
+  const [riskDrawerOpen, setRiskDrawerOpen] = useState(false);
+  const [riskDrawerState, setRiskDrawerState] = useState<RiskDrawerState | null>(null);
 
   const courseId = searchParams.get("courseId") ?? "";
   const classIds = useMemo(() => {
@@ -339,7 +348,7 @@ export function AnalyticsV2Dashboard() {
 
   useEffect(() => {
     if (!courseId) {
-      setScopeInsights({ simulation: null, studyBuddy: null });
+      setScopeInsights({ simulation: null, studyBuddy: null, teachingAdvice: null });
       return;
     }
     const controller = new AbortController();
@@ -355,13 +364,14 @@ export function AnalyticsV2Dashboard() {
           setScopeInsights({
             simulation: json.data.simulation ?? null,
             studyBuddy: json.data.studyBuddy ?? null,
+            teachingAdvice: json.data.teachingAdvice ?? null,
           });
         } else {
-          setScopeInsights({ simulation: null, studyBuddy: null });
+          setScopeInsights({ simulation: null, studyBuddy: null, teachingAdvice: null });
         }
       } catch {
         if (!controller.signal.aborted) {
-          setScopeInsights({ simulation: null, studyBuddy: null });
+          setScopeInsights({ simulation: null, studyBuddy: null, teachingAdvice: null });
         }
       } finally {
         if (!controller.signal.aborted) setScopeInsightsLoading(false);
@@ -384,6 +394,7 @@ export function AnalyticsV2Dashboard() {
         setScopeInsights({
           simulation: json.data.simulation ?? null,
           studyBuddy: json.data.studyBuddy ?? null,
+          teachingAdvice: json.data.teachingAdvice ?? null,
         });
       } else {
         setError(json.error?.message ?? "重新生成失败");
@@ -495,6 +506,35 @@ export function AnalyticsV2Dashboard() {
     }
   }
 
+  const studentNamesById = useMemo(() => {
+    const map = new Map<string, string>();
+    if (diagnosis) {
+      for (const row of diagnosis.studentInterventions) {
+        if (!map.has(row.studentId)) map.set(row.studentId, row.studentName);
+      }
+    }
+    return map;
+  }, [diagnosis]);
+
+  async function openRiskDrawer(kind: RiskDrawerKind) {
+    if (!courseId) return;
+    setRiskDrawerOpen(true);
+    setRiskDrawerState({ kind, loading: true, items: [], error: null });
+    try {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("kind", kind);
+      const res = await fetch(`/api/lms/analytics-v2/drilldown?${params.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setRiskDrawerState({ kind, loading: false, items: json.data.items ?? [], error: null });
+      } else {
+        setRiskDrawerState({ kind, loading: false, items: [], error: json.error?.message ?? "加载失败" });
+      }
+    } catch {
+      setRiskDrawerState({ kind, loading: false, items: [], error: "加载失败" });
+    }
+  }
+
   if (coursesLoading) {
     return <CenteredState icon={Loader2} title="正在加载课程" spinning />;
   }
@@ -547,7 +587,7 @@ export function AnalyticsV2Dashboard() {
         <>
           <DataQualityPanel flags={diagnosis.dataQualityFlags ?? []} />
 
-          <KpiRow diagnosis={diagnosis} />
+          <KpiRow diagnosis={diagnosis} onKpiClick={openRiskDrawer} />
 
           <InsightsGrid
             diagnosis={diagnosis}
@@ -555,12 +595,21 @@ export function AnalyticsV2Dashboard() {
             scopeInsightsLoading={scopeInsightsLoading}
             scopeInsightsRefreshing={scopeInsightsRefreshing}
             onRefreshScopeInsights={refreshScopeInsights}
+            studentNamesById={studentNamesById}
             onBinClick={(bin, classId) => {
               console.log("score-distribution click", { bin: bin.label, classId });
             }}
           />
         </>
       ) : null}
+      <RiskDrawer
+        open={riskDrawerOpen}
+        onOpenChange={(open) => {
+          setRiskDrawerOpen(open);
+          if (!open) setTimeout(() => setRiskDrawerState(null), 200);
+        }}
+        state={riskDrawerState}
+      />
     </div>
   );
 }

@@ -80,6 +80,40 @@ export interface ScopeStudyBuddySummary {
   bySection: ScopeStudyBuddySectionGroup[];
 }
 
+export interface AdviceKnowledgeGoal {
+  point: string;
+  evidence: string;
+}
+
+export interface AdvicePedagogyAdvice {
+  method: string;
+  evidence: string;
+}
+
+export interface AdviceFocusGroup {
+  group: string;
+  action: string;
+  studentIds: string[];
+  evidence: string;
+}
+
+export interface AdviceNextStep {
+  step: string;
+  evidence: string;
+}
+
+export interface ScopeTeachingAdvice {
+  scope: ScopeKey;
+  generatedAt: string;
+  source: "fresh" | "cache" | "fallback";
+  knowledgeGoals: AdviceKnowledgeGoal[];
+  pedagogyAdvice: AdvicePedagogyAdvice[];
+  focusGroups: AdviceFocusGroup[];
+  nextSteps: AdviceNextStep[];
+  notice?: string;
+  staleAt?: string;
+}
+
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const HIGHLIGHTS_TARGET = 4;
 const HIGHLIGHTS_PER_TASK_CAP = 2;
@@ -119,8 +153,13 @@ export async function getScopeSimulationInsights(
     if (cached?.scopeSummary) {
       const parsed = parseCachedScopeSummary(cached.scopeSummary);
       if (parsed) {
+        const needsNameFix = parsed.commonIssues.some((issue) => isUuidString(issue.relatedCriterion));
+        const fixed = needsNameFix
+          ? await normalizeIssueCriterionNames(scope, parsed.commonIssues)
+          : parsed.commonIssues;
         return {
           ...parsed,
+          commonIssues: fixed,
           scope,
           source: "cache",
           staleAt: new Date(cached.createdAt.getTime() + CACHE_TTL_MS).toISOString(),
@@ -131,15 +170,40 @@ export async function getScopeSimulationInsights(
 
   const fresh = await buildScopeSimulationInsightFresh(scope, now, options?.teacherId);
 
-  await prisma.analysisReport.create({
-    data: {
-      scopeHash,
-      scopeSummary: serializeScopeSummary(fresh) as unknown as Prisma.InputJsonValue,
-      createdBy: options?.teacherId ?? "system",
-      studentCount: fresh.highlights.length,
-      report: { kind: "scope_simulation_insight" } as Prisma.InputJsonValue,
-    },
+  const existing = await prisma.analysisReport.findFirst({
+    where: { scopeHash },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, scopeSummary: true },
   });
+  const previousScopeSummary =
+    existing?.scopeSummary && typeof existing.scopeSummary === "object" && !Array.isArray(existing.scopeSummary)
+      ? (existing.scopeSummary as Record<string, unknown>)
+      : {};
+  const mergedSummary = {
+    ...previousScopeSummary,
+    ...serializeScopeSummary(fresh),
+  };
+  if (existing) {
+    await prisma.analysisReport.update({
+      where: { id: existing.id },
+      data: {
+        scopeSummary: mergedSummary as unknown as Prisma.InputJsonValue,
+        studentCount: fresh.highlights.length,
+        createdAt: now,
+      },
+    });
+  } else {
+    await prisma.analysisReport.create({
+      data: {
+        scopeHash,
+        scopeSummary: mergedSummary as unknown as Prisma.InputJsonValue,
+        createdBy: options?.teacherId ?? "system",
+        studentCount: fresh.highlights.length,
+        report: { kind: "scope_simulation_insight" } as Prisma.InputJsonValue,
+        createdAt: now,
+      },
+    });
+  }
 
   return {
     ...fresh,
@@ -320,6 +384,8 @@ async function buildScopeSimulationInsightFresh(
     },
   });
 
+  const criterionNameMap = await loadCriterionNameMap(instanceIds);
+
   if (submissions.length === 0) {
     return {
       scope,
@@ -352,7 +418,11 @@ async function buildScopeSimulationInsightFresh(
     if (score === null || maxScore === null || maxScore <= 0) continue;
     const normalized = (score / maxScore) * 100;
     const transcript = extractStudentTranscript(s.simulationSubmission?.transcript);
-    const rubric = extractRubricBreakdown(s.simulationSubmission?.evaluation);
+    const rawRubric = extractRubricBreakdown(s.simulationSubmission?.evaluation);
+    const rubric = rawRubric.map((r) => ({
+      ...r,
+      criterionName: resolveCriterionName(r.criterionId, r.criterionName, criterionNameMap),
+    }));
     scored.push({
       submissionId: s.id,
       studentId: s.studentId,
@@ -684,5 +754,403 @@ function parseCachedScopeSummary(raw: unknown): Omit<ScopeSimulationInsight, "sc
     highlights: r.highlights as ScopeSimulationHighlight[],
     commonIssues: r.commonIssues as ScopeSimulationIssue[],
     notice: typeof r.notice === "string" ? r.notice : undefined,
+  };
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidString(value: unknown): boolean {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+async function loadCriterionNameMap(instanceIds: string[]): Promise<Map<string, string>> {
+  if (instanceIds.length === 0) return new Map();
+  const taskInstances = await prisma.taskInstance.findMany({
+    where: { id: { in: instanceIds } },
+    select: { taskId: true },
+  });
+  const taskIds = Array.from(new Set(taskInstances.map((t) => t.taskId)));
+  if (taskIds.length === 0) return new Map();
+  const criteria = await prisma.scoringCriterion.findMany({
+    where: { taskId: { in: taskIds } },
+    select: { id: true, name: true },
+  });
+  return new Map(criteria.map((c) => [c.id, c.name]));
+}
+
+function resolveCriterionName(
+  criterionId: string,
+  fallbackName: string,
+  nameMap: Map<string, string>,
+): string {
+  const mapped = nameMap.get(criterionId);
+  if (mapped) return mapped;
+  if (isUuidString(fallbackName)) {
+    const remapped = nameMap.get(fallbackName);
+    if (remapped) return remapped;
+  }
+  return fallbackName;
+}
+
+async function normalizeIssueCriterionNames(
+  scope: ScopeKey,
+  issues: ScopeSimulationIssue[],
+): Promise<ScopeSimulationIssue[]> {
+  const instances = await prisma.taskInstance.findMany({
+    where: { ...buildInstanceWhere(scope), taskType: "simulation" },
+    select: { id: true },
+  });
+  const instanceIds = instances.map((i) => i.id);
+  const nameMap = await loadCriterionNameMap(instanceIds);
+  if (nameMap.size === 0) return issues;
+  return issues.map((issue) => ({
+    ...issue,
+    relatedCriterion: nameMap.get(issue.relatedCriterion) ?? issue.relatedCriterion,
+    evidence: issue.evidence.map((ev) => ({
+      ...ev,
+      rubricCriterion: nameMap.get(ev.rubricCriterion) ?? ev.rubricCriterion,
+    })),
+  }));
+}
+
+const TEACHING_ADVICE_FALLBACK_NOTICE = "AI 教学建议暂不可用，已显示规则模板。请稍后点击「重新生成」重试。";
+
+export async function getScopeTeachingAdvice(
+  scope: ScopeKey,
+  options?: { forceFresh?: boolean; teacherId?: string },
+): Promise<ScopeTeachingAdvice> {
+  const scopeHash = computeScopeHash(scope);
+  const now = new Date();
+  const cacheCutoff = new Date(now.getTime() - CACHE_TTL_MS);
+
+  if (!options?.forceFresh) {
+    const cached = await prisma.analysisReport.findFirst({
+      where: { scopeHash, createdAt: { gt: cacheCutoff } },
+      orderBy: { createdAt: "desc" },
+      select: { scopeSummary: true, createdAt: true },
+    });
+    const cachedAdvice = parseCachedTeachingAdvice(cached?.scopeSummary);
+    if (cachedAdvice) {
+      return {
+        ...cachedAdvice,
+        scope,
+        source: "cache",
+        staleAt: new Date(cached!.createdAt.getTime() + CACHE_TTL_MS).toISOString(),
+      };
+    }
+  }
+
+  const fresh = await buildScopeTeachingAdviceFresh(scope, now, options?.teacherId);
+  await persistTeachingAdvice(scopeHash, fresh, options?.teacherId);
+  return {
+    ...fresh,
+    staleAt: new Date(now.getTime() + CACHE_TTL_MS).toISOString(),
+  };
+}
+
+async function buildScopeTeachingAdviceFresh(
+  scope: ScopeKey,
+  now: Date,
+  teacherId: string | undefined,
+): Promise<ScopeTeachingAdvice> {
+  const { getAnalyticsV2Diagnosis } = await import("./analytics-v2.service");
+  const diagnosis = await getAnalyticsV2Diagnosis({
+    courseId: scope.courseId,
+    chapterId: scope.chapterId,
+    sectionId: scope.sectionId,
+    classIds: scope.classIds,
+    taskType: scope.taskType,
+    taskInstanceId: scope.taskInstanceId,
+  });
+
+  const [simulation, studyBuddy] = await Promise.all([
+    getScopeSimulationInsights(scope, { teacherId }),
+    getScopeStudyBuddySummary(scope),
+  ]);
+
+  const interventionsTop = [...diagnosis.studentInterventions]
+    .sort((a, b) => {
+      const reasonOrder = { not_submitted: 0, low_score: 1, declining: 2 } as const;
+      const ra = reasonOrder[a.reason];
+      const rb = reasonOrder[b.reason];
+      if (ra !== rb) return ra - rb;
+      const sa = a.selectedScore ?? Number.POSITIVE_INFINITY;
+      const sb = b.selectedScore ?? Number.POSITIVE_INFINITY;
+      return sa - sb;
+    })
+    .slice(0, 15);
+
+  const riskChapters = diagnosis.chapterDiagnostics.filter(
+    (chapter) =>
+      (chapter.completionRate !== null && chapter.completionRate < 0.6) ||
+      (chapter.avgNormalizedScore !== null && chapter.avgNormalizedScore < 60),
+  );
+
+  const promptInput = {
+    scope: {
+      courseTitle: diagnosis.scope.courseTitle,
+      classCount: diagnosis.scope.classIds.length,
+    },
+    kpis: {
+      completionRate: diagnosis.kpis.completionRate,
+      avgNormalizedScore: diagnosis.kpis.avgNormalizedScore,
+      pendingReleaseCount: diagnosis.kpis.pendingReleaseCount,
+      riskChapterCount: riskChapters.length,
+      riskStudentCount: new Set(diagnosis.studentInterventions.map((i) => i.studentId)).size,
+      assignedStudents: diagnosis.kpis.assignedStudents,
+      submittedStudents: diagnosis.kpis.submittedStudents,
+      gradedStudents: diagnosis.kpis.gradedStudents,
+    },
+    commonIssues: simulation.commonIssues.slice(0, 3).map((issue) => ({
+      title: issue.title,
+      description: issue.description,
+      relatedCriterion: issue.relatedCriterion,
+      frequency: issue.frequency,
+    })),
+    studyBuddyTopQuestions: studyBuddy.bySection.slice(0, 3).map((sec) => ({
+      section: sec.sectionLabel,
+      questions: sec.topQuestions.slice(0, 3).map((q) => ({ text: q.text, count: q.count })),
+    })),
+    riskChapters: riskChapters.slice(0, 5).map((chapter) => ({
+      title: chapter.title,
+      completionRate: chapter.completionRate,
+      avgNormalizedScore: chapter.avgNormalizedScore,
+      instanceCount: chapter.instanceCount,
+    })),
+    studentInterventionsTop: interventionsTop.map((row) => ({
+      name: row.studentName,
+      class: row.className,
+      reason: row.reason,
+      score: row.selectedScore,
+    })),
+  };
+
+  const fallback = buildFallbackAdvice(scope, now, diagnosis, riskChapters, interventionsTop);
+
+  if (!teacherId) {
+    return { ...fallback, notice: TEACHING_ADVICE_FALLBACK_NOTICE };
+  }
+
+  const adviceSchema = z.object({
+    knowledgeGoals: z.array(z.object({ point: z.string(), evidence: z.string() })),
+    pedagogyAdvice: z.array(z.object({ method: z.string(), evidence: z.string() })),
+    focusGroups: z.array(
+      z.object({
+        group: z.string(),
+        action: z.string(),
+        studentNames: z.array(z.string()).optional().default([]),
+        evidence: z.string(),
+      }),
+    ),
+    nextSteps: z.array(z.object({ step: z.string(), evidence: z.string() })),
+  });
+
+  const systemPrompt =
+    "你是高校金融教育的资深教学顾问。基于教师当前班级 / 课程的学情数据，给出本周教学建议。" +
+    "每条 evidence 必须直接引用输入数据中的具体数字、学生名或章节名（不能笼统）。" +
+    "中文输出，简明扼要，不要重复输入数据。";
+
+  const userPrompt =
+    "【输入数据】\n" +
+    JSON.stringify(promptInput, null, 2) +
+    "\n\n请输出 JSON: {\"knowledgeGoals\":[{point,evidence},...3-4 项], \"pedagogyAdvice\":[{method,evidence},...3-4 项], \"focusGroups\":[{group,action,studentNames,evidence},...2-3 项], \"nextSteps\":[{step,evidence},...3-4 项]}";
+
+  const studentNameToId = new Map(
+    diagnosis.studentInterventions.map((row) => [row.studentName, row.studentId]),
+  );
+
+  try {
+    const ai = await aiGenerateJSON("insights", teacherId, systemPrompt, userPrompt, adviceSchema, 1);
+    return {
+      scope,
+      generatedAt: now.toISOString(),
+      source: "fresh",
+      knowledgeGoals: ai.knowledgeGoals.slice(0, 4),
+      pedagogyAdvice: ai.pedagogyAdvice.slice(0, 4),
+      focusGroups: ai.focusGroups.slice(0, 3).map((group) => ({
+        group: group.group,
+        action: group.action,
+        evidence: group.evidence,
+        studentIds: group.studentNames
+          .map((name) => studentNameToId.get(name))
+          .filter((id): id is string => Boolean(id)),
+      })),
+      nextSteps: ai.nextSteps.slice(0, 4),
+    };
+  } catch (err) {
+    console.error("[scope-insights] teaching advice LLM fallback:", err);
+    return { ...fallback, notice: TEACHING_ADVICE_FALLBACK_NOTICE };
+  }
+}
+
+function buildFallbackAdvice(
+  scope: ScopeKey,
+  now: Date,
+  diagnosis: Awaited<ReturnType<typeof import("./analytics-v2.service").getAnalyticsV2Diagnosis>>,
+  riskChapters: typeof diagnosis.chapterDiagnostics,
+  interventionsTop: typeof diagnosis.studentInterventions,
+): ScopeTeachingAdvice {
+  const completionPct = diagnosis.kpis.completionRate !== null ? Math.round(diagnosis.kpis.completionRate * 100) : null;
+  const avgScore = diagnosis.kpis.avgNormalizedScore;
+
+  const knowledgeGoals: AdviceKnowledgeGoal[] = [];
+  if (avgScore !== null && avgScore < 60) {
+    knowledgeGoals.push({
+      point: "强化基础知识点掌握",
+      evidence: `当前归一化均分 ${avgScore.toFixed(1)}% 低于及格线，需巩固核心概念。`,
+    });
+  }
+  for (const chapter of riskChapters.slice(0, 2)) {
+    knowledgeGoals.push({
+      point: `重点复盘「${chapter.title}」`,
+      evidence: `该章节均分 ${chapter.avgNormalizedScore !== null ? chapter.avgNormalizedScore.toFixed(1) + "%" : "无"} / 完成率 ${chapter.completionRate !== null ? Math.round(chapter.completionRate * 100) + "%" : "无"}，存在掌握风险。`,
+    });
+  }
+  if (knowledgeGoals.length === 0) {
+    knowledgeGoals.push({
+      point: "保持当前知识点节奏",
+      evidence: `KPI 范围内未触发明显风险，可在下一节课开始小测稳住。`,
+    });
+  }
+
+  const pedagogyAdvice: AdvicePedagogyAdvice[] = [
+    {
+      method: "针对低分维度安排 1 节翻转课堂",
+      evidence: `共有 ${interventionsTop.filter((i) => i.reason === "low_score").length} 名学生归入「低掌握」，建议先小组讨论再统讲。`,
+    },
+    {
+      method: "在课堂引入典型对话回放",
+      evidence: `结合 simulation 高分学生回答片段做对照讲解，提升学生对评分维度的直觉。`,
+    },
+  ];
+
+  const groupedByReason = new Map<string, typeof interventionsTop>();
+  for (const row of interventionsTop) {
+    const arr = groupedByReason.get(row.reason) ?? [];
+    arr.push(row);
+    groupedByReason.set(row.reason, arr);
+  }
+  const reasonLabels: Record<string, string> = {
+    not_submitted: "未提交",
+    low_score: "低掌握",
+    declining: "退步",
+  };
+  const focusGroups: AdviceFocusGroup[] = Array.from(groupedByReason.entries())
+    .map(([reason, rows]) => ({
+      group: `${rows.length} 名${reasonLabels[reason] ?? reason}学生`,
+      action:
+        reason === "not_submitted"
+          ? "课前点名 + 设定明确补交截止"
+          : reason === "low_score"
+            ? "课中安排 5 分钟 1v1 复盘 + 同类小练习"
+            : "课后单独沟通学习节奏，必要时调整任务难度",
+      studentIds: Array.from(new Set(rows.map((r) => r.studentId))),
+      evidence: `${rows.slice(0, 3).map((r) => r.studentName).join("、")}${rows.length > 3 ? "等" : ""}`,
+    }))
+    .filter((group) => group.studentIds.length > 0)
+    .slice(0, 3);
+
+  const nextSteps: AdviceNextStep[] = [
+    {
+      step: completionPct !== null && completionPct < 60
+        ? "先把未完成名单点齐再推进新内容"
+        : "维持当前节奏，下一次课收一组小测",
+      evidence: `当前完成率 ${completionPct !== null ? completionPct + "%" : "无"}。`,
+    },
+    {
+      step: "在 Study Buddy 频道挂 1 个点评帖回复共性问题",
+      evidence: "可减少课后重复答疑，并形成知识沉淀。",
+    },
+  ];
+  if (diagnosis.kpis.pendingReleaseCount > 0) {
+    nextSteps.push({
+      step: `尽快批改并发布 ${diagnosis.kpis.pendingReleaseCount} 件待发布作业`,
+      evidence: `截止日已过未发布数 = ${diagnosis.kpis.pendingReleaseCount}，会延迟学生反馈。`,
+    });
+  }
+
+  return {
+    scope,
+    generatedAt: now.toISOString(),
+    source: "fallback",
+    knowledgeGoals,
+    pedagogyAdvice,
+    focusGroups,
+    nextSteps,
+    notice: TEACHING_ADVICE_FALLBACK_NOTICE,
+  };
+}
+
+async function persistTeachingAdvice(
+  scopeHash: string,
+  advice: ScopeTeachingAdvice,
+  teacherId: string | undefined,
+): Promise<void> {
+  const cached = await prisma.analysisReport.findFirst({
+    where: { scopeHash },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, scopeSummary: true },
+  });
+  const teachingPayload = serializeTeachingAdvice(advice);
+  if (cached) {
+    const existing =
+      cached.scopeSummary && typeof cached.scopeSummary === "object" && !Array.isArray(cached.scopeSummary)
+        ? (cached.scopeSummary as Record<string, unknown>)
+        : {};
+    await prisma.analysisReport.update({
+      where: { id: cached.id },
+      data: {
+        scopeSummary: { ...existing, teachingAdvice: teachingPayload } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } else {
+    await prisma.analysisReport.create({
+      data: {
+        scopeHash,
+        scopeSummary: { teachingAdvice: teachingPayload } as unknown as Prisma.InputJsonValue,
+        createdBy: teacherId ?? "system",
+        studentCount: 0,
+        report: { kind: "scope_teaching_advice" } as Prisma.InputJsonValue,
+      },
+    });
+  }
+}
+
+function serializeTeachingAdvice(advice: ScopeTeachingAdvice) {
+  return {
+    generatedAt: advice.generatedAt,
+    source: advice.source,
+    knowledgeGoals: advice.knowledgeGoals,
+    pedagogyAdvice: advice.pedagogyAdvice,
+    focusGroups: advice.focusGroups,
+    nextSteps: advice.nextSteps,
+    notice: advice.notice ?? null,
+  };
+}
+
+function parseCachedTeachingAdvice(
+  raw: unknown,
+): Omit<ScopeTeachingAdvice, "scope" | "source" | "staleAt"> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const advice = r.teachingAdvice;
+  if (!advice || typeof advice !== "object") return null;
+  const a = advice as Record<string, unknown>;
+  if (typeof a.generatedAt !== "string") return null;
+  if (
+    !Array.isArray(a.knowledgeGoals) ||
+    !Array.isArray(a.pedagogyAdvice) ||
+    !Array.isArray(a.focusGroups) ||
+    !Array.isArray(a.nextSteps)
+  ) {
+    return null;
+  }
+  return {
+    generatedAt: a.generatedAt,
+    knowledgeGoals: a.knowledgeGoals as AdviceKnowledgeGoal[],
+    pedagogyAdvice: a.pedagogyAdvice as AdvicePedagogyAdvice[],
+    focusGroups: a.focusGroups as AdviceFocusGroup[],
+    nextSteps: a.nextSteps as AdviceNextStep[],
+    notice: typeof a.notice === "string" ? a.notice : undefined,
   };
 }

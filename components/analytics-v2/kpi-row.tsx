@@ -114,7 +114,19 @@ export function KpiCard({
   return inner;
 }
 
-export function KpiRow({ diagnosis }: { diagnosis: KpiRowDiagnosis }) {
+export type KpiKind =
+  | "completion_rate"
+  | "avg_score"
+  | "pending_release"
+  | "risk_chapter"
+  | "risk_student";
+
+interface KpiRowProps {
+  diagnosis: KpiRowDiagnosis;
+  onKpiClick?: (kind: KpiKind) => void;
+}
+
+export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
   const { kpis, chapterDiagnostics, studentInterventions, dataQualityFlags } = diagnosis;
 
   const riskChapterCount = chapterDiagnostics.filter(
@@ -125,6 +137,8 @@ export function KpiRow({ diagnosis }: { diagnosis: KpiRowDiagnosis }) {
 
   const riskStudentCount = new Set(studentInterventions.map((row) => row.studentId)).size;
 
+  const handle = (kind: KpiKind) => (onKpiClick ? () => onKpiClick(kind) : undefined);
+
   return (
     <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-5">
       <KpiCard
@@ -133,6 +147,7 @@ export function KpiRow({ diagnosis }: { diagnosis: KpiRowDiagnosis }) {
         value={formatRate(kpis.completionRate)}
         sub={`${kpis.submittedStudents}/${kpis.assignedStudents} 人次`}
         warning={hasQualityCategory(dataQualityFlags, ["assignment", "aggregation"])}
+        onClick={handle("completion_rate")}
       />
       <KpiCard
         icon={Target}
@@ -140,24 +155,28 @@ export function KpiRow({ diagnosis }: { diagnosis: KpiRowDiagnosis }) {
         value={formatPercentNumber(kpis.avgNormalizedScore)}
         sub={`中位数 ${formatPercentNumber(kpis.medianNormalizedScore)}`}
         warning={hasQualityCategory(dataQualityFlags, ["score"])}
+        onClick={handle("avg_score")}
       />
       <KpiCard
         icon={Clock3}
         label="待发布"
         value={String(kpis.pendingReleaseCount)}
         sub="DDL 已到未发布"
+        onClick={handle("pending_release")}
       />
       <KpiCard
         icon={AlertCircle}
         label="风险章节"
         value={String(riskChapterCount)}
         sub={`${kpis.instanceCount} 个实例`}
+        onClick={handle("risk_chapter")}
       />
       <KpiCard
         icon={UserCog}
         label="风险学生"
         value={String(riskStudentCount)}
         sub="未交 / 低分 / 退步去重"
+        onClick={handle("risk_student")}
       />
     </div>
   );
