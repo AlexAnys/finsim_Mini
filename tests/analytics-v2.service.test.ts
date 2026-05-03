@@ -6,6 +6,7 @@ vi.mock("@/lib/db/prisma", () => ({
     taskInstance: { findMany: vi.fn() },
     user: { findMany: vi.fn() },
     studentGroup: { findMany: vi.fn() },
+    submission: { count: vi.fn(async () => 0) },
   },
 }));
 

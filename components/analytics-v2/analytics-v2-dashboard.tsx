@@ -2,20 +2,24 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   AlertCircle,
   BarChart3,
-  CheckCircle2,
-  Clock3,
   ListChecks,
   Loader2,
   Target,
-  TrendingDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { InsightsFilterBar } from "@/components/analytics-v2/insights-filter-bar";
+import { KpiRow } from "@/components/analytics-v2/kpi-row";
+
+const ScoreDistributionChart = dynamic(
+  () => import("@/components/analytics-v2/score-distribution-chart"),
+  { ssr: false, loading: () => <ChartSkeleton /> },
+);
 import {
   Table,
   TableBody,
@@ -76,6 +80,7 @@ interface AnalyticsV2Diagnosis {
     avgNormalizedScore: number | null;
     medianNormalizedScore: number | null;
     passRate: number | null;
+    pendingReleaseCount: number;
   };
   chapterClassHeatmap: Array<{
     chapterId: string | null;
@@ -148,6 +153,21 @@ interface AnalyticsV2Diagnosis {
     reason: "not_submitted" | "low_score" | "declining";
   }>;
   dataQualityFlags: DataQualityFlag[];
+  scoreDistribution: {
+    bins: Array<{
+      label: string;
+      min: number;
+      max: number;
+      classes: Array<{
+        classId: string;
+        classLabel: string;
+        students: Array<{ id: string; name: string; score: number; taskInstanceId?: string }>;
+      }>;
+    }>;
+    binCount: number;
+    scope: "single_task" | "multi_task";
+    totalStudents: number;
+  };
   weeklyInsight: {
     generatedAt: string;
     mode: "local_fallback";
@@ -380,24 +400,6 @@ export function AnalyticsV2Dashboard() {
   }, [courseId, diagnosis, classIds, searchParams, pathname, router]);
 
   const scopeTags = useMemo(() => buildScopeTags(diagnosis), [diagnosis]);
-  const lowMasteryCount = useMemo(() => {
-    if (!diagnosis) return 0;
-    return new Set(
-      diagnosis.studentInterventions
-        .filter((item) => item.reason === "low_score")
-        .map((item) => item.studentId),
-    ).size;
-  }, [diagnosis]);
-  const pendingGrading = diagnosis
-    ? Math.max(0, diagnosis.kpis.submittedStudents - diagnosis.kpis.gradedStudents)
-    : 0;
-  const riskChapterCount = diagnosis
-    ? diagnosis.chapterDiagnostics.filter(
-        (chapter) =>
-          (chapter.completionRate !== null && chapter.completionRate < 0.6) ||
-          (chapter.avgNormalizedScore !== null && chapter.avgNormalizedScore < 60),
-      ).length
-    : 0;
 
   function replaceQuery(updates: Record<string, string | string[] | null>) {
     const next = new URLSearchParams(searchParams.toString());
@@ -499,25 +501,14 @@ export function AnalyticsV2Dashboard() {
         <>
           <DataQualityPanel flags={diagnosis.dataQualityFlags ?? []} />
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <KpiCard
-              icon={CheckCircle2}
-              label="完成率"
-              value={formatRate(diagnosis.kpis.completionRate)}
-              sub={`${diagnosis.kpis.submittedStudents}/${diagnosis.kpis.assignedStudents} 人次`}
-              warning={hasQualityCategory(diagnosis.dataQualityFlags, ["assignment", "aggregation"])}
-            />
-            <KpiCard
-              icon={Target}
-              label="归一化均分"
-              value={formatPercentNumber(diagnosis.kpis.avgNormalizedScore)}
-              sub={`中位数 ${formatPercentNumber(diagnosis.kpis.medianNormalizedScore)}`}
-              warning={hasQualityCategory(diagnosis.dataQualityFlags, ["score"])}
-            />
-            <KpiCard icon={TrendingDown} label="低掌握人数" value={String(lowMasteryCount)} sub="按学生去重" />
-            <KpiCard icon={Clock3} label="待批改" value={String(pendingGrading)} sub={`${diagnosis.kpis.submissionCount} 次提交`} />
-            <KpiCard icon={AlertCircle} label="风险章节" value={String(riskChapterCount)} sub={`${diagnosis.kpis.instanceCount} 个实例`} />
-          </div>
+          <KpiRow diagnosis={diagnosis} />
+
+          <ScoreDistributionChart
+            distribution={diagnosis.scoreDistribution}
+            onBinClick={(bin, classId) => {
+              console.log("score-distribution click", { bin: bin.label, classId });
+            }}
+          />
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <Heatmap rows={diagnosis.chapterClassHeatmap} />
@@ -569,35 +560,11 @@ export function AnalyticsV2Dashboard() {
   );
 }
 
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  warning = false,
-}: {
-  icon: typeof BarChart3;
-  label: string;
-  value: string;
-  sub: string;
-  warning?: boolean;
-}) {
+function ChartSkeleton() {
   return (
-    <Card className={cn("rounded-lg py-4", warning && "border-amber-200 bg-amber-50/40")}>
-      <CardContent className="px-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{label}</span>
-            {warning && (
-              <Badge variant="outline" className="rounded-md border-amber-300 bg-amber-50 text-amber-800">
-                需核对
-              </Badge>
-            )}
-          </div>
-          <Icon className="size-4 text-muted-foreground" />
-        </div>
-        <div className="mt-3 text-2xl font-semibold tracking-normal">{value}</div>
-        <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
+    <Card className="rounded-lg">
+      <CardContent className="flex h-[280px] items-center justify-center px-4 py-8 text-sm text-muted-foreground">
+        正在加载图表
       </CardContent>
     </Card>
   );
@@ -1323,11 +1290,6 @@ function isAbnormalMetric(value: number | null | undefined, kind: "rate" | "perc
   if (!Number.isFinite(value)) return true;
   if (kind === "rate") return value < 0 || value > 1;
   return value < 0 || value > 100;
-}
-
-function hasQualityCategory(flags: DataQualityFlag[] | undefined, categories: DataQualityFlag["category"][]) {
-  if (!flags) return false;
-  return flags.some((flag) => flag.severity !== "info" && categories.includes(flag.category));
 }
 
 function compareDataQualityFlag(a: DataQualityFlag, b: DataQualityFlag) {

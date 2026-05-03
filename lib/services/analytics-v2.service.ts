@@ -55,6 +55,7 @@ export interface AnalyticsV2Diagnosis {
     avgNormalizedScore: number | null;
     medianNormalizedScore: number | null;
     passRate: number | null;
+    pendingReleaseCount: number;
   };
   chapterClassHeatmap: ChapterClassHeatmapRow[];
   actionItems: ActionItem[];
@@ -66,6 +67,34 @@ export interface AnalyticsV2Diagnosis {
   weeklyInsight: WeeklyInsight;
   trends: AnalyticsV2Trends;
   dataQualityFlags: DataQualityFlag[];
+  scoreDistribution: ScoreDistribution;
+}
+
+export interface ScoreDistribution {
+  bins: ScoreDistributionBin[];
+  binCount: number;
+  scope: "single_task" | "multi_task";
+  totalStudents: number;
+}
+
+export interface ScoreDistributionBin {
+  label: string;
+  min: number;
+  max: number;
+  classes: ScoreDistributionClassBucket[];
+}
+
+export interface ScoreDistributionClassBucket {
+  classId: string;
+  classLabel: string;
+  students: ScoreDistributionStudent[];
+}
+
+export interface ScoreDistributionStudent {
+  id: string;
+  name: string;
+  score: number;
+  taskInstanceId?: string;
 }
 
 export interface DataQualityFlag {
@@ -585,7 +614,7 @@ export async function getAnalyticsV2Diagnosis(
   const submissionCount = sum(instanceMetrics.map((metric) => metric.submissionCount));
   const attemptCount = sum(instanceMetrics.map((metric) => metric.attemptCount));
   const generatedAt = now.toISOString();
-  const kpis = {
+  const kpis: AnalyticsV2Diagnosis["kpis"] = {
     instanceCount: instanceMetrics.length,
     assignedStudents,
     submittedStudents,
@@ -596,6 +625,7 @@ export async function getAnalyticsV2Diagnosis(
     avgNormalizedScore: average(allScores),
     medianNormalizedScore: median(allScores),
     passRate: rate(allScores.filter((score) => score >= PASS_THRESHOLD).length, allScores.length),
+    pendingReleaseCount: 0,
   };
   const chapterClassHeatmap = buildChapterClassHeatmap(instanceMetrics);
   const actionItems = buildActionItems(instanceMetrics);
@@ -605,6 +635,18 @@ export async function getAnalyticsV2Diagnosis(
   const simulationDiagnostics = buildRubricDiagnostics(instanceMetrics);
   const studentInterventions = buildStudentInterventions(instanceMetrics);
   const trends = buildAnalyticsTrends(instanceMetrics, range, generatedAt);
+  const pendingReleaseCount = await prisma.submission.count({
+    where: {
+      releasedAt: null,
+      taskInstance: {
+        ...buildInstanceWhere(input, null),
+        dueAt: { lt: now },
+      },
+    },
+  });
+  kpis.pendingReleaseCount = pendingReleaseCount;
+  const filterOptions = buildFilterOptions(course, optionInstances);
+  const scoreDistribution = computeScoreDistribution(input, instanceMetrics, filterOptions.classes);
   const dataQualityFlags = buildDataQualityFlags(instanceMetrics, kpis);
 
   return {
@@ -620,7 +662,7 @@ export async function getAnalyticsV2Diagnosis(
       range,
       generatedAt,
     },
-    filterOptions: buildFilterOptions(course, optionInstances),
+    filterOptions,
     kpis,
     chapterClassHeatmap,
     actionItems,
@@ -640,6 +682,120 @@ export async function getAnalyticsV2Diagnosis(
     }),
     trends,
     dataQualityFlags,
+    scoreDistribution,
+  };
+}
+
+const SCORE_DISTRIBUTION_DEFAULT_BIN_COUNT = 5;
+
+function computeScoreDistribution(
+  input: AnalyticsV2DiagnosisInput,
+  instanceMetrics: InstanceMetrics[],
+  classOptions: Array<{ id: string; name: string }>,
+  binCount: number = SCORE_DISTRIBUTION_DEFAULT_BIN_COUNT,
+): ScoreDistribution {
+  const bucketSize = 100 / binCount;
+  const bins: ScoreDistributionBin[] = Array.from({ length: binCount }, (_, index) => {
+    const min = Math.round(index * bucketSize * 10) / 10;
+    const max = Math.round((index + 1) * bucketSize * 10) / 10;
+    return {
+      label: `${min}-${max}`,
+      min,
+      max,
+      classes: [],
+    };
+  });
+
+  const isSingleTask = Boolean(input.taskInstanceId) || instanceMetrics.length === 1;
+
+  type Entry = {
+    classId: string;
+    studentId: string;
+    studentName: string;
+    score: number;
+    taskInstanceId?: string;
+  };
+  const entries: Entry[] = [];
+
+  if (isSingleTask) {
+    for (const metric of instanceMetrics) {
+      for (const attempt of metric.studentAttempts.values()) {
+        if (attempt.selectedScore === null) continue;
+        const student = metric.assignedStudents.find((s) => s.id === attempt.studentId);
+        if (!student) continue;
+        entries.push({
+          classId: metric.instance.classId,
+          studentId: student.id,
+          studentName: student.name,
+          score: attempt.selectedScore,
+          taskInstanceId: metric.instance.id,
+        });
+      }
+    }
+  } else {
+    const byStudent = new Map<
+      string,
+      { classId: string; studentId: string; studentName: string; scores: number[] }
+    >();
+    for (const metric of instanceMetrics) {
+      for (const attempt of metric.studentAttempts.values()) {
+        if (attempt.selectedScore === null) continue;
+        const student = metric.assignedStudents.find((s) => s.id === attempt.studentId);
+        if (!student) continue;
+        const row = byStudent.get(student.id) ?? {
+          classId: metric.instance.classId,
+          studentId: student.id,
+          studentName: student.name,
+          scores: [],
+        };
+        row.scores.push(attempt.selectedScore);
+        byStudent.set(student.id, row);
+      }
+    }
+    for (const row of byStudent.values()) {
+      const avg = average(row.scores);
+      if (avg === null) continue;
+      entries.push({
+        classId: row.classId,
+        studentId: row.studentId,
+        studentName: row.studentName,
+        score: avg,
+      });
+    }
+  }
+
+  const classLabelById = new Map(classOptions.map((c) => [c.id, c.name]));
+
+  for (const entry of entries) {
+    const clamped = Math.max(0, Math.min(100, entry.score));
+    const binIndex = Math.min(binCount - 1, Math.floor(clamped / bucketSize));
+    const bin = bins[binIndex];
+    const classLabel = classLabelById.get(entry.classId) ?? entry.classId;
+    let bucket = bin.classes.find((c) => c.classId === entry.classId);
+    if (!bucket) {
+      bucket = { classId: entry.classId, classLabel, students: [] };
+      bin.classes.push(bucket);
+    }
+    bucket.students.push({
+      id: entry.studentId,
+      name: entry.studentName,
+      score: round1(entry.score),
+      ...(entry.taskInstanceId ? { taskInstanceId: entry.taskInstanceId } : {}),
+    });
+  }
+
+  for (const bin of bins) {
+    for (const bucket of bin.classes) {
+      bucket.students.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "zh-CN"));
+    }
+    bin.classes.sort((a, b) => a.classLabel.localeCompare(b.classLabel, "zh-CN"));
+  }
+
+  return {
+    bins,
+    binCount,
+    scope: isSingleTask ? "single_task" : "multi_task",
+    totalStudents: entries.length,
   };
 }
 
