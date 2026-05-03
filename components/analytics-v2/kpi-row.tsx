@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { isRiskChapter } from "@/lib/services/analytics-v2.service";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
@@ -129,11 +130,7 @@ interface KpiRowProps {
 export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
   const { kpis, chapterDiagnostics, studentInterventions, dataQualityFlags } = diagnosis;
 
-  const riskChapterCount = chapterDiagnostics.filter(
-    (chapter) =>
-      (chapter.completionRate !== null && chapter.completionRate < 0.6) ||
-      (chapter.avgNormalizedScore !== null && chapter.avgNormalizedScore < 60),
-  ).length;
+  const riskChapterCount = chapterDiagnostics.filter(isRiskChapter).length;
 
   const riskStudentCount = new Set(studentInterventions.map((row) => row.studentId)).size;
 

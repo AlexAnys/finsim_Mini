@@ -14,7 +14,7 @@ interface AiSuggestCalloutProps {
 }
 
 export function AiSuggestCallout({
-  insightsHref = "/teacher/analytics",
+  insightsHref = "/teacher/analytics-v2",
   assistantHref = "/teacher/ai-assistant",
   variant = "callout",
   onWeeklyInsightClick,

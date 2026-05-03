@@ -545,11 +545,10 @@ export function AnalyticsV2Dashboard() {
         <div>
           <div className="flex items-center gap-2">
             <BarChart3 className="size-5 text-brand" />
-            <h1 className="text-2xl font-semibold tracking-normal">数据洞察 V2</h1>
-            <Badge variant="outline">实验</Badge>
+            <h1 className="text-2xl font-semibold tracking-normal">数据洞察</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            课程范围内的完成、掌握、题目和干预诊断
+            课程范围内的完成、掌握、共性问题和教学建议诊断
           </p>
         </div>
         {diagnosis && (
@@ -577,12 +576,12 @@ export function AnalyticsV2Dashboard() {
         <CenteredState
           icon={Target}
           title={courses.length === 0 ? "暂无可分析课程" : "请选择课程"}
-          description={courses.length === 0 ? "创建课程并发布任务实例后，可在这里查看数据洞察。" : "课程是数据洞察 V2 的必选范围。"}
+          description={courses.length === 0 ? "创建课程并发布任务实例后，可在这里查看数据洞察。" : "课程是数据洞察的必选范围。"}
         />
       ) : error ? (
         <CenteredState icon={AlertCircle} title={error} />
       ) : diagnosisLoading && !diagnosis ? (
-        <CenteredState icon={Loader2} title="正在生成诊断" spinning />
+        <InsightsSkeleton />
       ) : diagnosis ? (
         <>
           <DataQualityPanel flags={diagnosis.dataQualityFlags ?? []} />
@@ -656,6 +655,29 @@ function DataQualityPanel({ flags }: { flags: DataQualityFlag[] }) {
   );
 }
 
+
+function InsightsSkeleton() {
+  return (
+    <div className="space-y-5" aria-busy="true" aria-label="正在生成诊断">
+      <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-[110px] animate-pulse rounded-lg border bg-muted/30"
+          />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-[280px] animate-pulse rounded-lg border bg-muted/30"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function CenteredState({
   icon: Icon,

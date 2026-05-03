@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "./ai.service";
+import { isRiskChapter } from "./analytics-v2.service";
 
 export interface ScopeKey {
   courseId: string;
@@ -880,11 +881,7 @@ async function buildScopeTeachingAdviceFresh(
     })
     .slice(0, 15);
 
-  const riskChapters = diagnosis.chapterDiagnostics.filter(
-    (chapter) =>
-      (chapter.completionRate !== null && chapter.completionRate < 0.6) ||
-      (chapter.avgNormalizedScore !== null && chapter.avgNormalizedScore < 60),
-  );
+  const riskChapters = diagnosis.chapterDiagnostics.filter(isRiskChapter);
 
   const promptInput = {
     scope: {

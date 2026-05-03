@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
   getAnalyticsV2Diagnosis,
+  isRiskChapter,
   type AnalyticsV2Diagnosis,
 } from "./analytics-v2.service";
 import type { ScopeKey } from "./scope-insights.service";
@@ -261,11 +262,7 @@ export async function getPendingReleaseList(scope: ScopeKey): Promise<PendingSub
 
 export async function getRiskChapters(scope: ScopeKey): Promise<RiskChapterDetail[]> {
   const diagnosis = await loadDiagnosis(scope);
-  const riskChapters = diagnosis.chapterDiagnostics.filter(
-    (chapter) =>
-      (chapter.completionRate !== null && chapter.completionRate < 0.6) ||
-      (chapter.avgNormalizedScore !== null && chapter.avgNormalizedScore < 60),
-  );
+  const riskChapters = diagnosis.chapterDiagnostics.filter(isRiskChapter);
   const result: RiskChapterDetail[] = [];
   for (const chapter of riskChapters) {
     const instances = diagnosis.instanceDiagnostics

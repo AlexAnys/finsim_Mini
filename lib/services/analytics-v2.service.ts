@@ -376,6 +376,19 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
 const PASS_THRESHOLD = 60;
 const LOW_SCORE_THRESHOLD = 60;
 
+export const RISK_CHAPTER_COMPLETION_THRESHOLD = 0.6;
+export const RISK_CHAPTER_SCORE_THRESHOLD = 60;
+
+export function isRiskChapter(c: {
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+}): boolean {
+  return (
+    (c.completionRate !== null && c.completionRate < RISK_CHAPTER_COMPLETION_THRESHOLD) ||
+    (c.avgNormalizedScore !== null && c.avgNormalizedScore < RISK_CHAPTER_SCORE_THRESHOLD)
+  );
+}
+
 export function normalizeScore(
   score: number | string | Prisma.Decimal | null | undefined,
   maxScore: number | string | Prisma.Decimal | null | undefined,

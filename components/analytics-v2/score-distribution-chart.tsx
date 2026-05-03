@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { BarChart3 } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -9,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { ComingSoon } from "@/components/analytics-v2/coming-soon";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -181,9 +183,11 @@ export default function ScoreDistributionChart({ distribution, onBinClick }: Pro
       </CardHeader>
       <CardContent>
         {!view || classConfig.classes.length === 0 ? (
-          <div className="rounded-md border border-dashed py-12 text-center text-sm text-muted-foreground">
-            当前范围暂无已批改 submission
-          </div>
+          <ComingSoon
+            icon={BarChart3}
+            title="学生成绩分布 · 暂无数据"
+            description="当前范围内尚无已批改的提交；请先批改若干提交或扩大筛选范围。"
+          />
         ) : (
           <div
             role="img"
