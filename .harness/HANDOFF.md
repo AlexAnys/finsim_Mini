@@ -2,6 +2,73 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
+## 🎉 数据洞察重构 6 Phase 收官（2026-05-03 · ~5h · 7 commits · 231/231 acceptance）
+
+**worktree**: `claude/elastic-davinci-a0ee14`，**7 commits ahead** of main `e311571`，已 push。
+
+### 完整 6 Phase 总结
+
+| Phase | Commit | Acceptance | 关键改动 |
+|---|---|---|---|
+| 1 | `0f823d0` | 30/30（r1 FAIL→r2 PASS） | Filter Bar 单行 + 班级多选默认全选 + sidebar/breadcrumb 改名 |
+| chore | `40b504a` | — | HANDOFF post phase 1 |
+| 2 | `a311478` | 36/36 | KPI 5 卡新定义（待发布=DDL 已到+未发布 / 风险学生独立）+ recharts 引入 + 学生成绩分布柱状图 |
+| 3 | `22dc29c` | 32/32 | 删 8 Tabs + Heatmap + ActionList，4 区块骨架（dashboard 1377→632 行）|
+| 4 | `3831468` | 46/46 | Prisma scopeHash + scope-insights service (LLM 24h cache + fallback) + 区块 B 任务表现 + 区块 C Study Buddy + 证据 drawer |
+| 5 | `264352c` | 43/43 | 区块 D AI 教学建议 (LLM 4 类带依据) + KPI 5 卡 drawer 全打通 + UUID→name UX 修复 |
+| 6 | `b07ed94` | 44/44 | Polish (去 V2 + 去 Badge 实验) + Minor 3 修 (drilldown vs KPI 1:1) + 老 /teacher/analytics redirect + 单测 +29 |
+
+**总计**: 231/231 acceptance / 76 files / +10358/-4505 / vitest 782→811 / dashboard.tsx 1377→775
+
+### 用户原始诉求 vs 交付
+
+| 用户要求 | 交付 |
+|---|---|
+| 一行 filter (班级\课程\章\节\任务\时间) | ✅ Phase 1，班级多选默认全部 |
+| KPI 行 (完成率\归一化均分\成绩待发布\风险章节/学生) 可下钻 | ✅ Phase 2 数据 + Phase 5 drawer |
+| 学生成绩分布柱状图，多班对比，区间可配 | ✅ Phase 2，5/10 段 + 多班分组（design token brand/ochre/success/sim/brand-violet）|
+| Simulation 高分典型 + 低分问题 + 证据 | ✅ Phase 4，3 类 evidence drawer |
+| Study Buddy 共性问题排序 | ✅ Phase 4，按节 Accordion + top-5 |
+| AI 建议 (知识目标/教学方式/关注群体/接下来怎么教) 有据可依 | ✅ Phase 5，4 类带 evidence + 24h 缓存 + LLM 失败兜底 |
+| 原子 git 每阶段真实 QA | ✅ 7 commits + 6 个真浏览器 QA 报告 + 60+ 截图 |
+
+### 关键技术决策
+
+- **路由就地替换** `/teacher/analytics-v2`（不新建并存）
+- **图表库 recharts**（shadcn 推荐，gzip 102KB < 150KB 目标）
+- **设计 token 严格** — 5 色调色板 brand/ochre/success/sim/brand-violet，无 recharts 默认色泄漏
+- **班级多选默认全部**（自动 useEffect + ref 守卫防 stale courseId race）
+- **「待发布」= dueAt < now AND releasedAt is null**（用户 D4 口径）
+- **LLM 24h scopeHash 缓存** + 失败兜底模板（不空白）
+- **UUID→name** in-memory 转换（保护 phase 4 旧 cache）
+- **Prisma 三步铁律严格执行**（migration + generate + dev server restart 全做）
+- **Phase by phase atomic commit**，每个独立可 revert
+
+### Anti-regression 全保留
+
+- defaultClassIdsAppliedRef + courseId guard（phase 1 r2 修复的 race）
+- entity vs filter classIds 边界（service 内 43 处 entity 字段不动）
+- recharts bar fill = `var(--color-{classId})` CSS 变量（grep 默认色 0 命中）
+- 单实例 [/teacher/instances/[id]/insights](app/teacher/instances/[id]/insights/page.tsx) 完全不动
+- teacher dashboard / login / 学生页面 全隔离
+
+### 给下一个 session 的下一步
+
+1. **用户 review PR 后合并到 main** → 删除 worktree 分支
+2. **Minor 1 deeper fix** (recharts ResponsiveContainer width=-1 dev-only warning) — 可选 polish
+3. **Study Buddy 数据填充** — 跑 study-buddy.generateSummary 让区块 C 有真实数据，非 ComingSoon 空态
+4. **Multi-class graded 种子** — 让区块 A 多班分组柱有真数据展示
+
+### 关键证据
+
+- Build/QA reports: [.harness/reports/](.harness/reports/) 共 12 份（每 phase build + qa）
+- 6 个 spec 归档: spec-insights-phase{1-5}-archive.md
+- 60+ 真浏览器截图: `/tmp/qa-insights-phase{1-6}-*.png`
+- Plan 文件: `~/.claude/plans/main-session-snug-tide.md`
+
+---
+
+
 ## ✨ 数据洞察重构 Phase 1 完成（2026-05-03 · ~40min · 1 commit · QA r1→r2）
 
 **worktree**: `claude/elastic-davinci-a0ee14` from main `e311571`，**1 commit ahead** = `0f823d0`（未 push）。
