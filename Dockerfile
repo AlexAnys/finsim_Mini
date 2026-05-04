@@ -25,7 +25,10 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache poppler-utils
+# The deploy target is in mainland China; the default Alpine CDN can stall long
+# enough to hit the GitHub Actions timeout while installing OCR runtime deps.
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.aliyun.com/alpine|g' /etc/apk/repositories \
+  && apk add --no-cache poppler-utils
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
