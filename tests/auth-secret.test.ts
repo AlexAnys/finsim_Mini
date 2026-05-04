@@ -127,12 +127,18 @@ describe("isStudentSelfRegistrationEnabled", () => {
 });
 
 describe("production compose secret requirements", () => {
-  it("does not provide production fallbacks for auth/admin/database secrets", () => {
+  it("requires production secrets while allowing auth secret env-name compatibility", () => {
     const compose = readFileSync(join(process.cwd(), "docker-compose.yml"), "utf-8");
 
-    expect(compose).toContain("${AUTH_SECRET:?AUTH_SECRET must be set}");
+    expect(compose).toContain(
+      "${AUTH_SECRET:-${NEXTAUTH_SECRET:?AUTH_SECRET or NEXTAUTH_SECRET must be set}}",
+    );
+    expect(compose).toContain(
+      "${NEXTAUTH_SECRET:-${AUTH_SECRET:?AUTH_SECRET or NEXTAUTH_SECRET must be set}}",
+    );
     expect(compose).toContain("${ADMIN_KEY:?ADMIN_KEY must be set}");
     expect(compose).toContain("${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}");
+    expect(compose).not.toContain("AUTH_SECRET=${AUTH_SECRET:-dev-secret");
     expect(compose).not.toContain("NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret");
     expect(compose).not.toContain("ADMIN_KEY=${ADMIN_KEY:-finsim-teacher-key}");
     expect(compose).not.toContain("POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-finsim_dev_password}");
