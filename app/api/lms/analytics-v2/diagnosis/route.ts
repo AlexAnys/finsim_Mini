@@ -6,15 +6,19 @@ import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import {
   getAnalyticsV2Diagnosis,
   type AnalyticsV2Range,
-  type AnalyticsV2ScoreBinMode,
   type AnalyticsV2ScorePolicy,
 } from "@/lib/services/analytics-v2.service";
 
 const SCORE_POLICIES = new Set<AnalyticsV2ScorePolicy>(["latest", "best", "first"]);
-const RANGES = new Set<AnalyticsV2Range>(["7d", "30d", "term", "custom"]);
-const SCORE_BINS = new Set<AnalyticsV2ScoreBinMode>(["standard", "ten"]);
+const RANGES = new Set<AnalyticsV2Range>(["7d", "30d", "term"]);
 const TASK_TYPES = new Set<TaskType>(["simulation", "quiz", "subjective"]);
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function readClassIds(searchParams: URLSearchParams): string[] {
+  const multi = searchParams.getAll("classIds").map((id) => id.trim()).filter(Boolean);
+  if (multi.length > 0) return multi;
+  const legacy = searchParams.get("classId")?.trim();
+  return legacy ? [legacy] : [];
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(["teacher", "admin"]);
@@ -33,18 +37,7 @@ export async function GET(request: NextRequest) {
 
   const rangeParam = searchParams.get("range");
   if (rangeParam && !RANGES.has(rangeParam as AnalyticsV2Range)) {
-    return validationError("range must be 7d, 30d, term, or custom");
-  }
-
-  const scoreBinsParam = searchParams.get("scoreBins");
-  if (scoreBinsParam && !SCORE_BINS.has(scoreBinsParam as AnalyticsV2ScoreBinMode)) {
-    return validationError("scoreBins must be standard or ten");
-  }
-
-  const dateFromParam = searchParams.get("dateFrom");
-  const dateToParam = searchParams.get("dateTo");
-  if ((dateFromParam && !ISO_DATE.test(dateFromParam)) || (dateToParam && !ISO_DATE.test(dateToParam))) {
-    return validationError("dateFrom/dateTo must use YYYY-MM-DD");
+    return validationError("range must be 7d, 30d, or term");
   }
 
   const taskTypeParam = searchParams.get("taskType");
@@ -56,18 +49,16 @@ export async function GET(request: NextRequest) {
     const { user } = auth.session;
     await assertCourseAccess(courseId, user.id, user.role);
 
+    const classIds = readClassIds(searchParams);
     const diagnosis = await getAnalyticsV2Diagnosis({
       courseId,
       chapterId: searchParams.get("chapterId") ?? undefined,
       sectionId: searchParams.get("sectionId") ?? undefined,
-      classId: searchParams.get("classId") ?? undefined,
+      classIds: classIds.length > 0 ? classIds : undefined,
       taskType: (taskTypeParam as TaskType | null) ?? undefined,
       taskInstanceId: searchParams.get("taskInstanceId") ?? undefined,
       scorePolicy: (scorePolicyParam as AnalyticsV2ScorePolicy | null) ?? undefined,
       range: (rangeParam as AnalyticsV2Range | null) ?? undefined,
-      dateFrom: dateFromParam ?? undefined,
-      dateTo: dateToParam ?? undefined,
-      scoreBins: (scoreBinsParam as AnalyticsV2ScoreBinMode | null) ?? undefined,
     });
 
     return success(diagnosis);

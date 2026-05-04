@@ -1,24 +1,18 @@
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma, TaskType } from "@prisma/client";
-import { z } from "zod";
-import { aiGenerateJSON } from "./ai.service";
 
 export type AnalyticsV2ScorePolicy = "latest" | "best" | "first";
-export type AnalyticsV2Range = "7d" | "30d" | "term" | "custom";
-export type AnalyticsV2ScoreBinMode = "standard" | "ten";
+export type AnalyticsV2Range = "7d" | "30d" | "term";
 
 export interface AnalyticsV2DiagnosisInput {
   courseId: string;
   chapterId?: string;
   sectionId?: string;
-  classId?: string;
+  classIds?: string[];
   taskType?: TaskType;
   taskInstanceId?: string;
   scorePolicy?: AnalyticsV2ScorePolicy;
   range?: AnalyticsV2Range;
-  dateFrom?: string;
-  dateTo?: string;
-  scoreBins?: AnalyticsV2ScoreBinMode;
   now?: Date;
 }
 
@@ -28,14 +22,11 @@ export interface AnalyticsV2Diagnosis {
     courseTitle: string;
     chapterId: string | null;
     sectionId: string | null;
-    classId: string | null;
+    classIds: string[];
     taskType: TaskType | null;
     taskInstanceId: string | null;
     scorePolicy: AnalyticsV2ScorePolicy;
     range: AnalyticsV2Range;
-    dateFrom: string | null;
-    dateTo: string | null;
-    scoreBins: AnalyticsV2ScoreBinMode;
     generatedAt: string;
   };
   filterOptions: {
@@ -53,7 +44,6 @@ export interface AnalyticsV2Diagnosis {
       sectionId: string | null;
     }>;
   };
-  generatedAt: string;
   kpis: {
     instanceCount: number;
     assignedStudents: number;
@@ -61,18 +51,20 @@ export interface AnalyticsV2Diagnosis {
     gradedStudents: number;
     submissionCount: number;
     attemptCount: number;
-    pendingReleaseCount: number;
-    riskChapterCount: number;
-    riskStudentCount: number;
     completionRate: number | null;
     avgNormalizedScore: number | null;
     medianNormalizedScore: number | null;
     passRate: number | null;
+    pendingReleaseCount: number;
+    pendingReleaseTaskCount: number;
+    weeklyHistory: WeeklyMetricPoint[];
+    previousWeekCompletionRate: number | null;
+    previousWeekAvgScore: number | null;
+    recentTasksTrend: RecentTaskTrendPoint[];
+    pendingReleaseInstances: PendingReleaseInstance[];
+    riskChapterSamples: RiskChapterSample[];
+    riskStudentSamples: RiskStudentSample[];
   };
-  scoreDistribution: ScoreDistribution;
-  taskPerformance: TaskPerformance;
-  studyBuddySignals: StudyBuddySignals;
-  risks: AnalyticsRisks;
   chapterClassHeatmap: ChapterClassHeatmapRow[];
   actionItems: ActionItem[];
   chapterDiagnostics: ChapterDiagnostic[];
@@ -83,6 +75,65 @@ export interface AnalyticsV2Diagnosis {
   weeklyInsight: WeeklyInsight;
   trends: AnalyticsV2Trends;
   dataQualityFlags: DataQualityFlag[];
+  scoreDistribution: ScoreDistribution;
+}
+
+
+export interface WeeklyMetricPoint {
+  weekStart: string;
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+}
+
+export interface RecentTaskTrendPoint {
+  taskInstanceId: string;
+  title: string;
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+  publishedAt: string;
+}
+
+export interface PendingReleaseInstance {
+  id: string;
+  title: string;
+  dueAt: string;
+}
+
+export interface RiskChapterSample {
+  chapterId: string;
+  title: string;
+}
+
+export interface RiskStudentSample {
+  studentId: string;
+  name: string;
+  reason: "not_submitted" | "low_score" | "declining";
+}
+export interface ScoreDistribution {
+  bins: ScoreDistributionBin[];
+  binCount: number;
+  scope: "single_task" | "multi_task";
+  totalStudents: number;
+}
+
+export interface ScoreDistributionBin {
+  label: string;
+  min: number;
+  max: number;
+  classes: ScoreDistributionClassBucket[];
+}
+
+export interface ScoreDistributionClassBucket {
+  classId: string;
+  classLabel: string;
+  students: ScoreDistributionStudent[];
+}
+
+export interface ScoreDistributionStudent {
+  id: string;
+  name: string;
+  score: number;
+  taskInstanceId?: string;
 }
 
 export interface DataQualityFlag {
@@ -242,142 +293,6 @@ export interface StudentIntervention {
   reason: "not_submitted" | "low_score" | "declining";
 }
 
-export interface ScoreDistribution {
-  mode: AnalyticsV2ScoreBinMode;
-  bins: ScoreDistributionBin[];
-}
-
-export interface ScoreDistributionBin {
-  id: string;
-  label: string;
-  min: number;
-  max: number;
-  count: number;
-  students: ScoreDistributionStudent[];
-}
-
-export interface ScoreDistributionStudent {
-  studentId: string;
-  studentName: string;
-  classId: string;
-  className: string;
-  score: number | null;
-  completedInstances: number;
-  attemptCount: number;
-  contributions: Array<{
-    instanceId: string;
-    instanceTitle: string;
-    taskType: TaskType;
-    score: number | null;
-    submittedAt: string | null;
-  }>;
-}
-
-export interface TaskPerformance {
-  mode: "scope" | "single";
-  selectedInstanceId: string | null;
-  taskComparisons: TaskComparison[];
-  highExamples: EvidenceSummary[];
-  lowIssues: LowIssueSummary[];
-}
-
-export interface TaskComparison {
-  instanceId: string;
-  title: string;
-  taskType: TaskType;
-  className: string;
-  chapterTitle: string | null;
-  sectionTitle: string | null;
-  completionRate: number | null;
-  avgNormalizedScore: number | null;
-  pendingReleaseCount: number;
-  riskLevel: "low" | "medium" | "high";
-}
-
-export interface EvidenceSummary {
-  id: string;
-  submissionId: string;
-  studentId: string;
-  studentName: string;
-  score: number | null;
-  maxScore: number | null;
-  normalizedScore: number | null;
-  evidenceKind: "simulation" | "quiz" | "subjective";
-  title: string;
-  excerpt: string;
-}
-
-export interface LowIssueSummary {
-  id: string;
-  title: string;
-  detail: string;
-  metric: number | null;
-  evidence: EvidenceSummary[];
-}
-
-export interface StudyBuddySignals {
-  totalQuestions: number;
-  pendingQuestions: number;
-  activeStudents: number;
-  groups: StudyBuddySignalGroup[];
-}
-
-export interface StudyBuddySignalGroup {
-  id: string;
-  chapterId: string | null;
-  chapterTitle: string;
-  sectionId: string | null;
-  sectionTitle: string;
-  taskId: string;
-  taskInstanceId: string | null;
-  taskTitle: string;
-  taskType: TaskType;
-  questionCount: number;
-  pendingCount: number;
-  studentCount: number;
-  topQuestions: Array<{ question: string; count: number; examples: string[] }>;
-  students: Array<{ id: string; name: string; count: number }>;
-}
-
-export interface AnalyticsRisks {
-  chapters: RiskChapter[];
-  students: RiskStudent[];
-  pendingReleases: PendingReleaseItem[];
-}
-
-export interface RiskChapter {
-  chapterId: string | null;
-  title: string;
-  completionRate: number | null;
-  avgNormalizedScore: number | null;
-  reasons: string[];
-  instances: Array<{ instanceId: string; title: string; taskType: TaskType; className: string }>;
-}
-
-export interface RiskStudent {
-  studentId: string;
-  studentName: string;
-  classId: string;
-  className: string;
-  reasons: Array<"not_submitted" | "low_score" | "declining">;
-  selectedScore: number | null;
-  improvement: number | null;
-  affectedInstances: Array<{ instanceId: string; title: string; reason: string; score: number | null }>;
-}
-
-export interface PendingReleaseItem {
-  submissionId: string;
-  studentId: string;
-  studentName: string;
-  instanceId: string;
-  instanceTitle: string;
-  taskType: TaskType;
-  className: string;
-  score: number | null;
-  maxScore: number | null;
-  submittedAt: string | null;
-}
-
 export interface AttemptSubmission {
   id: string;
   studentId: string;
@@ -411,8 +326,6 @@ interface SubmissionDetail {
 
 interface DiagnosisSubmission extends AttemptSubmission {
   taskType: TaskType;
-  maxScore: number | string | Prisma.Decimal | null;
-  releasedAt: Date | string | null;
   student: { id: string; name: string };
   simulationSubmission: SubmissionDetail | null;
   quizSubmission: (SubmissionDetail & { durationSeconds: number | null }) | null;
@@ -501,6 +414,19 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
 
 const PASS_THRESHOLD = 60;
 const LOW_SCORE_THRESHOLD = 60;
+
+export const RISK_CHAPTER_COMPLETION_THRESHOLD = 0.6;
+export const RISK_CHAPTER_SCORE_THRESHOLD = 60;
+
+export function isRiskChapter(c: {
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+}): boolean {
+  return (
+    (c.completionRate !== null && c.completionRate < RISK_CHAPTER_COMPLETION_THRESHOLD) ||
+    (c.avgNormalizedScore !== null && c.avgNormalizedScore < RISK_CHAPTER_SCORE_THRESHOLD)
+  );
+}
 
 export function normalizeScore(
   score: number | string | Prisma.Decimal | null | undefined,
@@ -647,11 +573,8 @@ export async function getAnalyticsV2Diagnosis(
 ): Promise<AnalyticsV2Diagnosis> {
   const scorePolicy = input.scorePolicy ?? "latest";
   const range = input.range ?? "term";
-  const scoreBins = input.scoreBins ?? "standard";
   const now = input.now ?? new Date();
-  const dateWindow = getDateWindow(input, now);
-  const dateFrom = dateWindow.from;
-  const dateTo = dateWindow.to;
+  const dateFrom = getDateFromRange(range, now);
 
   const course = await prisma.course.findUnique({
     where: { id: input.courseId },
@@ -699,7 +622,7 @@ export async function getAnalyticsV2Diagnosis(
   });
 
   const instances = await prisma.taskInstance.findMany({
-    where: buildInstanceWhere(input, dateFrom, dateTo),
+    where: buildInstanceWhere(input, dateFrom),
     include: {
       class: { select: { id: true, name: true } },
       chapter: { select: { id: true, title: true, order: true } },
@@ -717,7 +640,7 @@ export async function getAnalyticsV2Diagnosis(
         },
       },
       submissions: {
-        where: buildSubmissionWhere(dateFrom, dateTo),
+        where: dateFrom ? { submittedAt: { gte: dateFrom } } : undefined,
         include: {
           student: { select: { id: true, name: true } },
           simulationSubmission: { select: { evaluation: true, conceptTags: true } },
@@ -742,22 +665,27 @@ export async function getAnalyticsV2Diagnosis(
   const gradedStudents = sum(instanceMetrics.map((metric) => metric.gradedCount));
   const submissionCount = sum(instanceMetrics.map((metric) => metric.submissionCount));
   const attemptCount = sum(instanceMetrics.map((metric) => metric.attemptCount));
-  const pendingReleases = buildPendingReleaseItems(instanceMetrics);
   const generatedAt = now.toISOString();
-  const kpis = {
+  const kpis: AnalyticsV2Diagnosis["kpis"] = {
     instanceCount: instanceMetrics.length,
     assignedStudents,
     submittedStudents,
     gradedStudents,
     submissionCount,
     attemptCount,
-    pendingReleaseCount: pendingReleases.length,
-    riskChapterCount: 0,
-    riskStudentCount: 0,
     completionRate: rate(submittedStudents, assignedStudents),
     avgNormalizedScore: average(allScores),
     medianNormalizedScore: median(allScores),
     passRate: rate(allScores.filter((score) => score >= PASS_THRESHOLD).length, allScores.length),
+    pendingReleaseCount: 0,
+    pendingReleaseTaskCount: 0,
+    weeklyHistory: [],
+    previousWeekCompletionRate: null,
+    previousWeekAvgScore: null,
+    recentTasksTrend: [],
+    pendingReleaseInstances: [],
+    riskChapterSamples: [],
+    riskStudentSamples: [],
   };
   const chapterClassHeatmap = buildChapterClassHeatmap(instanceMetrics);
   const actionItems = buildActionItems(instanceMetrics);
@@ -767,13 +695,48 @@ export async function getAnalyticsV2Diagnosis(
   const simulationDiagnostics = buildRubricDiagnostics(instanceMetrics);
   const studentInterventions = buildStudentInterventions(instanceMetrics);
   const trends = buildAnalyticsTrends(instanceMetrics, range, generatedAt);
+  const pendingReleaseCount = await prisma.submission.count({
+    where: {
+      releasedAt: null,
+      taskInstance: {
+        ...buildInstanceWhere(input, null),
+        dueAt: { lt: now },
+      },
+    },
+  });
+  const pendingReleaseDistinct = await prisma.submission.findMany({
+    where: {
+      releasedAt: null,
+      taskInstance: {
+        ...buildInstanceWhere(input, null),
+        dueAt: { lt: now },
+      },
+    },
+    select: {
+      taskInstanceId: true,
+      taskInstance: { select: { id: true, title: true, dueAt: true } },
+    },
+    distinct: ["taskInstanceId"],
+  });
+  const pendingReleaseTaskCount = pendingReleaseDistinct.filter((row) => row.taskInstanceId !== null).length;
+  kpis.pendingReleaseCount = pendingReleaseCount;
+  kpis.pendingReleaseTaskCount = pendingReleaseTaskCount;
+  kpis.pendingReleaseInstances = pendingReleaseDistinct
+    .map((row) => row.taskInstance)
+    .filter((inst): inst is { id: string; title: string; dueAt: Date } => Boolean(inst))
+    .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+    .slice(0, 3)
+    .map((inst) => ({ id: inst.id, title: inst.title, dueAt: toIso(inst.dueAt) }));
+  const weeklyMetrics = buildWeeklyHistory(instanceMetrics, now);
+  kpis.weeklyHistory = weeklyMetrics.history;
+  kpis.previousWeekCompletionRate = weeklyMetrics.previousWeekCompletionRate;
+  kpis.previousWeekAvgScore = weeklyMetrics.previousWeekAvgScore;
+  kpis.recentTasksTrend = buildRecentTasksTrend(instanceMetrics);
+  kpis.riskChapterSamples = buildRiskChapterSamples(chapterDiagnostics);
+  kpis.riskStudentSamples = buildRiskStudentSamples(studentInterventions);
+  const filterOptions = buildFilterOptions(course, optionInstances);
+  const scoreDistribution = computeScoreDistribution(input, instanceMetrics, filterOptions.classes);
   const dataQualityFlags = buildDataQualityFlags(instanceMetrics, kpis);
-  const risks = buildAnalyticsRisks(instanceMetrics, chapterDiagnostics, studentInterventions, pendingReleases);
-  kpis.riskChapterCount = risks.chapters.length;
-  kpis.riskStudentCount = risks.students.length;
-  const scoreDistribution = buildScoreDistribution(instanceMetrics, scoreBins);
-  const taskPerformance = buildTaskPerformance(instanceMetrics, input.taskInstanceId ?? null);
-  const studyBuddySignals = await buildStudyBuddySignals(input, dateFrom, dateTo);
 
   return {
     scope: {
@@ -781,23 +744,15 @@ export async function getAnalyticsV2Diagnosis(
       courseTitle: course.courseTitle,
       chapterId: input.chapterId ?? null,
       sectionId: input.sectionId ?? null,
-      classId: input.classId ?? null,
+      classIds: input.classIds ?? [],
       taskType: input.taskType ?? null,
       taskInstanceId: input.taskInstanceId ?? null,
       scorePolicy,
       range,
-      dateFrom: dateFrom ? dateFrom.toISOString() : null,
-      dateTo: dateTo ? dateTo.toISOString() : null,
-      scoreBins,
       generatedAt,
     },
-    filterOptions: buildFilterOptions(course, optionInstances),
-    generatedAt,
+    filterOptions,
     kpis,
-    scoreDistribution,
-    taskPerformance,
-    studyBuddySignals,
-    risks,
     chapterClassHeatmap,
     actionItems,
     chapterDiagnostics,
@@ -816,239 +771,143 @@ export async function getAnalyticsV2Diagnosis(
     }),
     trends,
     dataQualityFlags,
+    scoreDistribution,
   };
 }
 
-export interface DataInsightAdvice {
-  generatedAt: string;
-  fingerprint: string;
-  summary: string;
-  knowledgeGoals: string[];
-  teachingMethods: string[];
-  focusGroups: string[];
-  nextActions: string[];
-  evidenceRefs: Array<{ id: string; label: string; detail: string }>;
-}
+const SCORE_DISTRIBUTION_DEFAULT_BIN_COUNT = 5;
 
-const dataInsightAdviceSchema = z.object({
-  summary: z.string(),
-  knowledgeGoals: z.array(z.string()).default([]),
-  teachingMethods: z.array(z.string()).default([]),
-  focusGroups: z.array(z.string()).default([]),
-  nextActions: z.array(z.string()).default([]),
-  evidenceRefs: z.array(z.object({
-    id: z.string(),
-    label: z.string(),
-    detail: z.string(),
-  })).default([]),
-});
-
-export function buildDataInsightFingerprint(diagnosis: AnalyticsV2Diagnosis): string {
-  const stableScope: Omit<AnalyticsV2Diagnosis["scope"], "generatedAt"> = {
-    courseId: diagnosis.scope.courseId,
-    courseTitle: diagnosis.scope.courseTitle,
-    chapterId: diagnosis.scope.chapterId,
-    sectionId: diagnosis.scope.sectionId,
-    classId: diagnosis.scope.classId,
-    taskType: diagnosis.scope.taskType,
-    taskInstanceId: diagnosis.scope.taskInstanceId,
-    scorePolicy: diagnosis.scope.scorePolicy,
-    range: diagnosis.scope.range,
-    dateFrom: diagnosis.scope.dateFrom,
-    dateTo: diagnosis.scope.dateTo,
-    scoreBins: diagnosis.scope.scoreBins,
-  };
-  const compact = {
-    scope: stableScope,
-    kpis: diagnosis.kpis,
-    bins: diagnosis.scoreDistribution.bins.map((bin) => [bin.id, bin.count]),
-    risks: {
-      chapters: diagnosis.risks.chapters.map((row) => [row.chapterId, row.completionRate, row.avgNormalizedScore, row.reasons]),
-      students: diagnosis.risks.students.map((row) => [row.studentId, row.reasons, row.selectedScore, row.improvement]).slice(0, 30),
-      pending: diagnosis.risks.pendingReleases.length,
-    },
-    studyBuddy: diagnosis.studyBuddySignals.groups.map((group) => [
-      group.id,
-      group.questionCount,
-      group.topQuestions.slice(0, 3).map((question) => [question.question, question.count]),
-    ]),
-    task: {
-      selected: diagnosis.taskPerformance.selectedInstanceId,
-      high: diagnosis.taskPerformance.highExamples.map((item) => [item.submissionId, item.normalizedScore]),
-      low: diagnosis.taskPerformance.lowIssues.map((item) => [item.id, item.metric]),
-    },
-  };
-  return hashString(JSON.stringify(compact));
-}
-
-export async function generateDataInsightAdvice(
+function computeScoreDistribution(
   input: AnalyticsV2DiagnosisInput,
-  userId: string,
-): Promise<DataInsightAdvice> {
-  const diagnosis = await getAnalyticsV2Diagnosis(input);
-  const fingerprint = buildDataInsightFingerprint(diagnosis);
-  const evidenceRefs = buildAdviceEvidenceRefs(diagnosis);
-  const schema = dataInsightAdviceSchema;
-  const result = await aiGenerateJSON(
-    "insights",
-    userId,
-    `你是一位金融课程教学诊断顾问。请只基于给定数据提出教学建议，不要编造未给出的学生表现、提交内容或问题。
-输出必须面向教师下一步教学决策，覆盖知识目标、教学方式方法、需要关注的学生群体和可执行动作。所有建议必须引用 evidenceRefs 中的依据 id。`,
-    `当前数据洞察 JSON：
-${JSON.stringify(buildAdvicePromptPayload(diagnosis, evidenceRefs), null, 2)}
+  instanceMetrics: InstanceMetrics[],
+  classOptions: Array<{ id: string; name: string }>,
+  binCount: number = SCORE_DISTRIBUTION_DEFAULT_BIN_COUNT,
+): ScoreDistribution {
+  const bucketSize = 100 / binCount;
+  const bins: ScoreDistributionBin[] = Array.from({ length: binCount }, (_, index) => {
+    const min = Math.round(index * bucketSize * 10) / 10;
+    const max = Math.round((index + 1) * bucketSize * 10) / 10;
+    return {
+      label: `${min}-${max}`,
+      min,
+      max,
+      classes: [],
+    };
+  });
 
-请输出 JSON：
-{
-  "summary": "一句话概括当前教学状态",
-  "knowledgeGoals": ["知识目标建议"],
-  "teachingMethods": ["教学方式方法建议"],
-  "focusGroups": ["需要关注的群体"],
-  "nextActions": ["下一步动作"],
-  "evidenceRefs": [{"id":"必须来自输入 evidenceRefs","label":"依据名称","detail":"如何支撑建议"}]
-}`,
-    schema,
-    1,
-    { settingsUserId: userId, metadata: { courseId: input.courseId, source: "data_insight_advice", fingerprint } },
-  );
+  const isSingleTask = Boolean(input.taskInstanceId) || instanceMetrics.length === 1;
+
+  type Entry = {
+    classId: string;
+    studentId: string;
+    studentName: string;
+    score: number;
+    taskInstanceId?: string;
+  };
+  const entries: Entry[] = [];
+
+  if (isSingleTask) {
+    for (const metric of instanceMetrics) {
+      for (const attempt of metric.studentAttempts.values()) {
+        if (attempt.selectedScore === null) continue;
+        const student = metric.assignedStudents.find((s) => s.id === attempt.studentId);
+        if (!student) continue;
+        entries.push({
+          classId: metric.instance.classId,
+          studentId: student.id,
+          studentName: student.name,
+          score: attempt.selectedScore,
+          taskInstanceId: metric.instance.id,
+        });
+      }
+    }
+  } else {
+    const byStudent = new Map<
+      string,
+      { classId: string; studentId: string; studentName: string; scores: number[] }
+    >();
+    for (const metric of instanceMetrics) {
+      for (const attempt of metric.studentAttempts.values()) {
+        if (attempt.selectedScore === null) continue;
+        const student = metric.assignedStudents.find((s) => s.id === attempt.studentId);
+        if (!student) continue;
+        const row = byStudent.get(student.id) ?? {
+          classId: metric.instance.classId,
+          studentId: student.id,
+          studentName: student.name,
+          scores: [],
+        };
+        row.scores.push(attempt.selectedScore);
+        byStudent.set(student.id, row);
+      }
+    }
+    for (const row of byStudent.values()) {
+      const avg = average(row.scores);
+      if (avg === null) continue;
+      entries.push({
+        classId: row.classId,
+        studentId: row.studentId,
+        studentName: row.studentName,
+        score: avg,
+      });
+    }
+  }
+
+  const classLabelById = new Map(classOptions.map((c) => [c.id, c.name]));
+
+  for (const entry of entries) {
+    const clamped = Math.max(0, Math.min(100, entry.score));
+    const binIndex = Math.min(binCount - 1, Math.floor(clamped / bucketSize));
+    const bin = bins[binIndex];
+    const classLabel = classLabelById.get(entry.classId) ?? entry.classId;
+    let bucket = bin.classes.find((c) => c.classId === entry.classId);
+    if (!bucket) {
+      bucket = { classId: entry.classId, classLabel, students: [] };
+      bin.classes.push(bucket);
+    }
+    bucket.students.push({
+      id: entry.studentId,
+      name: entry.studentName,
+      score: round1(entry.score),
+      ...(entry.taskInstanceId ? { taskInstanceId: entry.taskInstanceId } : {}),
+    });
+  }
+
+  for (const bin of bins) {
+    for (const bucket of bin.classes) {
+      bucket.students.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "zh-CN"));
+    }
+    bin.classes.sort((a, b) => a.classLabel.localeCompare(b.classLabel, "zh-CN"));
+  }
 
   return {
-    generatedAt: new Date().toISOString(),
-    fingerprint,
-    summary: result.summary,
-    knowledgeGoals: result.knowledgeGoals.slice(0, 5),
-    teachingMethods: result.teachingMethods.slice(0, 5),
-    focusGroups: result.focusGroups.slice(0, 5),
-    nextActions: result.nextActions.slice(0, 6),
-    evidenceRefs: result.evidenceRefs.filter((ref) => evidenceRefs.some((item) => item.id === ref.id)).slice(0, 8),
+    bins,
+    binCount,
+    scope: isSingleTask ? "single_task" : "multi_task",
+    totalStudents: entries.length,
   };
-}
-
-function buildAdvicePromptPayload(
-  diagnosis: AnalyticsV2Diagnosis,
-  evidenceRefs: Array<{ id: string; label: string; detail: string }>,
-) {
-  return {
-    scope: diagnosis.scope,
-    kpis: diagnosis.kpis,
-    riskChapters: diagnosis.risks.chapters.slice(0, 6),
-    riskStudents: diagnosis.risks.students.slice(0, 12).map((student) => ({
-      studentName: student.studentName,
-      className: student.className,
-      reasons: student.reasons,
-      selectedScore: student.selectedScore,
-      improvement: student.improvement,
-      affectedInstances: student.affectedInstances.slice(0, 4),
-    })),
-    pendingReleaseCount: diagnosis.risks.pendingReleases.length,
-    scoreDistribution: diagnosis.scoreDistribution.bins.map((bin) => ({ label: bin.label, count: bin.count })),
-    taskPerformance: {
-      mode: diagnosis.taskPerformance.mode,
-      selectedInstanceId: diagnosis.taskPerformance.selectedInstanceId,
-      taskComparisons: diagnosis.taskPerformance.taskComparisons.slice(0, 10),
-      highExamples: diagnosis.taskPerformance.highExamples.map((item) => ({
-        id: `submission:${item.submissionId}`,
-        studentName: item.studentName,
-        score: item.normalizedScore,
-        excerpt: item.excerpt,
-      })),
-      lowIssues: diagnosis.taskPerformance.lowIssues.map((issue) => ({
-        id: issue.id,
-        title: issue.title,
-        detail: issue.detail,
-        metric: issue.metric,
-      })),
-    },
-    studyBuddy: diagnosis.studyBuddySignals.groups.slice(0, 8).map((group) => ({
-      id: `study:${group.id}`,
-      lesson: `${group.chapterTitle} / ${group.sectionTitle}`,
-      taskTitle: group.taskTitle,
-      questionCount: group.questionCount,
-      topQuestions: group.topQuestions.slice(0, 3),
-    })),
-    evidenceRefs,
-  };
-}
-
-function buildAdviceEvidenceRefs(diagnosis: AnalyticsV2Diagnosis) {
-  const refs: Array<{ id: string; label: string; detail: string }> = [];
-  for (const chapter of diagnosis.risks.chapters.slice(0, 6)) {
-    refs.push({
-      id: `chapter:${chapter.chapterId ?? "unassigned"}`,
-      label: chapter.title,
-      detail: `${chapter.reasons.join("；")}；完成率 ${formatInsightRate(chapter.completionRate)}，均分 ${formatInsightPercent(chapter.avgNormalizedScore)}`,
-    });
-  }
-  for (const student of diagnosis.risks.students.slice(0, 8)) {
-    refs.push({
-      id: `student:${student.studentId}`,
-      label: `${student.studentName} · ${student.className}`,
-      detail: `原因：${student.reasons.join(" / ")}；最低/当前得分 ${formatInsightPercent(student.selectedScore)}；变化 ${student.improvement ?? "无"}pp`,
-    });
-  }
-  for (const issue of diagnosis.taskPerformance.lowIssues.slice(0, 6)) {
-    refs.push({
-      id: `issue:${issue.id}`,
-      label: issue.title,
-      detail: issue.detail,
-    });
-  }
-  for (const group of diagnosis.studyBuddySignals.groups.slice(0, 6)) {
-    refs.push({
-      id: `study:${group.id}`,
-      label: `${group.chapterTitle} / ${group.sectionTitle}`,
-      detail: `${group.questionCount} 个提问；高频问题：${group.topQuestions.map((q) => q.question).join("；") || "暂无"}`,
-    });
-  }
-  if (diagnosis.risks.pendingReleases.length > 0) {
-    refs.push({
-      id: "release:pending",
-      label: "成绩待发布",
-      detail: `${diagnosis.risks.pendingReleases.length} 份已批改成绩尚未公布给学生。`,
-    });
-  }
-  return refs.slice(0, 24);
-}
-
-function hashString(value: string): string {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
 }
 
 function buildInstanceWhere(
   input: AnalyticsV2DiagnosisInput,
   dateFrom: Date | null,
-  dateTo: Date | null,
 ): Prisma.TaskInstanceWhereInput {
-  const activityRange: Prisma.DateTimeFilter = {};
-  if (dateFrom) activityRange.gte = dateFrom;
-  if (dateTo) activityRange.lte = dateTo;
   return {
     courseId: input.courseId,
     status: { not: "draft" },
     ...(input.chapterId && { chapterId: input.chapterId }),
     ...(input.sectionId && { sectionId: input.sectionId }),
-    ...(input.classId && { classId: input.classId }),
+    ...(input.classIds && input.classIds.length > 0 ? { classId: { in: input.classIds } } : {}),
     ...(input.taskType && { taskType: input.taskType }),
     ...(input.taskInstanceId && { id: input.taskInstanceId }),
-    ...((dateFrom || dateTo) && {
+    ...(dateFrom && {
       OR: [
-        { publishedAt: activityRange },
-        { dueAt: activityRange },
-        { createdAt: activityRange },
+        { publishedAt: { gte: dateFrom } },
+        { dueAt: { gte: dateFrom } },
+        { createdAt: { gte: dateFrom } },
       ],
     }),
   };
-}
-
-function buildSubmissionWhere(dateFrom: Date | null, dateTo: Date | null): Prisma.SubmissionWhereInput | undefined {
-  if (!dateFrom && !dateTo) return undefined;
-  const submittedAt: Prisma.DateTimeFilter = {};
-  if (dateFrom) submittedAt.gte = dateFrom;
-  if (dateTo) submittedAt.lte = dateTo;
-  return { submittedAt };
 }
 
 async function buildAssignmentLookup(instances: DiagnosisInstance[]) {
@@ -1679,469 +1538,6 @@ function buildStudentInterventions(metrics: InstanceMetrics[]): StudentIntervent
     .slice(0, 50);
 }
 
-const STANDARD_SCORE_BINS = [
-  { id: "0-59", label: "0-59", min: 0, max: 59 },
-  { id: "60-69", label: "60-69", min: 60, max: 69 },
-  { id: "70-79", label: "70-79", min: 70, max: 79 },
-  { id: "80-89", label: "80-89", min: 80, max: 89 },
-  { id: "90-100", label: "90-100", min: 90, max: 100 },
-];
-
-const TEN_POINT_SCORE_BINS = Array.from({ length: 10 }, (_, index) => {
-  const min = index * 10;
-  const max = index === 9 ? 100 : min + 9;
-  return { id: `${min}-${max}`, label: `${min}-${max}`, min, max };
-});
-
-function scoreBinsForMode(mode: AnalyticsV2ScoreBinMode) {
-  return mode === "ten" ? TEN_POINT_SCORE_BINS : STANDARD_SCORE_BINS;
-}
-
-function buildScoreDistribution(
-  metrics: InstanceMetrics[],
-  mode: AnalyticsV2ScoreBinMode,
-): ScoreDistribution {
-  const byStudent = new Map<string, ScoreDistributionStudent & { scores: number[] }>();
-
-  for (const metric of metrics) {
-    const assignedById = new Map(metric.assignedStudents.map((student) => [student.id, student]));
-    for (const [studentId, attempt] of metric.studentAttempts.entries()) {
-      const student = assignedById.get(studentId);
-      if (!student || attempt.selectedScore === null) continue;
-      const existing = byStudent.get(studentId) ?? {
-        studentId,
-        studentName: student.name,
-        classId: metric.instance.classId,
-        className: metric.instance.class.name,
-        score: null,
-        completedInstances: 0,
-        attemptCount: 0,
-        contributions: [],
-        scores: [],
-      };
-      existing.scores.push(attempt.selectedScore);
-      existing.score = average(existing.scores);
-      existing.completedInstances += 1;
-      existing.attemptCount += attempt.attemptCount;
-      existing.contributions.push({
-        instanceId: metric.instance.id,
-        instanceTitle: metric.instance.title,
-        taskType: metric.instance.taskType,
-        score: attempt.selectedScore,
-        submittedAt: attempt.selectedSubmission ? toIso(attempt.selectedSubmission.submittedAt) : null,
-      });
-      byStudent.set(studentId, existing);
-    }
-  }
-
-  const bins: ScoreDistributionBin[] = scoreBinsForMode(mode).map((bin) => ({
-    ...bin,
-    count: 0,
-    students: [],
-  }));
-
-  for (const row of byStudent.values()) {
-    if (row.score === null) continue;
-    const clamped = clampPercent(row.score);
-    const bin = bins.find((candidate) => clamped >= candidate.min && clamped <= candidate.max);
-    if (!bin) continue;
-    bin.students.push({
-      studentId: row.studentId,
-      studentName: row.studentName,
-      classId: row.classId,
-      className: row.className,
-      score: row.score,
-      completedInstances: row.completedInstances,
-      attemptCount: row.attemptCount,
-      contributions: row.contributions,
-    });
-  }
-
-  for (const bin of bins) {
-    bin.students.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.studentName.localeCompare(b.studentName, "zh-CN"));
-    bin.count = bin.students.length;
-  }
-
-  return { mode, bins };
-}
-
-function buildPendingReleaseItems(metrics: InstanceMetrics[]): PendingReleaseItem[] {
-  const items: PendingReleaseItem[] = [];
-  for (const metric of metrics) {
-    const assignedIds = new Set(metric.assignedStudents.map((student) => student.id));
-    for (const submission of metric.instance.submissions) {
-      if (!assignedIds.has(submission.studentId)) continue;
-      if (submission.status !== "graded" || submission.releasedAt) continue;
-      items.push({
-        submissionId: submission.id,
-        studentId: submission.student.id,
-        studentName: submission.student.name,
-        instanceId: metric.instance.id,
-        instanceTitle: metric.instance.title,
-        taskType: metric.instance.taskType,
-        className: metric.instance.class.name,
-        score: decimalToNumber(submission.score),
-        maxScore: decimalToNumber(submission.maxScore),
-        submittedAt: toIso(submission.submittedAt),
-      });
-    }
-  }
-  return items.sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""));
-}
-
-function buildAnalyticsRisks(
-  metrics: InstanceMetrics[],
-  chapterDiagnostics: ChapterDiagnostic[],
-  interventions: StudentIntervention[],
-  pendingReleases: PendingReleaseItem[],
-): AnalyticsRisks {
-  const metricsByChapter = new Map<string, InstanceMetrics[]>();
-  for (const metric of metrics) {
-    const key = metric.instance.chapterId ?? "unassigned";
-    const rows = metricsByChapter.get(key) ?? [];
-    rows.push(metric);
-    metricsByChapter.set(key, rows);
-  }
-
-  const chapters: RiskChapter[] = chapterDiagnostics
-    .map((chapter) => {
-      const reasons: string[] = [];
-      if (chapter.completionRate !== null && chapter.completionRate < 0.6) reasons.push("完成率低于 60%");
-      if (chapter.avgNormalizedScore !== null && chapter.avgNormalizedScore < LOW_SCORE_THRESHOLD) reasons.push("均分低于 60");
-      const rows = metricsByChapter.get(chapter.chapterId ?? "unassigned") ?? [];
-      if (rows.some((row) => row.dataQualityFlags.some((flag) => flag.severity === "critical"))) {
-        reasons.push("存在严重数据质量提示");
-      }
-      if (reasons.length === 0) return null;
-      return {
-        chapterId: chapter.chapterId,
-        title: chapter.title,
-        completionRate: chapter.completionRate,
-        avgNormalizedScore: chapter.avgNormalizedScore,
-        reasons,
-        instances: rows.map((row) => ({
-          instanceId: row.instance.id,
-          title: row.instance.title,
-          taskType: row.instance.taskType,
-          className: row.instance.class.name,
-        })),
-      };
-    })
-    .filter((row): row is RiskChapter => row !== null)
-    .slice(0, 12);
-
-  const byStudent = new Map<string, RiskStudent>();
-  for (const row of interventions) {
-    if (row.reason === "declining" && (row.improvement === null || row.improvement > -10)) continue;
-    const existing = byStudent.get(row.studentId) ?? {
-      studentId: row.studentId,
-      studentName: row.studentName,
-      classId: row.classId,
-      className: row.className,
-      reasons: [],
-      selectedScore: row.selectedScore,
-      improvement: row.improvement,
-      affectedInstances: [],
-    };
-    if (!existing.reasons.includes(row.reason)) existing.reasons.push(row.reason);
-    if (row.selectedScore !== null && (existing.selectedScore === null || row.selectedScore < existing.selectedScore)) {
-      existing.selectedScore = row.selectedScore;
-    }
-    if (row.improvement !== null && (existing.improvement === null || row.improvement < existing.improvement)) {
-      existing.improvement = row.improvement;
-    }
-    existing.affectedInstances.push({
-      instanceId: row.instanceId,
-      title: row.instanceTitle,
-      reason: row.reason,
-      score: row.selectedScore,
-    });
-    byStudent.set(row.studentId, existing);
-  }
-
-  const students = Array.from(byStudent.values())
-    .sort((a, b) => {
-      const severityA = a.reasons.includes("not_submitted") ? 0 : a.reasons.includes("low_score") ? 1 : 2;
-      const severityB = b.reasons.includes("not_submitted") ? 0 : b.reasons.includes("low_score") ? 1 : 2;
-      return severityA - severityB || (a.selectedScore ?? 101) - (b.selectedScore ?? 101);
-    })
-    .slice(0, 80);
-
-  return { chapters, students, pendingReleases };
-}
-
-function buildTaskPerformance(metrics: InstanceMetrics[], selectedInstanceId: string | null): TaskPerformance {
-  const taskComparisons = metrics.map(toTaskComparison);
-  if (!selectedInstanceId) {
-    return {
-      mode: "scope",
-      selectedInstanceId: null,
-      taskComparisons,
-      highExamples: [],
-      lowIssues: [],
-    };
-  }
-
-  const metric = metrics.find((row) => row.instance.id === selectedInstanceId);
-  if (!metric) {
-    return {
-      mode: "single",
-      selectedInstanceId,
-      taskComparisons,
-      highExamples: [],
-      lowIssues: [],
-    };
-  }
-
-  const selectedSubmissions = getSelectedDiagnosisSubmissions(metric);
-  const highExamples = selectedSubmissions
-    .map((submission) => toEvidenceSummary(submission))
-    .filter((item): item is EvidenceSummary => item !== null)
-    .sort((a, b) => (b.normalizedScore ?? 0) - (a.normalizedScore ?? 0))
-    .slice(0, 4);
-
-  return {
-    mode: "single",
-    selectedInstanceId,
-    taskComparisons,
-    highExamples,
-    lowIssues: buildLowIssueSummaries(metric, selectedSubmissions),
-  };
-}
-
-function toTaskComparison(metric: InstanceMetrics): TaskComparison {
-  const reasons = [
-    metric.completionRate !== null && metric.completionRate < 0.6,
-    metric.avgNormalizedScore !== null && metric.avgNormalizedScore < LOW_SCORE_THRESHOLD,
-    metric.dataQualityFlags.some((flag) => flag.severity === "critical"),
-  ].filter(Boolean).length;
-  return {
-    instanceId: metric.instance.id,
-    title: metric.instance.title,
-    taskType: metric.instance.taskType,
-    className: metric.instance.class.name,
-    chapterTitle: metric.instance.chapter?.title ?? null,
-    sectionTitle: metric.instance.section?.title ?? null,
-    completionRate: metric.completionRate,
-    avgNormalizedScore: metric.avgNormalizedScore,
-    pendingReleaseCount: buildPendingReleaseItems([metric]).length,
-    riskLevel: reasons >= 2 ? "high" : reasons === 1 ? "medium" : "low",
-  };
-}
-
-function buildLowIssueSummaries(
-  metric: InstanceMetrics,
-  selectedSubmissions: DiagnosisSubmission[],
-): LowIssueSummary[] {
-  if (metric.instance.taskType === "quiz") {
-    return buildQuizLowIssues(metric, selectedSubmissions);
-  }
-  return buildRubricLowIssues(metric, selectedSubmissions);
-}
-
-function buildQuizLowIssues(
-  metric: InstanceMetrics,
-  selectedSubmissions: DiagnosisSubmission[],
-): LowIssueSummary[] {
-  return metric.instance.task.quizQuestions
-    .map((question) => {
-      const evidence: EvidenceSummary[] = [];
-      let weakCount = 0;
-      for (const submission of selectedSubmissions) {
-        const row = getQuizBreakdown(getEvaluation(submission)).find((item) => item.questionId === question.id);
-        if (!row) {
-          weakCount += 1;
-          const summary = toEvidenceSummary(submission, "未作答");
-          if (summary) evidence.push(summary);
-          continue;
-        }
-        const scoreRate = normalizeScore(row.score, row.maxScore);
-        if (row.correct === false || (scoreRate !== null && scoreRate < LOW_SCORE_THRESHOLD)) {
-          weakCount += 1;
-          const summary = toEvidenceSummary(submission, row.comment ?? "题目得分偏低");
-          if (summary) evidence.push(summary);
-        }
-      }
-      if (weakCount === 0) return null;
-      return {
-        id: `quiz-${question.id}`,
-        title: `Q${question.order} ${question.prompt.slice(0, 48)}`,
-        detail: `${weakCount} 名学生在这道题上未答、答错或得分偏低。`,
-        metric: rate(weakCount, selectedSubmissions.length),
-        evidence: evidence.slice(0, 4),
-      };
-    })
-    .filter((row): row is LowIssueSummary => row !== null)
-    .sort((a, b) => (b.metric ?? 0) - (a.metric ?? 0))
-    .slice(0, 4);
-}
-
-function buildRubricLowIssues(
-  metric: InstanceMetrics,
-  selectedSubmissions: DiagnosisSubmission[],
-): LowIssueSummary[] {
-  return metric.instance.task.scoringCriteria
-    .map((criterion) => {
-      const evidence: EvidenceSummary[] = [];
-      const scores: number[] = [];
-      for (const submission of selectedSubmissions) {
-        const row = getRubricBreakdown(getEvaluation(submission)).find((item) => item.criterionId === criterion.id);
-        if (!row) continue;
-        const scoreRate = normalizeScore(row.score, row.maxScore);
-        if (scoreRate !== null) scores.push(scoreRate);
-        if (scoreRate !== null && scoreRate < LOW_SCORE_THRESHOLD) {
-          const summary = toEvidenceSummary(submission, row.comment ?? `${criterion.name} 得分偏低`);
-          if (summary) evidence.push(summary);
-        }
-      }
-      if (evidence.length === 0) return null;
-      return {
-        id: `rubric-${criterion.id}`,
-        title: criterion.name,
-        detail: `${evidence.length} 名学生在该评分维度低于 60%。`,
-        metric: average(scores),
-        evidence: evidence.slice(0, 4),
-      };
-    })
-    .filter((row): row is LowIssueSummary => row !== null)
-    .sort((a, b) => (a.metric ?? 101) - (b.metric ?? 101))
-    .slice(0, 4);
-}
-
-function toEvidenceSummary(submission: DiagnosisSubmission, overrideExcerpt?: string): EvidenceSummary | null {
-  const normalizedScore = normalizeScore(submission.score, submission.maxScore);
-  const evidenceKind = submission.taskType;
-  const excerpt = overrideExcerpt ?? evidenceExcerpt(submission);
-  return {
-    id: submission.id,
-    submissionId: submission.id,
-    studentId: submission.student.id,
-    studentName: submission.student.name,
-    score: decimalToNumber(submission.score),
-    maxScore: decimalToNumber(submission.maxScore),
-    normalizedScore,
-    evidenceKind,
-    title: `${submission.student.name} · ${formatInsightPercent(normalizedScore)}`,
-    excerpt,
-  };
-}
-
-function evidenceExcerpt(submission: DiagnosisSubmission): string {
-  const evaluation = getEvaluation(submission);
-  if (typeof evaluation === "object" && evaluation !== null) {
-    const feedback = (evaluation as Record<string, unknown>).feedback;
-    if (typeof feedback === "string" && feedback.trim()) return feedback.trim().slice(0, 160);
-    const rubric = getRubricBreakdown(evaluation).find((row) => row.comment);
-    if (rubric?.comment) return rubric.comment.slice(0, 160);
-    const quiz = getQuizBreakdown(evaluation).find((row) => row.comment);
-    if (quiz?.comment) return quiz.comment.slice(0, 160);
-  }
-  return "查看证据抽屉了解该学生的真实提交记录。";
-}
-
-async function buildStudyBuddySignals(
-  input: AnalyticsV2DiagnosisInput,
-  dateFrom: Date | null,
-  dateTo: Date | null,
-): Promise<StudyBuddySignals> {
-  const posts = await prisma.studyBuddyPost.findMany({
-    where: {
-      isPreview: false,
-      taskInstance: {
-        courseId: input.courseId,
-        ...(input.classId && { classId: input.classId }),
-        ...(input.chapterId && { chapterId: input.chapterId }),
-        ...(input.sectionId && { sectionId: input.sectionId }),
-        ...(input.taskInstanceId && { id: input.taskInstanceId }),
-        ...(input.taskType && { taskType: input.taskType }),
-      },
-      ...((dateFrom || dateTo) && {
-        createdAt: {
-          ...(dateFrom && { gte: dateFrom }),
-          ...(dateTo && { lte: dateTo }),
-        },
-      }),
-    },
-    include: {
-      student: { select: { id: true, name: true, email: true } },
-      task: { select: { id: true, taskName: true, taskType: true } },
-      taskInstance: {
-        select: {
-          id: true,
-          title: true,
-          chapterId: true,
-          sectionId: true,
-          chapter: { select: { id: true, title: true, order: true } },
-          section: { select: { id: true, title: true, order: true } },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 300,
-  });
-
-  const groups = new Map<string, StudyBuddySignalGroup & { questionCounts: Map<string, { count: number; examples: string[] }>; studentCounts: Map<string, { id: string; name: string; count: number }> }>();
-  for (const post of posts) {
-    const instance = post.taskInstance;
-    const key = `${instance?.chapterId ?? "no-chapter"}:${instance?.sectionId ?? "no-section"}:${post.taskId}:${post.taskInstanceId ?? "no-instance"}`;
-    const group = groups.get(key) ?? {
-      id: key,
-      chapterId: instance?.chapter?.id ?? null,
-      chapterTitle: instance?.chapter?.title ?? "未绑定章节",
-      sectionId: instance?.section?.id ?? null,
-      sectionTitle: instance?.section?.title ?? "未绑定小节",
-      taskId: post.taskId,
-      taskInstanceId: post.taskInstanceId,
-      taskTitle: instance?.title ?? post.task.taskName,
-      taskType: post.task.taskType,
-      questionCount: 0,
-      pendingCount: 0,
-      studentCount: 0,
-      topQuestions: [],
-      students: [],
-      questionCounts: new Map(),
-      studentCounts: new Map(),
-    };
-
-    group.questionCount += 1;
-    if (post.status !== "answered") group.pendingCount += 1;
-    const normalizedQuestion = post.question.trim().replace(/\s+/g, " ");
-    const questionRow = group.questionCounts.get(normalizedQuestion) ?? { count: 0, examples: [] };
-    questionRow.count += 1;
-    if (questionRow.examples.length < 3) questionRow.examples.push(post.question);
-    group.questionCounts.set(normalizedQuestion, questionRow);
-
-    const studentRow = group.studentCounts.get(post.studentId) ?? {
-      id: post.studentId,
-      name: post.anonymous ? "匿名学生" : (post.student.name || post.student.email),
-      count: 0,
-    };
-    studentRow.count += 1;
-    group.studentCounts.set(post.studentId, studentRow);
-    groups.set(key, group);
-  }
-
-  const materializedGroups = Array.from(groups.values())
-    .map(({ questionCounts, studentCounts, ...group }) => ({
-      ...group,
-      studentCount: studentCounts.size,
-      topQuestions: Array.from(questionCounts.entries())
-        .map(([question, value]) => ({ question, count: value.count, examples: value.examples }))
-        .sort((a, b) => b.count - a.count || a.question.localeCompare(b.question, "zh-CN"))
-        .slice(0, 5),
-      students: Array.from(studentCounts.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN")).slice(0, 8),
-    }))
-    .sort((a, b) => b.questionCount - a.questionCount || a.taskTitle.localeCompare(b.taskTitle, "zh-CN"))
-    .slice(0, 20);
-
-  return {
-    totalQuestions: posts.length,
-    pendingQuestions: posts.filter((post) => post.status !== "answered").length,
-    activeStudents: new Set(posts.map((post) => post.studentId)).size,
-    groups: materializedGroups,
-  };
-}
-
 function buildWeeklyInsight(input: {
   generatedAt: string;
   kpis: AnalyticsV2Diagnosis["kpis"];
@@ -2702,30 +2098,8 @@ function topWeaknesses(metrics: InstanceMetrics[]) {
     .slice(0, 10);
 }
 
-function getDateWindow(input: AnalyticsV2DiagnosisInput, now: Date): { from: Date | null; to: Date | null } {
-  const range = input.range ?? "term";
-  if (range === "custom") {
-    return {
-      from: parseDateBoundary(input.dateFrom, "start"),
-      to: parseDateBoundary(input.dateTo, "end"),
-    };
-  }
-  return { from: getDateFromRange(range, now), to: null };
-}
-
-function parseDateBoundary(value: string | undefined, side: "start" | "end"): Date | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
-  const suffix = side === "start" ? "T00:00:00.000Z" : "T23:59:59.999Z";
-  const date = new Date(`${trimmed}${suffix}`);
-  if (Number.isNaN(date.getTime())) return null;
-  return date;
-}
-
 function getDateFromRange(range: AnalyticsV2Range, now: Date): Date | null {
   if (range === "term") return null;
-  if (range === "custom") return null;
   const days = range === "7d" ? 7 : 30;
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 }
@@ -2908,13 +2282,152 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-function decimalToNumber(value: number | string | Prisma.Decimal | null | undefined): number | null {
-  if (value === null || value === undefined) return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
+function getWeekStartUtc(date: Date): Date {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay();
+  const diff = day === 0 ? 6 : day - 1;
+  d.setUTCDate(d.getUTCDate() - diff);
+  return d;
 }
 
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
+interface WeeklyHistoryResult {
+  history: WeeklyMetricPoint[];
+  previousWeekCompletionRate: number | null;
+  previousWeekAvgScore: number | null;
+}
+
+function buildWeeklyHistory(
+  metrics: InstanceMetrics[],
+  now: Date,
+): WeeklyHistoryResult {
+  const WEEK_COUNT = 12;
+  const currentWeekStart = getWeekStartUtc(now);
+  const weekKeys: string[] = [];
+  for (let i = WEEK_COUNT - 1; i >= 0; i -= 1) {
+    const ws = new Date(currentWeekStart);
+    ws.setUTCDate(ws.getUTCDate() - i * 7);
+    weekKeys.push(ws.toISOString());
+  }
+
+  const completionByWeek = new Map<string, { submitted: number; assigned: number }>();
+  const scoresByWeek = new Map<string, number[]>();
+
+  for (const metric of metrics) {
+    for (const submission of metric.instance.submissions) {
+      const submittedAt = submission.submittedAt
+        ? new Date(submission.submittedAt)
+        : null;
+      if (!submittedAt || Number.isNaN(submittedAt.getTime())) continue;
+      const weekStart = getWeekStartUtc(submittedAt).toISOString();
+      if (!weekKeys.includes(weekStart)) continue;
+      const completionRow = completionByWeek.get(weekStart) ?? {
+        submitted: 0,
+        assigned: 0,
+      };
+      completionRow.submitted += 1;
+      completionByWeek.set(weekStart, completionRow);
+      const normalized = normalizeScore(submission.score, submission.maxScore);
+      if (submission.status === "graded" && normalized !== null) {
+        const arr = scoresByWeek.get(weekStart) ?? [];
+        arr.push(normalized);
+        scoresByWeek.set(weekStart, arr);
+      }
+    }
+    if (metric.assignedCount > 0) {
+      for (const wk of weekKeys) {
+        const row = completionByWeek.get(wk);
+        if (row) {
+          row.assigned += metric.assignedCount;
+          completionByWeek.set(wk, row);
+        }
+      }
+    }
+  }
+
+  const history: WeeklyMetricPoint[] = weekKeys.map((wk) => {
+    const completionRow = completionByWeek.get(wk);
+    const completionRate =
+      completionRow && completionRow.assigned > 0
+        ? rate(completionRow.submitted, completionRow.assigned)
+        : null;
+    const scores = scoresByWeek.get(wk);
+    const avgNormalizedScore = scores && scores.length > 0 ? average(scores) : null;
+    return { weekStart: wk, completionRate, avgNormalizedScore };
+  });
+
+  const previous = history[history.length - 2] ?? null;
+  return {
+    history,
+    previousWeekCompletionRate: previous?.completionRate ?? null,
+    previousWeekAvgScore: previous?.avgNormalizedScore ?? null,
+  };
+}
+
+export function getScoreBinStudents(
+  distribution: ScoreDistribution,
+  binLabel: string,
+  classId?: string,
+): ScoreDistributionStudent[] {
+  const bin = distribution.bins.find((b) => b.label === binLabel);
+  if (!bin) return [];
+  const buckets = classId
+    ? bin.classes.filter((b) => b.classId === classId)
+    : bin.classes;
+  const students: ScoreDistributionStudent[] = [];
+  for (const bucket of buckets) {
+    for (const s of bucket.students) {
+      students.push(s);
+    }
+  }
+  return students;
+}
+
+function buildRecentTasksTrend(metrics: InstanceMetrics[]): RecentTaskTrendPoint[] {
+  return [...metrics]
+    .filter((m) => m.instance.publishedAt)
+    .sort((a, b) => {
+      const ta = a.instance.publishedAt ? new Date(a.instance.publishedAt).getTime() : 0;
+      const tb = b.instance.publishedAt ? new Date(b.instance.publishedAt).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, 10)
+    .map((m) => ({
+      taskInstanceId: m.instance.id,
+      title: m.instance.title,
+      completionRate: m.completionRate,
+      avgNormalizedScore: m.avgNormalizedScore,
+      publishedAt: toIso(m.instance.publishedAt as Date | string),
+    }));
+}
+
+function buildRiskChapterSamples(diagnostics: ChapterDiagnostic[]): RiskChapterSample[] {
+  return diagnostics
+    .filter(isRiskChapter)
+    .filter((c): c is ChapterDiagnostic & { chapterId: string } => c.chapterId !== null)
+    .slice(0, 3)
+    .map((c) => ({ chapterId: c.chapterId, title: c.title }));
+}
+
+function buildRiskStudentSamples(interventions: StudentIntervention[]): RiskStudentSample[] {
+  const seen = new Set<string>();
+  const result: RiskStudentSample[] = [];
+  const reasonOrder: Record<string, number> = {
+    not_submitted: 0,
+    low_score: 1,
+    declining: 2,
+  };
+  const sorted = [...interventions].sort(
+    (a, b) => reasonOrder[a.reason] - reasonOrder[b.reason],
+  );
+  for (const row of sorted) {
+    if (seen.has(row.studentId)) continue;
+    seen.add(row.studentId);
+    result.push({
+      studentId: row.studentId,
+      name: row.studentName,
+      reason: row.reason,
+    });
+    if (result.length >= 3) break;
+  }
+  return result;
 }

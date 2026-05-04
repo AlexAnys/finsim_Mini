@@ -816,6 +816,8 @@ model AnalysisReport {
   id             String   @id @default(uuid())
   taskId         String?
   taskInstanceId String?  @unique
+  scopeHash      String?
+  scopeSummary   Json?
   createdBy      String
   studentCount   Int
   report         Json
@@ -830,6 +832,7 @@ model AnalysisReport {
 
   @@index([createdBy])
   @@index([taskId])
+  @@index([scopeHash])
 }
 
 // ============================================
