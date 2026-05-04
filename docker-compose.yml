@@ -1,5 +1,6 @@
 services:
   app:
+    container_name: finsim-app
     image: ghcr.io/alexanys/finsim_mini:${IMAGE_TAG:-latest}
     build:
       context: .
@@ -42,6 +43,7 @@ services:
     restart: unless-stopped
 
   postgres:
+    container_name: finsim-postgres
     image: postgres:16-alpine
     volumes:
       - pgdata:/var/lib/postgresql/data
