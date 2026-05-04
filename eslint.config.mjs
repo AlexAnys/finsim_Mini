@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Harness 内 design mockup .jsx（仅供设计参考，不进 build）
     ".harness/**",
+    // Claude Code agent 配置 + git worktrees + 缓存（含 worktree 内 .next）
+    ".claude/**",
   ]),
 ]);
 
