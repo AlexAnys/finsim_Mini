@@ -637,27 +637,33 @@ export function AnalyticsV2Dashboard() {
             <KpiRow diagnosis={diagnosis} onKpiClick={handleKpiClick} />
           </div>
 
-          <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-3 overflow-hidden">
-            <ScoreDistributionChart
-              distribution={diagnosis.scoreDistribution}
-              onBinClick={handleBinClick}
-              onViewAll={handleViewAllScores}
-            />
-            <TaskPerformanceBlock
-              data={scopeInsights.simulation}
-              loading={scopeInsightsLoading && !scopeInsights.simulation}
-              refreshing={scopeInsightsRefreshing}
-              onRefresh={refreshScopeInsights}
-              onOpenEvidence={openEvidence}
-              taskOptions={simulationTaskOptions}
-              selectedTaskId={taskPerfTaskId}
-              onTaskChange={setTaskPerfTaskId}
-            />
-            <StudyBuddyBlock
-              data={scopeInsights.studyBuddy}
-              loading={scopeInsightsLoading && !scopeInsights.studyBuddy}
-              onOpenEvidence={openEvidence}
-            />
+          <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[3fr_2fr] overflow-hidden">
+            <div className="flex flex-col overflow-hidden lg:col-start-1 lg:row-start-1">
+              <ScoreDistributionChart
+                distribution={diagnosis.scoreDistribution}
+                onBinClick={handleBinClick}
+                onViewAll={handleViewAllScores}
+              />
+            </div>
+            <div className="flex flex-col overflow-hidden lg:col-start-1 lg:row-start-2">
+              <StudyBuddyBlock
+                data={scopeInsights.studyBuddy}
+                loading={scopeInsightsLoading && !scopeInsights.studyBuddy}
+                onOpenEvidence={openEvidence}
+              />
+            </div>
+            <div className="flex flex-col overflow-hidden lg:col-start-2 lg:col-end-4 lg:row-start-1 lg:row-end-3">
+              <TaskPerformanceBlock
+                data={scopeInsights.simulation}
+                loading={scopeInsightsLoading && !scopeInsights.simulation}
+                refreshing={scopeInsightsRefreshing}
+                onRefresh={refreshScopeInsights}
+                onOpenEvidence={openEvidence}
+                taskOptions={simulationTaskOptions}
+                selectedTaskId={taskPerfTaskId}
+                onTaskChange={setTaskPerfTaskId}
+              />
+            </div>
           </div>
 
           <div className="shrink-0">

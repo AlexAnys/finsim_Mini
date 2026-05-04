@@ -96,7 +96,7 @@ function KpiCard({
 }: KpiCardProps) {
   const isInteractive = Boolean(onClick);
   const cardClassName = cn(
-    "rounded-lg py-3 transition-colors",
+    "rounded-lg py-2.5 transition-colors",
     warning && "border-amber-200 bg-amber-50/40",
     destructive && "border-destructive/30 bg-destructive/5",
     isInteractive && "cursor-pointer hover:bg-muted/40",
@@ -104,7 +104,7 @@ function KpiCard({
 
   const inner = (
     <Card className={cardClassName}>
-      <CardContent className="px-4 py-0">
+      <CardContent className="px-3 py-0">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -119,8 +119,8 @@ function KpiCard({
           </div>
           <Icon className={cn("size-4", destructive ? "text-destructive" : "text-muted-foreground")} />
         </div>
-        <div className="mt-2 flex items-end justify-between gap-2">
-          <div className="text-2xl font-semibold tracking-normal leading-tight">{value}</div>
+        <div className="mt-1.5 flex items-end justify-between gap-2">
+          <div className="text-xl font-semibold tracking-normal leading-tight">{value}</div>
           {sparkData && sparkData.length > 0 && (
             <Sparkline
               data={sparkData}
@@ -131,7 +131,7 @@ function KpiCard({
           )}
         </div>
         {(sub || delta || action) && (
-          <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+          <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
             <span className="text-muted-foreground line-clamp-1">{sub}</span>
             {delta && <span className="shrink-0">{delta}</span>}
             {action && <span className="shrink-0">{action}</span>}

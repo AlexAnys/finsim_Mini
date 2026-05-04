@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { ArrowRight, ChevronRight, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  CircleAlert,
+  CircleCheck,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,24 +86,43 @@ export function TaskPerformanceBlock({
     : null;
 
   return (
-    <Card className="rounded-lg flex h-full flex-col overflow-hidden">
-      <CardHeader className="space-y-2 pb-2 shrink-0">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 space-y-0.5">
-            <CardTitle className="flex items-center gap-1.5 text-sm">
-              <Sparkles className="size-3.5 text-brand" />
-              任务表现 (Simulation)
-            </CardTitle>
-            <p className="text-[11px] text-muted-foreground">
-              {generatedLabel ? `${sourceLabel} · ${generatedLabel}` : "尚未生成"}
-              {data?.notice ? ` · ${data.notice}` : ""}
-            </p>
-          </div>
+    <Card className="rounded-lg flex h-full flex-col gap-2 overflow-hidden py-3">
+      <CardHeader className="space-y-0 pb-1 shrink-0 px-3 grid-cols-[1fr_auto] items-center gap-2 grid">
+        <div className="min-w-0 flex items-center gap-1.5">
+          <Sparkles className="size-3.5 text-brand shrink-0" />
+          <CardTitle className="text-sm font-medium truncate">
+            任务表现 (Simulation)
+            {generatedLabel && (
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                {sourceLabel} · {generatedLabel}
+              </span>
+            )}
+          </CardTitle>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {taskOptions.length > 0 && onTaskChange && (
+            <Select
+              value={selectedTaskId || ALL_TASKS}
+              onValueChange={(v) => onTaskChange(v === ALL_TASKS ? "" : v)}
+            >
+              <SelectTrigger size="sm" className="h-7 w-[220px] rounded-md text-xs">
+                <SelectValue placeholder="全部任务" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_TASKS}>全部 simulation 任务</SelectItem>
+                {taskOptions.map((task) => (
+                  <SelectItem key={task.id} value={task.id}>
+                    {task.title} · {task.className}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {onRefresh && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 text-[11px]"
+              className="h-7 gap-1 px-2 text-[11px]"
               onClick={onRefresh}
               disabled={refreshing || loading}
             >
@@ -108,42 +134,33 @@ export function TaskPerformanceBlock({
               重新生成
             </Button>
           )}
+          {detailHref && (
+            <Link
+              href={detailHref}
+              className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground whitespace-nowrap"
+            >
+              详情 <ArrowRight className="size-3" />
+            </Link>
+          )}
         </div>
-        {taskOptions.length > 0 && onTaskChange && (
-          <Select
-            value={selectedTaskId || ALL_TASKS}
-            onValueChange={(v) => onTaskChange(v === ALL_TASKS ? "" : v)}
-          >
-            <SelectTrigger size="sm" className="h-7 w-full rounded-md text-xs">
-              <SelectValue placeholder="全部任务" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_TASKS}>全部 simulation 任务</SelectItem>
-              {taskOptions.map((task) => (
-                <SelectItem key={task.id} value={task.id}>
-                  {task.title} · {task.className}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-0 pb-3 px-4">
+      <CardContent className="flex-1 min-h-0 pt-0 pb-1 px-3">
         {loading ? (
           <LoadingState />
         ) : isEmpty ? (
           <EmptyPanel icon={Sparkles} title="任务表现 · 暂无数据" description="当前范围无 simulation graded 数据；请扩大筛选范围或先批改若干 simulation 提交。" />
         ) : (
-          <div className="space-y-3">
-            <SectionInline
+          <div className="grid h-full grid-cols-2 gap-2.5">
+            <SectionColumn
               tone="success"
-              label="高分典型"
+              icon={CircleCheck}
+              label="高分典型表现"
               count={filteredHighlights.length}
             >
               {filteredHighlights.length === 0 ? (
                 <EmptyHint text="当前范围暂无高分典型样本" />
               ) : (
-                filteredHighlights.slice(0, 4).map((h) => (
+                filteredHighlights.slice(0, 6).map((h) => (
                   <HighlightRow
                     key={h.submissionId}
                     data={h}
@@ -151,17 +168,18 @@ export function TaskPerformanceBlock({
                   />
                 ))
               )}
-            </SectionInline>
+            </SectionColumn>
 
-            <SectionInline
+            <SectionColumn
               tone="destructive"
+              icon={CircleAlert}
               label="低分共性问题"
               count={filteredIssues.length}
             >
               {filteredIssues.length === 0 ? (
                 <EmptyHint text="当前范围暂无低分共性问题" />
               ) : (
-                filteredIssues.slice(0, 4).map((issue, idx) => (
+                filteredIssues.slice(0, 6).map((issue, idx) => (
                   <IssueRow
                     key={`${issue.title}-${idx}`}
                     data={issue}
@@ -169,16 +187,7 @@ export function TaskPerformanceBlock({
                   />
                 ))
               )}
-            </SectionInline>
-
-            {detailHref && (
-              <Link
-                href={detailHref}
-                className="inline-flex items-center gap-0.5 pt-1 text-[11px] text-brand hover:underline"
-              >
-                查看任务详情 <ArrowRight className="size-3" />
-              </Link>
-            )}
+            </SectionColumn>
           </div>
         )}
       </CardContent>
@@ -186,13 +195,15 @@ export function TaskPerformanceBlock({
   );
 }
 
-function SectionInline({
+function SectionColumn({
   tone,
+  icon: Icon,
   label,
   count,
   children,
 }: {
   tone: "success" | "destructive";
+  icon: import("lucide-react").LucideIcon;
   label: string;
   count: number;
   children: React.ReactNode;
@@ -201,17 +212,22 @@ function SectionInline({
     tone === "success"
       ? "border-l-2 border-success bg-success/5"
       : "border-l-2 border-destructive bg-destructive/5";
+  const labelClass =
+    tone === "success" ? "text-success" : "text-destructive";
   return (
-    <div className={`rounded-md ${sectionStyle} px-3 py-2 space-y-1.5`}>
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className={`flex h-full flex-col rounded-r ${sectionStyle} overflow-hidden`}>
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 shrink-0">
+        <h4 className={`flex items-center gap-1 text-xs font-medium ${labelClass}`}>
+          <Icon className="size-3" />
           {label}
-        </span>
+        </h4>
         <Badge variant="outline" className="rounded-md text-[10px]">
           {count}
         </Badge>
       </div>
-      <div className="space-y-1.5">{children}</div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-2.5 pb-2.5">
+        <div className="space-y-1.5">{children}</div>
+      </div>
     </div>
   );
 }
@@ -227,18 +243,17 @@ function HighlightRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-md bg-background px-2 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block w-full rounded-md bg-background px-2 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="flex items-center gap-1.5 text-xs font-medium">
-          <span className="truncate">{data.studentName}</span>
-        </div>
-        <p className="line-clamp-1 text-[11px] text-muted-foreground">{data.reason}</p>
+      <div className="flex items-center justify-between gap-1.5">
+        <span className="text-xs font-medium truncate">{data.studentName}</span>
+        <Badge variant="outline" className="shrink-0 rounded-md font-mono text-[10px] h-4 px-1">
+          {data.normalizedScore}分
+        </Badge>
       </div>
-      <Badge variant="outline" className="shrink-0 rounded-md font-mono text-[10px]">
-        {data.normalizedScore}%
-      </Badge>
-      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+      <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+        {data.reason}
+      </p>
     </button>
   );
 }
@@ -254,23 +269,24 @@ function IssueRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-md bg-background px-2 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block w-full rounded-md bg-background px-2 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Badge variant="destructive" className="shrink-0 rounded-md text-[10px]">
-        ×{data.frequency}
-      </Badge>
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="text-xs font-medium truncate">{data.title}</div>
-        <p className="line-clamp-1 text-[11px] text-muted-foreground">{data.description}</p>
+      <div className="flex items-start gap-1.5">
+        <Badge variant="destructive" className="shrink-0 rounded-md text-[10px] h-4 px-1">
+          ×{data.frequency}
+        </Badge>
+        <span className="text-xs font-medium line-clamp-1">{data.title}</span>
       </div>
-      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+      <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+        {data.description}
+      </p>
     </button>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="flex h-[180px] items-center justify-center text-xs text-muted-foreground">
+    <div className="flex h-full min-h-[120px] items-center justify-center text-xs text-muted-foreground">
       <Loader2 className="mr-2 size-3.5 animate-spin" />
       正在加载任务表现样本
     </div>
@@ -279,7 +295,7 @@ function LoadingState() {
 
 function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="rounded-md border border-dashed py-2 text-center text-[11px] text-muted-foreground">
+    <div className="rounded-md border border-dashed py-3 text-center text-[11px] text-muted-foreground">
       {text}
     </div>
   );

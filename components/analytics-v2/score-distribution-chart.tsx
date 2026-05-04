@@ -6,11 +6,17 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   Legend,
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -214,16 +220,27 @@ export default function ScoreDistributionChart({
   };
 
   return (
-    <Card className="rounded-lg flex h-full flex-col overflow-hidden">
-      <CardHeader className="space-y-2 pb-2 shrink-0">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <CardTitle className="text-sm">学生成绩分布</CardTitle>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {totalStudents} 名学生｜{scopeLabel}
-              {view?.scope === "multi_task" ? "（按学生在范围内均分聚合）" : ""}
-            </p>
-          </div>
+    <Card className="rounded-lg flex h-full flex-col gap-2 overflow-hidden py-3">
+      <CardHeader className="space-y-0 pb-1 shrink-0 px-3 grid-cols-[1fr_auto] items-center gap-2 grid">
+        <CardTitle className="text-sm font-medium truncate">
+          学生成绩分布
+          <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+            {totalStudents} 名学生 · {scopeLabel}
+          </span>
+        </CardTitle>
+        <div className="flex items-center gap-1.5">
+          <Select
+            value={String(binCount)}
+            onValueChange={(v) => persistBinCount(Number(v) as BinCount)}
+          >
+            <SelectTrigger size="sm" className="h-7 w-[88px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="5">5 段</SelectItem>
+              <SelectItem value="10">10 段</SelectItem>
+            </SelectContent>
+          </Select>
           <ToggleGroup
             type="single"
             size="sm"
@@ -232,39 +249,25 @@ export default function ScoreDistributionChart({
               if (v === "single" || v === "multi") persistMode(v);
             }}
           >
-            <ToggleGroupItem value="single" aria-label="单班级">
+            <ToggleGroupItem value="single" aria-label="单班级" className="text-[11px] px-2">
               单班级
             </ToggleGroupItem>
-            <ToggleGroupItem value="multi" aria-label="多班级对比">
-              多班级对比
+            <ToggleGroupItem value="multi" aria-label="多班级对比" className="text-[11px] px-2">
+              多班对比
             </ToggleGroupItem>
           </ToggleGroup>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <Select
-            value={String(binCount)}
-            onValueChange={(v) => persistBinCount(Number(v) as BinCount)}
-          >
-            <SelectTrigger size="sm" className="h-7 w-[100px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="5">5 段区间</SelectItem>
-              <SelectItem value="10">10 段区间</SelectItem>
-            </SelectContent>
-          </Select>
           {onViewAll && (
             <button
               type="button"
               onClick={onViewAll}
-              className="inline-flex items-center gap-0.5 text-[11px] text-brand hover:underline"
+              className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground whitespace-nowrap"
             >
-              查看学生成绩详情 <ArrowRight className="size-3" />
+              详情 <ArrowRight className="size-3" />
             </button>
           )}
         </div>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-0 pb-3 px-4">
+      <CardContent className="flex-1 min-h-0 pt-0 pb-1 px-3">
         {!view || allClasses.classes.length === 0 ? (
           <EmptyPanel icon={BarChart3} title="学生成绩分布 · 暂无数据" description="当前范围内尚无已批改的提交；请先批改若干提交或扩大筛选范围。" />
         ) : (
@@ -275,11 +278,11 @@ export default function ScoreDistributionChart({
           >
             <ChartContainer
               config={mode === "single" ? singleConfig : allClasses.config}
-              className="h-[260px] w-full"
+              className="h-full w-full"
             >
               <BarChart
                 data={chartData}
-                margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
                 onClick={isClickable ? handleClick : undefined}
               >
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -287,15 +290,16 @@ export default function ScoreDistributionChart({
                   dataKey="label"
                   tickLine={false}
                   axisLine={false}
-                  tickMargin={8}
-                  className="text-xs"
+                  tickMargin={6}
+                  className="text-[10px]"
                 />
                 <YAxis
                   allowDecimals={false}
                   tickLine={false}
                   axisLine={false}
-                  tickMargin={8}
-                  className="text-xs"
+                  tickMargin={4}
+                  width={24}
+                  className="text-[10px]"
                 />
                 <ChartTooltip
                   cursor={{ fill: "var(--color-muted)", opacity: 0.4 }}
@@ -339,7 +343,14 @@ export default function ScoreDistributionChart({
                     fill="var(--color-brand)"
                     radius={[4, 4, 0, 0]}
                     style={isClickable ? { cursor: "pointer" } : undefined}
-                  />
+                  >
+                    <LabelList
+                      dataKey="__single__"
+                      position="top"
+                      className="fill-foreground text-[10px]"
+                      formatter={(v) => { const n = Number(v); return n > 0 ? String(n) : ""; }}
+                    />
+                  </Bar>
                 ) : (
                   visibleClasses.map((c) => (
                     <Bar
@@ -349,7 +360,14 @@ export default function ScoreDistributionChart({
                       fill={`var(--color-${c.id})`}
                       radius={[4, 4, 0, 0]}
                       style={isClickable ? { cursor: "pointer" } : undefined}
-                    />
+                    >
+                      <LabelList
+                        dataKey={c.id}
+                        position="top"
+                        className="fill-foreground text-[10px]"
+                        formatter={(v) => { const n = Number(v); return n > 0 ? String(n) : ""; }}
+                      />
+                    </Bar>
                   ))
                 )}
               </BarChart>

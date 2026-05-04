@@ -52,43 +52,43 @@ export function TeachingAdviceBlock({
   const sourceLabel = data?.source === "cache" ? "缓存" : data?.source === "fallback" ? "降级" : "已生成";
 
   return (
-    <Card className="rounded-lg flex flex-col overflow-hidden">
-      <CardHeader className="pb-2 shrink-0">
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-0.5">
-            <CardTitle className="flex items-center gap-1.5 text-sm">
-              <Lightbulb className="size-3.5 text-brand" />
-              AI 教学建议
-            </CardTitle>
-            <p className="text-[11px] text-muted-foreground">
-              {generatedLabel ? `${sourceLabel} · ${generatedLabel}` : "尚未生成"}
-            </p>
-          </div>
-          {onRefresh && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 text-[11px]"
-              onClick={onRefresh}
-              disabled={refreshing || loading}
-            >
-              {refreshing ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-              重新生成
-            </Button>
-          )}
+    <Card className="rounded-lg flex flex-col gap-1 overflow-hidden py-3">
+      <CardHeader className="pb-1 shrink-0 px-3 grid-cols-[1fr_auto] items-start gap-2 grid space-y-0">
+        <div className="min-w-0 flex items-center gap-1.5">
+          <Lightbulb className="size-3.5 text-brand shrink-0" />
+          <CardTitle className="text-sm font-medium truncate">
+            AI 教学建议
+            {generatedLabel && (
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                {sourceLabel} · {generatedLabel}
+              </span>
+            )}
+          </CardTitle>
         </div>
+        {onRefresh && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-[11px]"
+            onClick={onRefresh}
+            disabled={refreshing || loading}
+          >
+            {refreshing ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <RefreshCw className="size-3" />
+            )}
+            重新生成
+          </Button>
+        )}
         {data?.notice && (
-          <div className="mt-1 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/50 px-2 py-1 text-[11px] text-amber-800">
+          <div className="col-span-2 mt-1 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/50 px-2 py-1 text-[10px] text-amber-800">
             <AlertCircle className="mt-0.5 size-3 shrink-0" />
             <span>{data.notice}</span>
           </div>
         )}
       </CardHeader>
-      <CardContent className="px-4 pb-3 pt-0">
+      <CardContent className="px-3 pb-1 pt-0">
         {loading ? (
           <LoadingState />
         ) : isEmpty ? (
@@ -199,7 +199,7 @@ function ColumnCard({
           {count}
         </Badge>
       </div>
-      <div className="max-h-[240px] flex-1 overflow-y-auto px-2 py-2">
+      <div className="max-h-[140px] flex-1 overflow-y-auto px-2 py-1.5">
         {count === 0 ? (
           <div className="rounded-md border border-dashed py-3 text-center text-[11px] text-muted-foreground">
             暂无相关建议

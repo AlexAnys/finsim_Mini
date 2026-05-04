@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, MessageCircleQuestionMark } from "lucide-react";
+import { ArrowRight, Loader2, MessageCircleQuestionMark } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -22,11 +22,12 @@ interface Props {
   data: ScopeStudyBuddySummary | null;
   loading?: boolean;
   onOpenEvidence?: (evidence: EvidenceItem) => void;
+  onViewAll?: () => void;
 }
 
 const MAX_ROWS = 5;
 
-export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
+export function StudyBuddyBlock({ data, loading, onOpenEvidence, onViewAll }: Props) {
   const sections = data?.bySection ?? [];
   const generatedLabel = data?.generatedAt ? formatDateTime(data.generatedAt) : null;
   const isEmpty = !loading && sections.length === 0;
@@ -41,18 +42,30 @@ export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
   const totalQuestions = sections.reduce((acc, s) => acc + s.topQuestions.length, 0);
 
   return (
-    <Card className="rounded-lg flex h-full flex-col overflow-hidden">
-      <CardHeader className="space-y-1 pb-2 shrink-0">
-        <CardTitle className="flex items-center gap-1.5 text-sm">
-          <MessageCircleQuestionMark className="size-3.5 text-brand" />
-          Study Buddy 共性问题
+    <Card className="rounded-lg flex h-full flex-col gap-2 overflow-hidden py-3">
+      <CardHeader className="space-y-0 pb-1 shrink-0 px-3 grid-cols-[1fr_auto] items-center gap-2 grid">
+        <CardTitle className="flex items-center gap-1.5 text-sm font-medium min-w-0">
+          <MessageCircleQuestionMark className="size-3.5 text-brand shrink-0" />
+          <span className="truncate">
+            Study Buddy 共性问题
+            {totalQuestions > 0 && (
+              <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                {generatedLabel ? `${generatedLabel} · ` : ""}{sections.length} 节 / {totalQuestions} 题
+              </span>
+            )}
+          </span>
         </CardTitle>
-        <p className="text-[11px] text-muted-foreground">
-          {generatedLabel ? `更新 ${generatedLabel}` : "尚未生成"}
-          {totalQuestions > 0 ? ` · ${sections.length} 节 / ${totalQuestions} 个问题` : ""}
-        </p>
+        {onViewAll && rows.length > 0 && (
+          <button
+            type="button"
+            onClick={onViewAll}
+            className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground whitespace-nowrap"
+          >
+            全部 <ArrowRight className="size-3" />
+          </button>
+        )}
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-0 pb-3 px-4">
+      <CardContent className="flex-1 min-h-0 overflow-y-auto pt-0 pb-1 px-3">
         {loading ? (
           <LoadingState />
         ) : isEmpty || rows.length === 0 ? (
@@ -61,9 +74,9 @@ export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="h-7 px-2 text-[11px]">章节/节</TableHead>
-                <TableHead className="h-7 px-2 text-[11px]">典型问题</TableHead>
-                <TableHead className="h-7 px-2 text-right text-[11px]">提问</TableHead>
+                <TableHead className="h-6 px-1.5 text-[10px] w-[32%]">章节/节</TableHead>
+                <TableHead className="h-6 px-1.5 text-[10px]">典型问题</TableHead>
+                <TableHead className="h-6 px-1.5 text-right text-[10px] w-10">次数</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -79,14 +92,14 @@ export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
                     })
                   }
                 >
-                  <TableCell className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                  <TableCell className="px-1.5 py-1.5 text-[11px] text-muted-foreground truncate">
                     {row.sectionLabel}
                   </TableCell>
-                  <TableCell className="px-2 py-1.5 text-xs">
+                  <TableCell className="px-1.5 py-1.5 text-xs">
                     <span className="line-clamp-2">{row.question.text}</span>
                   </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right font-mono text-[11px]">
-                    ×{row.question.count}
+                  <TableCell className="px-1.5 py-1.5 text-right font-mono text-[11px] tabular-nums">
+                    {row.question.count}
                   </TableCell>
                 </TableRow>
               ))}
@@ -100,7 +113,7 @@ export function StudyBuddyBlock({ data, loading, onOpenEvidence }: Props) {
 
 function LoadingState() {
   return (
-    <div className="flex h-[180px] items-center justify-center text-xs text-muted-foreground">
+    <div className="flex h-full min-h-[80px] items-center justify-center text-xs text-muted-foreground">
       <Loader2 className="mr-2 size-3.5 animate-spin" />
       正在加载共性问题
     </div>
@@ -126,12 +139,12 @@ function EmptyPanel({
   description: string;
 }) {
   return (
-    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 px-4 text-center">
-      <div className="flex size-9 items-center justify-center rounded-full bg-muted/50">
-        <Icon className="size-4 text-muted-foreground" />
+    <div className="flex h-full min-h-[80px] flex-col items-center justify-center gap-1.5 px-3 text-center">
+      <div className="flex size-7 items-center justify-center rounded-full bg-muted/50">
+        <Icon className="size-3.5 text-muted-foreground" />
       </div>
       <p className="text-xs font-medium">{title}</p>
-      <p className="max-w-[240px] text-[11px] leading-4 text-muted-foreground">{description}</p>
+      <p className="max-w-[220px] text-[10px] leading-4 text-muted-foreground">{description}</p>
     </div>
   );
 }
