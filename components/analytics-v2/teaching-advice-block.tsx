@@ -199,7 +199,7 @@ function ColumnCard({
           {count}
         </Badge>
       </div>
-      <div className="max-h-[140px] flex-1 overflow-y-auto px-2 py-1.5">
+      <div className="max-h-[100px] flex-1 overflow-y-auto px-2 py-1.5 min-[1280px]:max-h-[120px] min-[1440px]:max-h-[160px]">
         {count === 0 ? (
           <div className="rounded-md border border-dashed py-3 text-center text-[11px] text-muted-foreground">
             暂无相关建议

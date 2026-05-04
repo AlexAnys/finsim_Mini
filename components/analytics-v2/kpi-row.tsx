@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { isRiskChapter } from "@/lib/services/analytics-v2.service";
 import type { LucideIcon } from "lucide-react";
@@ -12,13 +11,9 @@ import {
   Target,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { KpiTrailingVisual } from "@/components/analytics-v2/kpi-trailing-visual";
 import { cn } from "@/lib/utils";
-
-const Sparkline = dynamic(
-  () => import("@/components/analytics-v2/sparkline").then((m) => m.Sparkline),
-  { ssr: false, loading: () => null },
-);
 
 interface QualityFlag {
   severity: "info" | "warning" | "critical";
@@ -35,10 +30,29 @@ interface StudentInterventionLite {
   reason: "not_submitted" | "low_score" | "declining";
 }
 
-interface WeeklyHistoryPoint {
-  weekStart: string;
+interface RecentTaskTrendPoint {
+  taskInstanceId: string;
+  title: string;
   completionRate: number | null;
   avgNormalizedScore: number | null;
+  publishedAt: string;
+}
+
+interface PendingReleaseInstance {
+  id: string;
+  title: string;
+  dueAt: string;
+}
+
+interface RiskChapterSample {
+  chapterId: string;
+  title: string;
+}
+
+interface RiskStudentSample {
+  studentId: string;
+  name: string;
+  reason: "not_submitted" | "low_score" | "declining";
 }
 
 export interface KpiRowDiagnosis {
@@ -52,9 +66,12 @@ export interface KpiRowDiagnosis {
     medianNormalizedScore: number | null;
     pendingReleaseCount: number;
     pendingReleaseTaskCount: number;
-    weeklyHistory: WeeklyHistoryPoint[];
     previousWeekCompletionRate: number | null;
     previousWeekAvgScore: number | null;
+    recentTasksTrend: RecentTaskTrendPoint[];
+    pendingReleaseInstances: PendingReleaseInstance[];
+    riskChapterSamples: RiskChapterSample[];
+    riskStudentSamples: RiskStudentSample[];
   };
   chapterDiagnostics: ChapterDiagnostic[];
   studentInterventions: StudentInterventionLite[];
@@ -75,9 +92,8 @@ interface KpiCardProps {
   warning?: boolean;
   destructive?: boolean;
   delta?: React.ReactNode;
-  sparkData?: Array<number | null>;
-  sparkColor?: string;
   action?: React.ReactNode;
+  trailing?: React.ReactNode;
   onClick?: () => void;
 }
 
@@ -89,14 +105,13 @@ function KpiCard({
   warning = false,
   destructive = false,
   delta,
-  sparkData,
-  sparkColor,
   action,
+  trailing,
   onClick,
 }: KpiCardProps) {
   const isInteractive = Boolean(onClick);
   const cardClassName = cn(
-    "rounded-lg py-2.5 transition-colors",
+    "rounded-lg flex flex-col items-stretch gap-2 min-h-[88px] py-2.5 px-3 transition-colors min-[1440px]:flex-row min-[1440px]:items-center min-[1440px]:gap-3",
     warning && "border-amber-200 bg-amber-50/40",
     destructive && "border-destructive/30 bg-destructive/5",
     isInteractive && "cursor-pointer hover:bg-muted/40",
@@ -104,9 +119,15 @@ function KpiCard({
 
   const inner = (
     <Card className={cardClassName}>
-      <CardContent className="px-3 py-0">
+      <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Icon
+              className={cn(
+                "size-3.5",
+                destructive ? "text-destructive" : "text-muted-foreground",
+              )}
+            />
             <span className="text-xs font-medium text-muted-foreground">{label}</span>
             {warning && (
               <Badge
@@ -117,27 +138,21 @@ function KpiCard({
               </Badge>
             )}
           </div>
-          <Icon className={cn("size-4", destructive ? "text-destructive" : "text-muted-foreground")} />
         </div>
-        <div className="mt-1.5 flex items-end justify-between gap-2">
-          <div className="text-xl font-semibold tracking-normal leading-tight">{value}</div>
-          {sparkData && sparkData.length > 0 && (
-            <Sparkline
-              data={sparkData}
-              color={sparkColor ?? "var(--color-brand)"}
-              height={28}
-              width={72}
-            />
-          )}
+        <div className="mt-0.5 text-lg font-semibold tracking-normal leading-tight lg:text-xl">
+          {value}
         </div>
         {(sub || delta || action) && (
-          <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+          <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px]">
             <span className="text-muted-foreground line-clamp-1">{sub}</span>
             {delta && <span className="shrink-0">{delta}</span>}
             {action && <span className="shrink-0">{action}</span>}
           </div>
         )}
-      </CardContent>
+      </div>
+      {trailing && (
+        <div className="hidden h-12 shrink-0 self-center min-[1440px]:block min-[1440px]:w-24">{trailing}</div>
+      )}
     </Card>
   );
 
@@ -169,11 +184,6 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
 
   const handle = (kind: KpiKind) => (onKpiClick ? () => onKpiClick(kind) : undefined);
 
-  const completionSparkData = kpis.weeklyHistory.map((p) =>
-    p.completionRate === null ? null : Math.round(p.completionRate * 100),
-  );
-  const scoreSparkData = kpis.weeklyHistory.map((p) => p.avgNormalizedScore);
-
   const completionDelta = formatPpDelta(
     kpis.completionRate,
     kpis.previousWeekCompletionRate,
@@ -183,6 +193,10 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
     kpis.previousWeekAvgScore,
   );
 
+  const showRiskTrailing =
+    kpis.riskChapterSamples.length + kpis.riskStudentSamples.length > 0;
+  const showPendingTrailing = kpis.pendingReleaseInstances.length > 0;
+
   return (
     <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
       <KpiCard
@@ -191,9 +205,10 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
         value={formatRate(kpis.completionRate)}
         sub={`${kpis.submittedStudents}/${kpis.assignedStudents} 人次`}
         warning={hasQualityCategory(dataQualityFlags, ["assignment", "aggregation"])}
-        sparkData={completionSparkData}
-        sparkColor="var(--color-brand)"
         delta={completionDelta}
+        trailing={
+          <KpiTrailingVisual kind="completion_rate" data={kpis.recentTasksTrend} />
+        }
         onClick={handle("completion_rate")}
       />
       <KpiCard
@@ -202,9 +217,10 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
         value={formatPercentNumber(kpis.avgNormalizedScore)}
         sub={`中位数 ${formatPercentNumber(kpis.medianNormalizedScore)}`}
         warning={hasQualityCategory(dataQualityFlags, ["score"])}
-        sparkData={scoreSparkData}
-        sparkColor="var(--color-success)"
         delta={scoreDelta}
+        trailing={
+          <KpiTrailingVisual kind="avg_score" data={kpis.recentTasksTrend} />
+        }
         onClick={handle("avg_score")}
       />
       <KpiCard
@@ -221,6 +237,14 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
             去发布 <ArrowRight className="size-3" />
           </Link>
         }
+        trailing={
+          showPendingTrailing ? (
+            <KpiTrailingVisual
+              kind="pending_release"
+              data={kpis.pendingReleaseInstances}
+            />
+          ) : undefined
+        }
         onClick={handle("pending_release")}
       />
       <KpiCard
@@ -229,6 +253,15 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
         value={`${riskChapterCount} 章节 | ${riskStudentCount} 学生`}
         sub="点击查看详情"
         destructive={isRiskActive}
+        trailing={
+          showRiskTrailing ? (
+            <KpiTrailingVisual
+              kind="risk_signal"
+              chapters={kpis.riskChapterSamples}
+              students={kpis.riskStudentSamples}
+            />
+          ) : undefined
+        }
         onClick={handle("risk_signal")}
       />
     </div>

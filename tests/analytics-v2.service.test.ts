@@ -926,3 +926,136 @@ describe("getScoreBinStudents", () => {
     expect(students).toEqual([]);
   });
 });
+
+describe("phase 9 trailing samples", () => {
+  it("recentTasksTrend returns up to 10 instances ordered by publishedAt desc", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          id: "inst-old",
+          publishedAt: "2026-01-01T00:00:00Z",
+          submissions: [
+            submission({
+              id: "sub-old",
+              studentId: "s1",
+              status: "graded",
+              score: 6,
+              maxScore: 10,
+              submittedAt: "2026-01-02T00:00:00Z",
+            }),
+          ],
+        }),
+        instance({
+          id: "inst-new",
+          publishedAt: "2026-01-08T00:00:00Z",
+          submissions: [
+            submission({
+              id: "sub-new",
+              studentId: "s2",
+              status: "graded",
+              score: 8,
+              maxScore: 10,
+              submittedAt: "2026-01-09T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-13T00:00:00Z"),
+    });
+
+    expect(result.kpis.recentTasksTrend.length).toBeGreaterThan(0);
+    expect(result.kpis.recentTasksTrend[0].taskInstanceId).toBe("inst-new");
+    if (result.kpis.recentTasksTrend.length > 1) {
+      expect(result.kpis.recentTasksTrend[1].taskInstanceId).toBe("inst-old");
+    }
+  });
+
+  it("riskStudentSamples returns up to 3 unique students by reason severity", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({
+          submissions: [
+            submission({
+              id: "sub-1",
+              studentId: "s1",
+              status: "graded",
+              score: 2,
+              maxScore: 10,
+              submittedAt: "2026-01-01T00:00:00Z",
+            }),
+          ],
+        }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([
+      { id: "s1", name: "S1", classId: "class-A" },
+      { id: "s2", name: "S2", classId: "class-A" },
+      { id: "s3", name: "S3", classId: "class-A" },
+      { id: "s4", name: "S4", classId: "class-A" },
+    ]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-13T00:00:00Z"),
+    });
+
+    expect(result.kpis.riskStudentSamples.length).toBeLessThanOrEqual(3);
+    const ids = new Set(result.kpis.riskStudentSamples.map((s) => s.studentId));
+    expect(ids.size).toBe(result.kpis.riskStudentSamples.length);
+  });
+
+  it("pendingReleaseInstances returns top 3 by dueAt asc with id/title/dueAt", async () => {
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany)
+      .mockResolvedValueOnce([optionInstance])
+      .mockResolvedValueOnce([
+        instance({ submissions: [] }),
+      ]);
+    mk(prisma.user.findMany).mockResolvedValue([]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    mk(prisma.submission.count).mockResolvedValue(15);
+    mk(prisma.submission.findMany).mockResolvedValue([
+      {
+        taskInstanceId: "inst-c",
+        taskInstance: { id: "inst-c", title: "Task C", dueAt: new Date("2026-01-10T00:00:00Z") },
+      },
+      {
+        taskInstanceId: "inst-a",
+        taskInstance: { id: "inst-a", title: "Task A", dueAt: new Date("2026-01-05T00:00:00Z") },
+      },
+      {
+        taskInstanceId: "inst-b",
+        taskInstance: { id: "inst-b", title: "Task B", dueAt: new Date("2026-01-07T00:00:00Z") },
+      },
+      {
+        taskInstanceId: "inst-d",
+        taskInstance: { id: "inst-d", title: "Task D", dueAt: new Date("2026-01-12T00:00:00Z") },
+      },
+    ]);
+
+    const result = await getAnalyticsV2Diagnosis({
+      courseId: "course-1",
+      now: new Date("2026-01-15T00:00:00Z"),
+    });
+
+    expect(result.kpis.pendingReleaseTaskCount).toBe(4);
+    expect(result.kpis.pendingReleaseInstances.length).toBe(3);
+    expect(result.kpis.pendingReleaseInstances[0].id).toBe("inst-a");
+    expect(result.kpis.pendingReleaseInstances[1].id).toBe("inst-b");
+    expect(result.kpis.pendingReleaseInstances[2].id).toBe("inst-c");
+  });
+});

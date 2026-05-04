@@ -105,6 +105,10 @@ interface AnalyticsV2Diagnosis {
     weeklyHistory: Array<{ weekStart: string; completionRate: number | null; avgNormalizedScore: number | null }>;
     previousWeekCompletionRate: number | null;
     previousWeekAvgScore: number | null;
+    recentTasksTrend: Array<{ taskInstanceId: string; title: string; completionRate: number | null; avgNormalizedScore: number | null; publishedAt: string }>;
+    pendingReleaseInstances: Array<{ id: string; title: string; dueAt: string }>;
+    riskChapterSamples: Array<{ chapterId: string; title: string }>;
+    riskStudentSamples: Array<{ studentId: string; name: string; reason: "not_submitted" | "low_score" | "declining" }>;
   };
   chapterClassHeatmap: Array<unknown>;
   actionItems: Array<unknown>;

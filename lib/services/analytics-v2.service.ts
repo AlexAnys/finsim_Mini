@@ -60,6 +60,10 @@ export interface AnalyticsV2Diagnosis {
     weeklyHistory: WeeklyMetricPoint[];
     previousWeekCompletionRate: number | null;
     previousWeekAvgScore: number | null;
+    recentTasksTrend: RecentTaskTrendPoint[];
+    pendingReleaseInstances: PendingReleaseInstance[];
+    riskChapterSamples: RiskChapterSample[];
+    riskStudentSamples: RiskStudentSample[];
   };
   chapterClassHeatmap: ChapterClassHeatmapRow[];
   actionItems: ActionItem[];
@@ -79,6 +83,31 @@ export interface WeeklyMetricPoint {
   weekStart: string;
   completionRate: number | null;
   avgNormalizedScore: number | null;
+}
+
+export interface RecentTaskTrendPoint {
+  taskInstanceId: string;
+  title: string;
+  completionRate: number | null;
+  avgNormalizedScore: number | null;
+  publishedAt: string;
+}
+
+export interface PendingReleaseInstance {
+  id: string;
+  title: string;
+  dueAt: string;
+}
+
+export interface RiskChapterSample {
+  chapterId: string;
+  title: string;
+}
+
+export interface RiskStudentSample {
+  studentId: string;
+  name: string;
+  reason: "not_submitted" | "low_score" | "declining";
 }
 export interface ScoreDistribution {
   bins: ScoreDistributionBin[];
@@ -653,6 +682,10 @@ export async function getAnalyticsV2Diagnosis(
     weeklyHistory: [],
     previousWeekCompletionRate: null,
     previousWeekAvgScore: null,
+    recentTasksTrend: [],
+    pendingReleaseInstances: [],
+    riskChapterSamples: [],
+    riskStudentSamples: [],
   };
   const chapterClassHeatmap = buildChapterClassHeatmap(instanceMetrics);
   const actionItems = buildActionItems(instanceMetrics);
@@ -671,7 +704,7 @@ export async function getAnalyticsV2Diagnosis(
       },
     },
   });
-  const pendingReleaseInstances = await prisma.submission.findMany({
+  const pendingReleaseDistinct = await prisma.submission.findMany({
     where: {
       releasedAt: null,
       taskInstance: {
@@ -679,16 +712,28 @@ export async function getAnalyticsV2Diagnosis(
         dueAt: { lt: now },
       },
     },
-    select: { taskInstanceId: true },
+    select: {
+      taskInstanceId: true,
+      taskInstance: { select: { id: true, title: true, dueAt: true } },
+    },
     distinct: ["taskInstanceId"],
   });
-  const pendingReleaseTaskCount = pendingReleaseInstances.filter((row) => row.taskInstanceId !== null).length;
+  const pendingReleaseTaskCount = pendingReleaseDistinct.filter((row) => row.taskInstanceId !== null).length;
   kpis.pendingReleaseCount = pendingReleaseCount;
   kpis.pendingReleaseTaskCount = pendingReleaseTaskCount;
+  kpis.pendingReleaseInstances = pendingReleaseDistinct
+    .map((row) => row.taskInstance)
+    .filter((inst): inst is { id: string; title: string; dueAt: Date } => Boolean(inst))
+    .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+    .slice(0, 3)
+    .map((inst) => ({ id: inst.id, title: inst.title, dueAt: toIso(inst.dueAt) }));
   const weeklyMetrics = buildWeeklyHistory(instanceMetrics, now);
   kpis.weeklyHistory = weeklyMetrics.history;
   kpis.previousWeekCompletionRate = weeklyMetrics.previousWeekCompletionRate;
   kpis.previousWeekAvgScore = weeklyMetrics.previousWeekAvgScore;
+  kpis.recentTasksTrend = buildRecentTasksTrend(instanceMetrics);
+  kpis.riskChapterSamples = buildRiskChapterSamples(chapterDiagnostics);
+  kpis.riskStudentSamples = buildRiskStudentSamples(studentInterventions);
   const filterOptions = buildFilterOptions(course, optionInstances);
   const scoreDistribution = computeScoreDistribution(input, instanceMetrics, filterOptions.classes);
   const dataQualityFlags = buildDataQualityFlags(instanceMetrics, kpis);
@@ -2335,4 +2380,54 @@ export function getScoreBinStudents(
     }
   }
   return students;
+}
+
+function buildRecentTasksTrend(metrics: InstanceMetrics[]): RecentTaskTrendPoint[] {
+  return [...metrics]
+    .filter((m) => m.instance.publishedAt)
+    .sort((a, b) => {
+      const ta = a.instance.publishedAt ? new Date(a.instance.publishedAt).getTime() : 0;
+      const tb = b.instance.publishedAt ? new Date(b.instance.publishedAt).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, 10)
+    .map((m) => ({
+      taskInstanceId: m.instance.id,
+      title: m.instance.title,
+      completionRate: m.completionRate,
+      avgNormalizedScore: m.avgNormalizedScore,
+      publishedAt: toIso(m.instance.publishedAt as Date | string),
+    }));
+}
+
+function buildRiskChapterSamples(diagnostics: ChapterDiagnostic[]): RiskChapterSample[] {
+  return diagnostics
+    .filter(isRiskChapter)
+    .filter((c): c is ChapterDiagnostic & { chapterId: string } => c.chapterId !== null)
+    .slice(0, 3)
+    .map((c) => ({ chapterId: c.chapterId, title: c.title }));
+}
+
+function buildRiskStudentSamples(interventions: StudentIntervention[]): RiskStudentSample[] {
+  const seen = new Set<string>();
+  const result: RiskStudentSample[] = [];
+  const reasonOrder: Record<string, number> = {
+    not_submitted: 0,
+    low_score: 1,
+    declining: 2,
+  };
+  const sorted = [...interventions].sort(
+    (a, b) => reasonOrder[a.reason] - reasonOrder[b.reason],
+  );
+  for (const row of sorted) {
+    if (seen.has(row.studentId)) continue;
+    seen.add(row.studentId);
+    result.push({
+      studentId: row.studentId,
+      name: row.studentName,
+      reason: row.reason,
+    });
+    if (result.length >= 3) break;
+  }
+  return result;
 }

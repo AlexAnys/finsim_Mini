@@ -1,434 +1,324 @@
-# Spec — 数据洞察 Phase 8：布局重构 + 字体紧凑 + 模块内 polish
+# Spec — 数据洞察 Phase 9：KPI trailing visual + 小视口适配
 
-> Phase 1-7 已 commit (`0f823d0` ... `ced2802`)，PR #1 已 push 12 commits。本 spec 仅负责 Phase 8。
+> Phase 1-8 已 commit (`0f823d0` ... `384c6e4`)，PR #1 push 13 commits。本 spec 仅负责 Phase 9。
 
 ## Unit 标识
-- `insights-phase8`，build/qa 报告 r1, r2...
+- `insights-phase9`，build/qa 报告 r1, r2...
 - Dynamic exit：2 PASS 收工 / 同 fail 3 轮回 spec / 不跑保险轮
 
 ## 用户原话（最新反馈）
 
-> "目前这个布局不太好, 虽然必要时 每个模块上下滑动,但不代表 默认的情况下很难显示完整. 需要进一步高效利用空间"
+> "1280/1024 是否能吧现在对布局和字体稍做适配,比如变小一些?"
 
-> "学生成绩分布 5段区间 这颗悬着移动到第一行, 查看学生成绩详情放在底部不占用空间. 这个柱状图尽量在默认视图可以显示完整 而不需要上下滑动 每个区间的人数直接显示"
+> "另外对于第一行 完成率 归一均分 成绩带发布,风险信号右边空白处 是否方便在不调整现有数据大小和格局的前提下,可以在空白处浮动一个折线图? 代表一些过往信息? 比如完成率和归一均分放上过去10个任务的情况. 成绩带发布显示三个过了DDL但还没发布的任务,风险信号也显示相应的? 不确定是否方便,我们可以试下"
 
-> "任务表现这里 全部simulation任务 也放在第一行 ... 合并使用Study buddy这个位置, 低分和高分可以同时分两列显示"
+## 当前 Baseline（phase 8 收官状态）
 
-> "study buddy 移动到学生成绩分布下面, 第二行, 相当于 学生成绩分布和study buddy占比不超过1/3, 任务表现和AI 教学建议占比不低于2/3"
+- 分支 `claude/elastic-davinci-a0ee14`，**13 commits ahead**，已 push origin
+- KPI 4 卡布局：vertical (icon + 标签 / 主值 / sub / delta)，**右侧空白**（需求点）
+- KPI 卡现已有 phase 7 `Sparkline`（weeklyHistory 12 周），但视觉弱
+- Phase 8 r2 1440x900 完美 + 1280/1024 chart cardContent 7.5px / 12.3px 仍紧凑（QA Minor 1）
 
-> "AI教学建议布局需要优化, 缓存时间 和下面实际4模块内容中间不应该有空"
+## Phase 9 范围
 
-> "可以调整各模块字体大小,让整体显示更有效率"
+### ✅ 必须做的 5 件事
 
-## 当前 Baseline（phase 7 收官状态）
-- 分支 `claude/elastic-davinci-a0ee14`，**12 commits ahead**，已 push origin
-- 主体布局：3 列横向（学生成绩分布 / 任务表现 / Study Buddy）每列等宽
-- 字体：`text-2xl`（KPI 主值）/ `text-base`（卡标题）/ `text-sm`（描述+正文）/ `p-4` padding
-- AI 建议：底部全宽 4 列，CardHeader 与 CardContent 之间有 gap
-- 数据质量：底部 collapsible
+#### 1. KPI 卡 trailing visual（4 卡各自不同）— 用户最关键反馈
 
-## Phase 8 范围
-
-### ✅ 必须做的 7 件事
-
-#### 1. 主体布局：3 列横向 → **左 1/3 上下分 + 右 2/3 跨两行**
-
-[components/analytics-v2/analytics-v2-dashboard.tsx](components/analytics-v2/analytics-v2-dashboard.tsx) 主体 grid 重构：
+**KPI 卡 layout 改 horizontal**（左主数据 + 右 trailing visual）：
 
 ```tsx
-<div className="flex-1 grid grid-cols-3 grid-rows-2 gap-3 overflow-hidden min-h-0">
-  {/* 左上 1/3 */}
-  <ScoreDistributionPanel className="col-start-1 row-start-1 overflow-hidden flex flex-col" />
-  
-  {/* 左下 1/3 */}
-  <StudyBuddyPanel className="col-start-1 row-start-2 overflow-hidden flex flex-col" />
-  
-  {/* 右侧 2/3 跨两行 */}
-  <TaskPerformancePanel className="col-start-2 col-end-4 row-start-1 row-end-3 overflow-hidden flex flex-col" />
-</div>
-```
-
-实现要点：
-- 左侧 1 列宽 = 1/3，右侧 2 列宽 = 2/3
-- 左侧上下 2 行各占 1/2 高（学生成绩分布 + Study Buddy）
-- 右侧任务表现单独占据 2 行高度（信息密度匹配 user 反馈）
-- 每个 panel `flex flex-col` 让内部 CardHeader / CardContent / CardFooter 正确分配高度
-- 所有 panel `overflow-hidden`，CardContent 内部 `overflow-y-auto`
-
-**< lg 视口（< 1024px）回退**：3 panels 单列 stack（仍允许页面滚动 mobile fallback）。
-
-#### 2. 学生成绩分布 polish
-
-改造 [components/analytics-v2/score-distribution-chart.tsx](components/analytics-v2/score-distribution-chart.tsx)：
-
-**Header 同行紧凑**：
-```tsx
-<CardHeader className="pb-2 flex-row items-center justify-between gap-2 space-y-0">
-  <CardTitle className="text-sm font-medium">学生成绩分布</CardTitle>
-  <div className="flex items-center gap-1.5">
-    <Select size="sm">5 段区间</Select>           {/* 移到 header */}
-    <ToggleGroup size="sm">单 / 多班级</ToggleGroup>
-  </div>
-</CardHeader>
-```
-
-**柱状图区间数字直接显示**（user 明确要求）：
-```tsx
-<Bar dataKey="count" radius={[4,4,0,0]} fill={...}>
-  <LabelList dataKey="count" position="top" className="text-xs fill-foreground" />
-</Bar>
-```
-- 柱顶显示**人数 count**（不是 percent，user 原话「每个区间的人数直接显示」）
-- 多班级对比时每个柱子分别显示 count
-- 即使值为 0 也显示 `0` 标签（让 0 区间也明确）
-
-**Footer 链接放底部**：
-```tsx
-<CardFooter className="pt-2 border-t">
-  <Link className="text-xs text-muted-foreground hover:text-foreground">
-    查看学生成绩详情 →
-  </Link>
-</CardFooter>
-```
-
-**默认视图柱状图完整显示**（不需要滑动）：
-- 容器高度 ~280-340px (受 grid 1/2 高约束)
-- 柱状图 `<ResponsiveContainer width="100%" height="100%">` 自适应
-- X 轴标签 `text-xs` 字体收紧
-- Y 轴**省略**（柱顶 LabelList 已显数值）或保留但 ticks 减少
-
-#### 3. 任务表现 polish — **2 列并排（高分 + 低分）**
-
-改造 [components/analytics-v2/task-performance-block.tsx](components/analytics-v2/task-performance-block.tsx)：
-
-**Header 同行（任务 dropdown + 重新生成）**：
-```tsx
-<CardHeader className="pb-2 flex-row items-center justify-between gap-2 space-y-0">
-  <div className="flex items-center gap-1.5">
-    <Sparkles className="size-3.5 text-brand" />
-    <CardTitle className="text-sm font-medium">任务表现 (Simulation)</CardTitle>
-  </div>
-  <div className="flex items-center gap-1.5">
-    <Select size="sm" className="w-48">全部 simulation 任务</Select>
-    <Button size="sm" variant="ghost"><RefreshCw className="size-3.5" /> 重新生成</Button>
-  </div>
-</CardHeader>
-```
-
-**Content 改 grid-cols-2**（高分 + 低分并排）：
-```tsx
-<CardContent className="flex-1 pt-0 overflow-hidden">
-  <div className="grid grid-cols-2 gap-3 h-full">
-    {/* 左：高分典型表现 */}
-    <div className="bg-success/5 border-l-2 border-success rounded-r p-2.5 overflow-y-auto">
-      <h4 className="text-xs font-medium text-success-deep mb-2 flex items-center gap-1">
-        <CircleCheck className="size-3" /> 高分典型表现
-      </h4>
-      <div className="space-y-2">
-        {highlights.slice(0, 4).map(h => (
-          <button onClick={() => openEvidence(h)} className="block w-full text-left text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium">{h.studentName}</span>
-              <Badge variant="outline" className="text-[10px] h-4 px-1">{h.normalizedScore}分</Badge>
-            </div>
-            <p className="text-muted-foreground line-clamp-2 mt-0.5">"{h.transcriptExcerpt}"</p>
-          </button>
-        ))}
-      </div>
+<Card className="rounded-lg p-3 flex-row items-center gap-3 min-h-[88px]">
+  {/* 左：现有数据 (不动数据/格局) */}
+  <div className="flex-1 min-w-0">
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Icon className="size-3.5" />
+      <span>完成率</span>
+      {warning && <Badge>需核对</Badge>}
     </div>
-    
-    {/* 右：低分共性问题 */}
-    <div className="bg-destructive/5 border-l-2 border-destructive rounded-r p-2.5 overflow-y-auto">
-      <h4 className="text-xs font-medium text-destructive mb-2 flex items-center gap-1">
-        <CircleAlert className="size-3" /> 低分共性问题
-      </h4>
-      <div className="space-y-2">
-        {issues.slice(0, 4).map(i => (
-          <button onClick={() => openEvidence(i)} className="block w-full text-left text-xs">
-            <div className="flex items-start gap-1.5">
-              <Badge variant="destructive" className="text-[10px] h-4 px-1 shrink-0">×{i.frequency}</Badge>
-              <span className="font-medium">{i.title}</span>
-            </div>
-            <p className="text-muted-foreground line-clamp-2 mt-0.5">{i.description}</p>
-          </button>
-        ))}
-      </div>
+    <div className="text-xl font-semibold mt-0.5 tabular-nums">{value}</div>
+    <div className="text-xs text-muted-foreground mt-0.5">
+      {sub} · {weekDelta}
     </div>
   </div>
-</CardContent>
-```
-
-**Footer 链接**：
-```tsx
-<CardFooter className="pt-2 border-t">
-  <Link className="text-xs text-muted-foreground hover:text-foreground">查看任务详情 →</Link>
-</CardFooter>
-```
-
-#### 4. Study Buddy 紧凑化（移到左下）
-
-改造 [components/analytics-v2/study-buddy-block.tsx](components/analytics-v2/study-buddy-block.tsx)：
-- 保持 Table 形式
-- 紧凑字体（text-xs）+ 减少 row 高度
-- 因为左侧 1/3 宽度 + 1/2 高度（约 280-340px），top-3 或 top-4 即可（不强求 5）
-- Header `pb-2` 紧凑
-
-```tsx
-<CardHeader className="pb-2">
-  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-    <MessageCircleQuestionMark className="size-3.5 text-brand" />
-    Study Buddy 共性问题
-  </CardTitle>
-</CardHeader>
-<CardContent className="flex-1 pt-0 overflow-y-auto">
-  <Table>
-    <TableHeader>
-      <TableRow className="text-xs">
-        <TableHead className="h-7 text-xs">章节/节</TableHead>
-        <TableHead className="h-7 text-xs">典型问题</TableHead>
-        <TableHead className="h-7 text-xs text-right w-12">次数</TableHead>
-      </TableRow>
-    </TableHeader>
-    <TableBody>
-      {questions.slice(0, 5).map(q => (
-        <TableRow className="text-xs cursor-pointer" onClick={() => openDrawer(q)}>
-          <TableCell className="py-1.5 text-muted-foreground">{q.sectionLabel}</TableCell>
-          <TableCell className="py-1.5">{q.text}</TableCell>
-          <TableCell className="py-1.5 text-right tabular-nums">{q.count}</TableCell>
-        </TableRow>
-      ))}
-    </TableBody>
-  </Table>
-</CardContent>
-<CardFooter className="pt-2 border-t">
-  <Link className="text-xs text-muted-foreground hover:text-foreground">查看全部对话 →</Link>
-</CardFooter>
-```
-
-#### 5. AI 教学建议 polish — 消除 header/content 之间 gap
-
-改造 [components/analytics-v2/teaching-advice-block.tsx](components/analytics-v2/teaching-advice-block.tsx)：
-
-**问题**：当前 phase 7 实装中 CardHeader 和 CardContent 之间有视觉 gap（user 反馈"缓存时间和下面实际 4 模块内容中间不应该有空"）
-
-**修复**：
-```tsx
-<Card className="rounded-lg">
-  <CardHeader className="pb-2 flex-row items-center justify-between gap-2 space-y-0">
-    <div>
-      <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-        <Sparkles className="size-3.5 text-brand" />
-        AI 教学建议
-      </CardTitle>
-      <CardDescription className="text-xs mt-0.5">
-        缓存 · {generatedAt} · {sourceLabel}
-      </CardDescription>
-    </div>
-    <Button size="sm" variant="ghost"><RefreshCw className="size-3.5" /> 重新生成</Button>
-  </CardHeader>
-  <CardContent className="pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-    {/* 4 列 */}
-    <AdviceColumn title="知识目标" icon={Lightbulb} className="text-brand" items={knowledgeGoals} />
-    <AdviceColumn title="教学方式" icon={BookOpen} className="text-success" items={pedagogyAdvice} />
-    <AdviceColumn title="关注群体" icon={Users} className="text-brand-violet" items={focusGroups} />
-    <AdviceColumn title="接下来怎么教" icon={ArrowRight} className="text-ochre" items={nextSteps} />
-  </CardContent>
+  {/* 右：trailing visual (~80-96px 宽) */}
+  <div className="w-24 shrink-0">
+    <KpiTrailingVisual kind={kind} data={trailingData} />
+  </div>
 </Card>
 ```
 
-关键：
-- `<CardHeader pb-2>` + `<CardContent pt-0>` 让两者紧贴（消除 default `pb-3 + pt-3 = 6` gap）
-- 4 列布局保留（不合并 nextSteps）
-- 每列内部 overflow-y-auto 约束高度
+#### 2. 各 KPI 卡 trailing visual 内容
 
-#### 6. KPI 4 卡字体紧凑
+##### a. 完成率卡 — 过去 10 个任务的折线图
+```tsx
+<TrailingLineChart 
+  data={recentTasksTrend.map(t => ({ x: t.publishedAt, y: t.completionRate }))}
+  metric="rate"
+  height={48}
+/>
+```
+- recharts LineChart, dynamic ssr:false
+- stroke `var(--color-brand)`
+- dot 仅最后一个（`<Dot r={2}>`）
+- tooltip 显示 任务名 + 该任务完成率
+- 数据稀疏（< 2 任务）时显示「暂无趋势」灰色 placeholder
 
-[components/analytics-v2/kpi-row.tsx](components/analytics-v2/kpi-row.tsx)：
-- KPI 主值：`text-2xl` → `text-xl`（仍醒目）
-- KPI 标签：`text-sm` → `text-xs`
-- KPI 副标 (sub)：`text-xs` 保持
-- delta 文案：`text-xs` 保持
-- Card padding：`p-4` → `p-3`
-- Sparkline 高度：保持 28px（已紧凑）
+##### b. 归一化均分卡 — 过去 10 个任务的折线图
+- 同 a，但 metric="percent"，data y = avgNormalizedScore
 
-整体高度从 ~140px → ~115-125px（节省 ~20px 给主体）。
+##### c. 成绩待发布卡 — 3 个待发布任务 mini list
+```tsx
+<TrailingMiniList items={pendingReleaseInstances.slice(0, 3)} renderItem={(t) => (
+  <div className="text-[10px] leading-tight truncate">
+    <span className="font-medium">{t.title}</span>
+    <span className="text-muted-foreground"> DDL过{daysSince(t.dueAt)}天</span>
+  </div>
+)} />
+```
+- 每行 12-14px 高（text-[10px] / 11px）
+- 0 项时不显示 trailing
+- click trailing 展开列表 → drawer kind=`pending_release`（已 phase 5 实装）
 
-#### 7. Header 和数据质量字体微调
+##### d. 风险信号卡 — top-2 章节 + top-2 学生 mini list
+```tsx
+<div className="text-[10px] space-y-0.5">
+  {riskChapterSamples.slice(0, 2).map(c => <div className="truncate">📖 {c.title}</div>)}
+  {riskStudentSamples.slice(0, 2).map(s => <div className="truncate">👤 {s.name}</div>)}
+  {(riskChapterSamples.length + riskStudentSamples.length > 4) && (
+    <div className="text-muted-foreground">+ 更多</div>
+  )}
+</div>
+```
+- 0 项时不显示 trailing（卡内整 row 只显示主数据，左侧扩展）
 
-[components/analytics-v2/insights-filter-bar.tsx](components/analytics-v2/insights-filter-bar.tsx)：
-- H1：保持 `text-xl font-semibold`（页面级标题）
-- sub：保持 `text-xs text-muted-foreground`
-- Filter dropdown：`size="sm"` 保持（已紧凑）
+#### 3. Service 扩展（**仅 sample 抽取，不破坏现有数据契约**）
 
-[components/analytics-v2/analytics-v2-dashboard.tsx](components/analytics-v2/analytics-v2-dashboard.tsx) DataQualityCollapsible：
-- trigger：`text-xs` 保持
-- 展开内容：`text-xs` 保持
+[lib/services/analytics-v2.service.ts](lib/services/analytics-v2.service.ts) 给 `kpis` 加 4 字段：
+
+```ts
+kpis: {
+  // 现有字段全保留
+  recentTasksTrend: Array<{
+    taskInstanceId: string;
+    title: string;
+    completionRate: number | null;     // 0..1
+    avgNormalizedScore: number | null; // 0..100
+    publishedAt: string;
+  }>;                                  // 最近 10 个 instances by publishedAt desc
+
+  pendingReleaseInstances: Array<{
+    id: string;
+    title: string;
+    dueAt: string;
+  }>;                                  // top-3 by dueAt asc (最早过 DDL 的优先)
+
+  riskChapterSamples: Array<{
+    chapterId: string;
+    title: string;
+  }>;                                  // top-3 风险章节 (复用 isRiskChapter helper)
+
+  riskStudentSamples: Array<{
+    studentId: string;
+    name: string;
+    reason: "not_submitted" | "low_score" | "declining";
+  }>;                                  // top-3 风险学生 (复用 studentInterventions)
+}
+```
+
+实现：
+- `recentTasksTrend`：从 `instanceMetrics` 排序 + 取前 10
+- `pendingReleaseInstances`：复用 phase 4 pendingReleaseTaskCount 同 query 但返回 instances 详情（top-3 by dueAt asc）
+- `riskChapterSamples / riskStudentSamples`：从 chapterDiagnostics + studentInterventions 抽 top-3
+
+#### 4. 1280/1024 视口字体 + AI max-h responsive
+
+##### KPI 卡 responsive
+- 主值字体：`text-xl`（lg+）→ `text-lg`（md, 1024 视口）
+- trailing visual 宽度：`w-24`（lg+）→ `w-20`（md）
+- min-height：保持 `min-h-[88px]`（避免上下不齐）
+
+##### AI 教学建议 max-h responsive
+当前 `max-h: 140px` 全视口固定 → 改 responsive：
+- 1440+: `max-h-[160px]`（保持现 phase 8）
+- 1280: `lg:max-h-[120px]`（节省 20px 给主体 grid）
+- 1024: `md:max-h-[100px]`（节省更多）
+
+**预估效果**：1280 chart cardContent 7.5 → ~25-30px；1024 chart cardContent 12.3 → ~50px。
+
+##### 主体 grid-rows 比例 responsive
+当前 `grid-rows-[3fr_2fr]` 固定 → 小视口可加 `lg:grid-rows-[2fr_3fr]` 让 score row 更多分（视情况测试）
+
+#### 5. KPI 卡 responsive 4 → 2 列 fallback
+
+当前 KPI 卡 `lg:grid-cols-4`，加 horizontal layout 后单卡更宽，需要：
+- 1440+: `lg:grid-cols-4` 保持
+- 1280: 如果 4 卡挤压可降级 `md:grid-cols-2`（但优先保 4 卡，仅当 chart 显示不全时降级）
+- 1024: `md:grid-cols-2` 或 `lg:grid-cols-4` 但 trailing visual 宽度缩
+
+实施时先尝试**全视口 4 卡 + trailing visual 宽度 responsive**，如挤压再降级。
 
 ### ❌ 必须不做的 6 件事
 
-1. ❌ 不动 Prisma schema / service / API（**纯前端 layout + 字体**）
-2. ❌ 不实装 quiz/subjective 任务表现（user 提到的 future work）
-3. ❌ 不实装知识点统计（user 提到的 future work）
-4. ❌ 不引入新 npm 依赖
-5. ❌ 不动 [/teacher/instances/[id]/insights](app/teacher/instances/[id]/insights/page.tsx) / teacher dashboard
-6. ❌ 不动 entity vs filter classIds 边界 / defaultClassIdsAppliedRef + courseId guard
+1. ❌ 不动现有 KPI 数据格局（主值 / sub / delta 全保留，仅扩展 trailing visual）
+2. ❌ 不动 Prisma schema
+3. ❌ 不引入新 npm 依赖
+4. ❌ 不动单实例 [/teacher/instances/[id]/insights](app/teacher/instances/[id]/insights/page.tsx) / teacher dashboard
+5. ❌ 不动 entity vs filter classIds 边界 / defaultClassIdsAppliedRef + courseId guard / localStorage
+6. ❌ 不动 Filter 紧凑布局 / 主体 3 列布局 / AI 4 列保留 / 数据质量底部
 
 ## Acceptance Criteria
 
 ### A. 类型与构建
 1. `npx tsc --noEmit` 0 errors
 2. `npm run lint` 通过
-3. `npx vitest run` 819+ cases（phase 7 baseline 819 不少，本 phase 不加测）
+3. `npx vitest run` ≥ 819 cases（service 加字段不破坏现有 mock）
 4. `npm run build` 成功
-5. **不引入新 npm 依赖**（package.json 0 改动）
+5. 不引入新 npm 依赖（package.json 0 改动）
 
-### B. 主体布局重构（用户最关键反馈）
-6. 主体 grid 2 行 3 列（`grid-cols-3 grid-rows-2`），任务表现 `col-start-2 col-end-4 row-start-1 row-end-3` 跨 2 行 2 列
-7. 学生成绩分布在左上 1/3（`col-start-1 row-start-1`）
-8. Study Buddy 在左下 1/3（`col-start-1 row-start-2`）
-9. 任务表现占据右 2/3 + 跨两行高
-10. 左侧（学生成绩分布 + Study Buddy）总宽 = 1/3
-11. 右侧（任务表现）宽 = 2/3
-12. < lg 视口自动 stack 单列 fallback
+### B. KPI 卡 horizontal layout
+6. 4 KPI 卡内布局改为 `flex-row items-center` （左主数据 / 右 trailing visual）
+7. 主数据保留：icon + 标签 + 主值 + sub + delta（数据格局不变）
+8. trailing visual 宽度 ~80-96px，与主数据 `gap-3`
+9. 所有卡 `min-h-[88px]` 视觉对齐
 
-### C. 学生成绩分布 polish
-13. 「5 段区间」selector 移到 CardHeader 同行右侧
-14. 「单/多班级 ToggleGroup」也在 CardHeader 同行（之前 phase 7 已是）
-15. **柱顶直接显示 count 数值**（用 `<LabelList dataKey="count" position="top">`）
-16. 「查看学生成绩详情 →」link 移到 CardFooter（不占主体空间）
-17. 默认视图（无 scroll）柱状图完整显示（QA 1440x900 截图证）
+### C. 完成率 + 归一化均分卡 trailing line chart
+10. 完成率卡 trailing：过去 10 个任务的 line chart（dynamic import recharts）
+11. 归一化均分卡 trailing：同
+12. line stroke `var(--color-brand)`
+13. height ≈ 48px
+14. tooltip 显示任务名 + metric 值
+15. 数据稀疏（< 2 任务）时显示「暂无趋势」灰色 placeholder
+16. dot 仅最后一个数据点显示
 
-### D. 任务表现 2 列并排
-18. CardHeader 同行：标题 + 任务 dropdown + 重新生成按钮
-19. CardContent 内部 `grid-cols-2`：左高分典型 + 右低分共性问题
-20. 高分典型 section bg-success/5 + border-l-2 border-success
-21. 低分共性问题 section bg-destructive/5 + border-l-2 border-destructive
-22. 每例显示：学生名 + 分数 badge + 原话片段（line-clamp-2）/ 问题 title + ×N badge + description
-23. row click → evidence-drawer
-24. 「查看任务详情 →」link 移到 CardFooter
+### D. 成绩待发布卡 trailing list
+17. trailing 显示 top-3 待发布任务（任务名 + DDL 过几天）
+18. text-[10px] 紧凑字体
+19. 0 项时 trailing 不显示（左主数据扩展）
+20. click trailing 任意位置 → 卡 onClick → drawer kind=`pending_release`（已实装）
 
-### E. Study Buddy 紧凑（左下）
-25. 移到左下位置（grid col-start-1 row-start-2）
-26. Table 形式保留（章节/节 | 典型问题 | 提问次数）
-27. 字体 `text-xs`，行高 `py-1.5`
-28. top-5 显示（如果空间不足 top-3，建议优先 top-5）
-29. 「查看全部对话 →」link 在 CardFooter
+### E. 风险信号卡 trailing samples
+21. trailing 显示 top-2 风险章节 + top-2 风险学生（icon + 名称）
+22. text-[10px] 紧凑字体
+23. > 4 项时显示「+ 更多」
+24. 0 项时 trailing 不显示
 
-### F. AI 教学建议 gap 修复
-30. CardHeader `pb-2` + CardContent `pt-0`，两者紧贴无 gap
-31. 4 类全保留（知识目标 / 教学方式 / 关注群体 / 接下来怎么教）
-32. 4 列横向布局（lg:grid-cols-4）
-33. 每条主文 + 「展开依据」collapsible 仍工作
+### F. Service 扩展
+25. `kpis.recentTasksTrend` 返回 ≤ 10 条 instances（按 publishedAt desc）
+26. `kpis.pendingReleaseInstances` 返回 ≤ 3 条（按 dueAt asc）
+27. `kpis.riskChapterSamples` 返回 ≤ 3 条（用 isRiskChapter helper）
+28. `kpis.riskStudentSamples` 返回 ≤ 3 条（从 studentInterventions 抽）
+29. SQL 直查 与 service 返回数据一致
 
-### G. 字体紧凑
-34. KPI 主值 `text-xl`（从 text-2xl 缩）
-35. CardTitle `text-sm`（从 text-base 缩）
-36. CardDescription `text-xs`
-37. 内容文本 `text-xs`（除 transcript 等阅读重点保持 text-sm）
-38. Card padding `p-3` 或 `p-2.5`（从 p-4 缩）
+### G. 1280/1024 视口适配
+30. 1440x900：现有视觉保持（chart cardContent ≥ 100px，phase 8 r2 baseline）
+31. 1280x720：chart cardContent ≥ 25px（从 phase 8 的 7.5 改善 3x+）
+32. 1024x768：chart cardContent ≥ 40px（从 phase 8 的 12.3 改善 3x+）
+33. AI max-h responsive：1440+ 160px / 1280 120px / 1024 100px
+34. KPI 主值字体 responsive：lg+ text-xl / md text-lg
+35. 三视口仍 0 overflow（继承 phase 7/8 硬约束）
 
-### H. 单屏 UX（继承 phase 7 硬约束）
-39. **1440x900** 整页可见无页面滚动（QA 截图证）
-40. **1280x720** 同
-41. **1024x768** 同
-42. 模块超出用 module-level overflow-y-auto
+### H. 数据正确性
+36. recentTasksTrend 数据 = instanceMetrics 按 publishedAt desc 取 10
+37. pendingReleaseInstances = phase 4 pendingReleaseTaskCount 关联 instances top-3 by dueAt asc
+38. riskChapterSamples = chapterDiagnostics filter(isRiskChapter) top-3
+39. riskStudentSamples = studentInterventions unique studentId top-3
 
-### I. Phase 1-7 anti-regression
-43. KPI 4 卡数字与 phase 7 一致（完成率 / 归一化均分 / 待发布 / 风险信号合并 + Sparkline + delta + onClick drawer）
-44. 区块 A bar fill `var(--color-{classId})` CSS 变量（grep `#8884d8` 0 命中）
-45. ToggleGroup 单/多班级仍工作
-46. 任务级 dropdown 仍工作
-47. defaultClassIdsAppliedRef + courseId guard 完整保留
+### I. Phase 1-8 anti-regression
+40. KPI 主数据数字与 phase 8 一致（完成率 / 归一化均分 / 待发布 / 风险信号 主值）
+41. KPI 卡 onClick → drawer 5 kinds 全工作
+42. Filter 紧凑（H1 + 班级 + 章节 + 详细筛选 popover）保留
+43. 主体 grid 2 行 3 列 + 任务表现跨右 2/3 保留
+44. 学生分布柱顶 LabelList(count) 保留
+45. AI 4 列 4 类保留
+46. 数据质量底部 collapsible 保留
+47. defaultClassIdsAppliedRef + courseId guard 完整
 48. entity vs filter classIds 边界
-49. localStorage 最近课程仍工作
+49. localStorage 最近课程
 50. 老 URL `?classId=A` / `?tab=overview` 兼容
 51. 老 `/teacher/analytics` 仍 302 redirect
-52. 单实例 [/teacher/instances/[id]/insights](app/teacher/instances/[id]/insights/page.tsx) 视觉/功能 0 改动
-53. teacher dashboard 不受影响
-54. LLM 24h scopeHash 缓存 + 失败兜底 4 类
-55. evidence-drawer 三类 + score_bin 全工作
-56. Filter 紧凑布局 phase 7 保留（H1 + 班级 + 章节 + 详细筛选 popover）
-57. 数据质量底部 collapsible 默认折叠
+52. 单实例 / teacher dashboard 隔离
+53. recharts CSS 变量配色（grep `#8884d8` 0 命中）
+54. LLM 24h 缓存 + 失败兜底
 
 ## Risks
 
 | 风险 | 防御 |
 |---|---|
-| 任务表现跨 2 行高度过大导致内容稀疏 | grid-cols-2 高分+低分并排已填充宽度；如视觉空虚加数量上限 5 例 |
-| 学生成绩分布 1/2 高度不够柱状图完整显示 | ResponsiveContainer 自适应 + Y 轴减少 ticks + 柱顶 LabelList |
-| Study Buddy 1/3 宽度 Table 列太挤 | 章节列 truncate w-32 + 问题列 line-clamp-1 + 次数列 w-12 |
-| LabelList 在 0 值柱子上挤压视觉 | LabelList 只在 count > 0 时显示（条件渲染）或显示 `0` 但小字 |
-| 字体过小影响阅读 | text-xs 是最小阈值，不再缩；保留 transcript / evidence 内容 text-sm |
-| AI 4 列 pt-0 后视觉过紧 | 用 `pb-2 + pt-0 + gap-3` 平衡，gap 给列间间距 |
-| col-span 跨行布局在 < lg 视口 break | < lg 用 flex-col stack（`<lg:flex-col`）|
+| KPI 卡 horizontal layout 让卡过宽，1024 视口 4 卡挤压 | trailing visual width responsive (md w-20 / lg w-24) + 必要时 fallback md:grid-cols-2 |
+| recentTasksTrend 数据稀疏（仅 1-2 任务）→ chart 看起来错 | < 2 任务显示「暂无趋势」placeholder |
+| trailing list text-[10px] 太小不可读 | text-[11px] 备选；hover/focus 时显示完整 tooltip |
+| AI max-h 缩到 100px 在 1024 让内容看不全 | 每列内 overflow-y-auto 仍工作（可滑动看全部）|
+| 主体 grid-rows 比例 responsive 影响 1440 视觉 | 谨慎仅小视口改，1440+ 保持 phase 8 baseline |
+| service 加 instance level data 慢 | 复用 instanceMetrics 已有数据，0 二次 DB 查询 |
 
 ## QA 验证
 
 ### 必做
 1. tsc / lint / vitest（≥ 819）/ build
 2. 真浏览器 via gstack `/qa-only`：
-   - 1440x900 / 1280x720 / 1024x768 三视口整页可见
-   - 主体布局：左上学生成绩分布 + 左下 Study Buddy + 右侧任务表现跨两行
-   - 学生成绩分布：5 段区间在 header + 柱顶 count + footer 链接
-   - 任务表现：2 列并排高分+低分 + 任务 dropdown 在 header + footer 链接
-   - AI 教学建议：header 与 4 列内容紧贴无 gap
-   - 字体紧凑（KPI text-xl / CardTitle text-sm / 内容 text-xs）
-   - 截图 ≥ 8 张 `/tmp/qa-insights-phase8-*.png`：1440 整页 / 1280 整页 / 1024 整页 / 学生分布柱顶 count / 任务表现 2 列 / AI gap 修复 / Study Buddy 紧凑 / 字体对比
-3. **数据正确性**：phase 7 KPI 数字保持
-4. Anti-regression：所有 phase 1-7 功能保留
+   - 1440x900 / 1280x720 / 1024x768 三视口整页可见 0 overflow
+   - KPI 4 卡 horizontal layout + trailing visual：
+     - 完成率 + 归一化均分 mini line chart 渲染（dot + stroke）
+     - 待发布 trailing 显示任务列表（如 0 项则无 trailing）
+     - 风险信号 trailing 显示章节 + 学生 list
+   - 1280/1024 chart cardContent 高度比 phase 8 改善 3x+
+   - AI max-h responsive
+   - KPI 卡 onClick → drawer 5 kinds 全工作
+   - 截图 ≥ 10 张 `/tmp/qa-insights-phase9-*.png`：
+     - 1440 整页 / 1280 整页 / 1024 整页
+     - KPI 4 卡 trailing 特写 × 2（完成率 line chart / 待发布 list）
+     - 风险信号 trailing
+     - chart cardContent 1280 / 1024 高度对比 phase 8
+3. **数据正确性**：API 直查 recentTasksTrend / pendingReleaseInstances / riskChapterSamples / riskStudentSamples 与 SQL 手算一致
 
 ### 跳过
-- ❌ Prisma 三步（无 schema 改动）
-- ❌ Service 单测扩展（不动 service）
+- ❌ Prisma 三步（无 schema）
 - ❌ Bundle size（不引入新 deps）
 
 ## 提交策略
 
-Phase 8 atomic commit 1 个（layout polish 不需要拆分）：
+Phase 9 atomic commit：
 
 ```
-feat(insights): phase 8 — layout density + module reflow + font compaction
+feat(insights): phase 9 — KPI trailing visuals + small viewport responsive
 
-- Main grid 3 列横向 → 2 行 3 列 (col-3 grid-rows-2):
-  - 学生成绩分布: col-1 row-1 (左上 1/3)
-  - Study Buddy: col-1 row-2 (左下 1/3)
-  - 任务表现: col-2 row-1/3 (右 2/3 跨两行高)
-- 学生成绩分布: 5 段 + ToggleGroup 移 CardHeader; 柱顶 LabelList(count)
-  显示人数; 「查看学生成绩详情 →」移 CardFooter
-- 任务表现: 任务 dropdown + 重新生成 移 CardHeader; CardContent grid-cols-2
-  并排显示「高分典型 (左 bg-success/5)」+「低分共性问题 (右 bg-destructive/5)」;
-  「查看任务详情 →」移 CardFooter
-- Study Buddy: 移到左下位置, 紧凑 Table (text-xs + py-1.5 + top-5)
-- AI 教学建议: CardHeader pb-2 + CardContent pt-0 消除 gap (user 反馈
-  缓存时间和 4 模块内容中间不应该有空); 4 列 4 类全保留
-- 字体紧凑: KPI 主值 text-2xl→text-xl; CardTitle text-base→text-sm;
-  CardDescription text-xs; 内容 text-xs (transcript 保 text-sm); padding
-  p-4→p-3
-- < lg 视口 fallback: panels stack 单列允许页面滚
+- KPI 4 卡 vertical layout → horizontal (左主数据 / 右 trailing visual)
+- 完成率 + 归一化均分 trailing: 过去 10 个任务 mini LineChart
+  (recharts dynamic ssr:false, stroke var(--color-brand), dot 仅末点)
+  数据稀疏 < 2 任务显「暂无趋势」placeholder
+- 成绩待发布 trailing: top-3 待发布任务 mini list (任务名 + DDL 过几天,
+  text-[10px] 紧凑, 0 项时 trailing 不显示)
+- 风险信号 trailing: top-2 章节 + top-2 学生 mini list (icon + 名称,
+  > 4 项「+ 更多」)
+- Service kpis 加 4 字段 (复用 instanceMetrics 0 二次 DB):
+  - recentTasksTrend (≤10 instances by publishedAt desc)
+  - pendingReleaseInstances (≤3 by dueAt asc)
+  - riskChapterSamples (≤3 用 isRiskChapter helper)
+  - riskStudentSamples (≤3 从 studentInterventions)
+- 小视口适配:
+  - AI max-h responsive: 1440+ 160px / 1280 120px / 1024 100px
+  - KPI 主值字体 responsive: lg+ text-xl / md text-lg
+  - trailing visual 宽度 responsive: lg w-24 / md w-20
+- 1280 chart cardContent 7.5 → ~30px / 1024 12.3 → ~50px
+  (phase 8 Minor 1 修复)
 
-Phase 1-7 anti-regression preserved (KPI sparkline + delta + drawer 5 kinds,
-filter 紧凑 + scopeTags row 删, ToggleGroup, classIds guard,
-recharts CSS var, LLM 24h cache, 单实例隔离, teacher dashboard 隔离)。
+Phase 1-8 anti-regression preserved (KPI 主数据格局保持, drawer 5 kinds,
+filter 紧凑, 主体 3 列, 学生分布 LabelList, AI 4 列, classIds guard,
+localStorage, 单实例 + dashboard 隔离, 老 URL + 老路由)。
 
 QA: r1 PASS X/X (tsc/lint/vitest 819+/build 全绿)
-- 1440/1280/1024 三视口整页可见 0 overflow
-- 主体 grid 跨行布局任务表现占右 2/3 + 学生分布+Study Buddy 占左 1/3
-- 柱顶 count 直接显示 + AI gap 消除
-- Phase 1-7 全功能保留
+- 三视口 1440/1280/1024 整页 0 overflow
+- 1280 chart cardContent 改善 4x / 1024 4x
+- KPI trailing 4 类视觉 + 数据正确
+
+PR #1 最终 14 commits
 
 See plan: ~/.claude/plans/linked-wobbling-anchor.md
 See spec: .harness/spec.md
-See QA: .harness/reports/qa_insights-phase8_r1.md
+See QA: .harness/reports/qa_insights-phase9_r1.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
-每 commit 后 tsc / lint / vitest / build 全过。
-
-QA PASS 后 builder 1 个 atomic commit + push origin。PR #1 最终 13 commits（6 phase + 2 chore + 4 phase 7 + 1 phase 8）。
-
-## 用户提到的 future work（不在本 phase）
-
-- 答题任务（quiz）也可以有任务表现（与 simulation 同模式）
-- 未来与每章知识点结合：统计**薄弱知识点 + 掌握较好的知识点**
-- 这是 phase 9+ 的事，本 phase 仅 simulation
+QA PASS 后 builder 1 个 atomic commit + push origin。
