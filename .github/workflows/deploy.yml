@@ -69,15 +69,63 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           GIT_SHA: ${{ github.sha }}
+          MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+          MIMO_BASE_URL: ${{ secrets.MIMO_BASE_URL }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: GIT_SHA
+          envs: GIT_SHA,MIMO_API_KEY,MIMO_BASE_URL
           command_timeout: 60m
           script: |
             set -e
             cd /opt/finsim
+
+            touch .env
+
+            get_env_value() {
+              grep -E "^$1=" .env | tail -n 1 | cut -d= -f2- || true
+            }
+
+            has_env_value() {
+              value="$(get_env_value "$1")"
+              [ -n "$value" ]
+            }
+
+            set_env_value() {
+              name="$1"
+              value="$2"
+              [ -n "$value" ] || return 0
+              grep -v -E "^${name}=" .env > .env.tmp || true
+              mv .env.tmp .env
+              printf '%s=%s\n' "$name" "$value" >> .env
+            }
+
+            ensure_env_value() {
+              name="$1"
+              value="$2"
+              if ! has_env_value "$name"; then
+                set_env_value "$name" "$value"
+              fi
+            }
+
+            if ! has_env_value AUTH_SECRET && ! has_env_value NEXTAUTH_SECRET; then
+              generated_auth_secret="$(openssl rand -base64 48 | tr -d '\n')"
+              set_env_value AUTH_SECRET "$generated_auth_secret"
+              set_env_value NEXTAUTH_SECRET "$generated_auth_secret"
+            elif ! has_env_value AUTH_SECRET; then
+              set_env_value AUTH_SECRET "$(get_env_value NEXTAUTH_SECRET)"
+            elif ! has_env_value NEXTAUTH_SECRET; then
+              set_env_value NEXTAUTH_SECRET "$(get_env_value AUTH_SECRET)"
+            fi
+
+            ensure_env_value POSTGRES_PASSWORD finsim_dev_password
+            ensure_env_value ADMIN_KEY "$(openssl rand -hex 32)"
+            set_env_value AI_PROVIDER mimo
+            set_env_value AI_FALLBACK_PROVIDER mimo
+            set_env_value MIMO_API_KEY "${MIMO_API_KEY:-}"
+            set_env_value MIMO_BASE_URL "${MIMO_BASE_URL:-}"
+            ensure_env_value MIMO_MODEL mimo-v2.5-pro
 
             # 解压源码（覆盖现有源码文件；保留 .env、last-deployed-* 等非源码文件）
             tar -xzf finsim-src.tar.gz
