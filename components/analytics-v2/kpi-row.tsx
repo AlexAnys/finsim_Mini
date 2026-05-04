@@ -111,7 +111,7 @@ function KpiCard({
 }: KpiCardProps) {
   const isInteractive = Boolean(onClick);
   const cardClassName = cn(
-    "rounded-lg flex flex-col items-stretch gap-2 min-h-[88px] py-2.5 px-3 transition-colors min-[1440px]:flex-row min-[1440px]:items-center min-[1440px]:gap-3",
+    "rounded-lg flex flex-col items-stretch gap-2 min-h-[104px] py-2.5 px-3 transition-colors min-[1800px]:min-h-[96px] min-[1800px]:flex-row min-[1800px]:items-center min-[1800px]:gap-3",
     warning && "border-amber-200 bg-amber-50/40",
     destructive && "border-destructive/30 bg-destructive/5",
     isInteractive && "cursor-pointer hover:bg-muted/40",
@@ -151,7 +151,9 @@ function KpiCard({
         )}
       </div>
       {trailing && (
-        <div className="hidden h-12 shrink-0 self-center min-[1440px]:block min-[1440px]:w-24">{trailing}</div>
+        <div className="h-[52px] w-full shrink-0 min-[1800px]:h-14 min-[1800px]:w-40 min-[1800px]:self-center">
+          {trailing}
+        </div>
       )}
     </Card>
   );
@@ -195,8 +197,6 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
 
   const showRiskTrailing =
     kpis.riskChapterSamples.length + kpis.riskStudentSamples.length > 0;
-  const showPendingTrailing = kpis.pendingReleaseInstances.length > 0;
-
   return (
     <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
       <KpiCard
@@ -238,12 +238,10 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
           </Link>
         }
         trailing={
-          showPendingTrailing ? (
-            <KpiTrailingVisual
-              kind="pending_release"
-              data={kpis.pendingReleaseInstances}
-            />
-          ) : undefined
+          <KpiTrailingVisual
+            kind="pending_release"
+            data={kpis.pendingReleaseInstances}
+          />
         }
         onClick={handle("pending_release")}
       />

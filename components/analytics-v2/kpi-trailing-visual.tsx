@@ -74,7 +74,7 @@ export function KpiTrailingVisual(props: KpiTrailingVisualProps) {
       <TrailingLineChart
         className={props.className}
         data={props.data}
-        metric="rate"
+        focus="completion"
       />
     );
   }
@@ -83,7 +83,7 @@ export function KpiTrailingVisual(props: KpiTrailingVisualProps) {
       <TrailingLineChart
         className={props.className}
         data={props.data}
-        metric="percent"
+        focus="score"
       />
     );
   }
@@ -103,10 +103,10 @@ const InternalLineChart = dynamic(
   () =>
     Promise.resolve(function ChartImpl({
       data,
-      metric,
+      focus,
     }: {
       data: RecentTaskTrendPoint[];
-      metric: "rate" | "percent";
+      focus: "completion" | "score";
     }) {
       const chartData = useMemo(() => {
         const ascending = [...data].sort(
@@ -117,24 +117,32 @@ const InternalLineChart = dynamic(
           .map((p, idx) => ({
             idx,
             title: p.title,
-            value:
-              metric === "rate"
-                ? p.completionRate === null
-                  ? null
-                  : Math.round(p.completionRate * 1000) / 10
-                : p.avgNormalizedScore,
+            completion:
+              p.completionRate === null
+                ? null
+                : Math.round(p.completionRate * 1000) / 10,
+            score:
+              p.avgNormalizedScore === null
+                ? null
+                : Math.round(p.avgNormalizedScore * 10) / 10,
           }))
-          .filter((p) => p.value !== null);
-      }, [data, metric]);
-      const lastIdx = chartData.length - 1;
+          .filter((p) => p.completion !== null || p.score !== null);
+      }, [data]);
+      const primaryKey = focus === "completion" ? "completion" : "score";
+      const secondaryKey = focus === "completion" ? "score" : "completion";
+      const primaryName = focus === "completion" ? "完成率" : "均分";
+      const secondaryName = focus === "completion" ? "均分" : "完成率";
+      const lastPrimaryIdx = chartData.reduce((last, point, index) => {
+        return point[primaryKey] === null ? last : index;
+      }, -1);
       return (
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 4, right: 4, left: 4, bottom: 4 }}
+            margin={{ top: 4, right: 4, left: 4, bottom: 2 }}
           >
             <XAxis dataKey="idx" hide />
-            <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
+            <YAxis hide domain={[0, 100]} />
             <Tooltip
               cursor={false}
               contentStyle={{
@@ -144,26 +152,37 @@ const InternalLineChart = dynamic(
                 border: "1px solid var(--border)",
                 borderRadius: 6,
               }}
-              formatter={(value, _name, payload) => {
+              formatter={(value, name, payload) => {
                 const p = payload?.payload as { title?: string } | undefined;
-                const display =
-                  metric === "rate" ? `${value}%` : `${value} 分`;
-                return [display, p?.title ?? "任务"];
+                return [`${value}%`, `${p?.title ?? "任务"} · ${name}`];
               }}
               labelFormatter={() => ""}
             />
             <Line
               type="monotone"
-              dataKey="value"
+              name={secondaryName}
+              dataKey={secondaryKey}
+              stroke="var(--muted-foreground)"
+              strokeOpacity={0.55}
+              strokeWidth={1.2}
+              isAnimationActive={false}
+              dot={false}
+              activeDot={{ r: 2.5 }}
+              connectNulls
+            />
+            <Line
+              type="monotone"
+              name={primaryName}
+              dataKey={primaryKey}
               stroke="var(--color-brand)"
-              strokeWidth={1.5}
+              strokeWidth={1.8}
               isAnimationActive={false}
               dot={(props: { cx?: number; cy?: number; index?: number }) => {
                 const { cx, cy, index } = props;
                 if (
                   cx === undefined ||
                   cy === undefined ||
-                  index !== lastIdx
+                  index !== lastPrimaryIdx
                 ) {
                   return (
                     <circle
@@ -198,16 +217,19 @@ const InternalLineChart = dynamic(
 function TrailingLineChart({
   className,
   data,
-  metric,
+  focus,
 }: {
   className?: string;
   data: RecentTaskTrendPoint[];
-  metric: "rate" | "percent";
+  focus: "completion" | "score";
 }) {
-  const validCount = data.filter((p) =>
-    metric === "rate" ? p.completionRate !== null : p.avgNormalizedScore !== null,
+  const primaryCount = data.filter((p) =>
+    focus === "completion" ? p.completionRate !== null : p.avgNormalizedScore !== null,
   ).length;
-  if (validCount < 2) {
+  const secondaryCount = data.filter((p) =>
+    focus === "completion" ? p.avgNormalizedScore !== null : p.completionRate !== null,
+  ).length;
+  if (Math.max(primaryCount, secondaryCount) < 2) {
     return (
       <div
         className={`flex h-full items-center justify-center text-[10px] text-muted-foreground ${className ?? ""}`}
@@ -217,12 +239,26 @@ function TrailingLineChart({
       </div>
     );
   }
+  const primaryLabel = focus === "completion" ? "完成" : "均分";
+  const secondaryLabel = focus === "completion" ? "均分" : "完成";
   return (
     <div
-      className={`h-full w-full ${className ?? ""}`}
-      aria-label="过去任务趋势 mini chart"
+      className={`flex h-full w-full min-w-0 flex-col ${className ?? ""}`}
+      aria-label="最近十次任务双线趋势"
     >
-      <InternalLineChart data={data} metric={metric} />
+      <div className="min-h-0 flex-1">
+        <InternalLineChart data={data} focus={focus} />
+      </div>
+      <div className="flex h-3 items-center justify-end gap-2 text-[9px] leading-none text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+          {primaryLabel}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
+          {secondaryLabel}
+        </span>
+      </div>
     </div>
   );
 }
@@ -235,10 +271,19 @@ function TrailingPendingList({
   items: PendingReleaseInstance[];
 }) {
   const [now] = useState<number>(() => Date.now());
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return (
+      <div
+        className={`flex h-full items-center justify-center rounded-md bg-muted/30 px-2 text-[10px] text-muted-foreground ${className ?? ""}`}
+        aria-label="暂无待发布任务"
+      >
+        暂无待发布
+      </div>
+    );
+  }
   return (
     <ul
-      className={`flex h-full w-full flex-col justify-center gap-0.5 ${className ?? ""}`}
+      className={`flex h-full w-full flex-col justify-center gap-1 ${className ?? ""}`}
       aria-label="待发布任务"
     >
       {items.slice(0, 3).map((item) => {
@@ -249,7 +294,7 @@ function TrailingPendingList({
         return (
           <li
             key={item.id}
-            className="truncate text-[10px] leading-tight"
+            className="truncate text-[11px] leading-tight"
             title={`${item.title} · DDL 过 ${days} 天`}
           >
             <span className="font-medium">{item.title}</span>
@@ -271,31 +316,42 @@ function TrailingRiskList({
   students: RiskStudentSample[];
 }) {
   const total = chapters.length + students.length;
-  if (total === 0) return null;
+  if (total === 0) {
+    return (
+      <div
+        className={`flex h-full items-center justify-center rounded-md bg-muted/30 px-2 text-[10px] text-muted-foreground ${className ?? ""}`}
+        aria-label="暂无风险样本"
+      >
+        暂无风险样本
+      </div>
+    );
+  }
   const visibleChapters = chapters.slice(0, 2);
   const visibleStudents = students.slice(0, 2);
   const visibleTotal = visibleChapters.length + visibleStudents.length;
   return (
     <ul
-      className={`flex h-full w-full flex-col justify-center gap-0.5 ${className ?? ""}`}
+      className={`flex h-full w-full flex-col justify-center gap-1 ${className ?? ""}`}
       aria-label="风险样本"
     >
       {visibleChapters.map((c) => (
         <li
           key={`ch-${c.chapterId}`}
-          className="truncate text-[10px] leading-tight"
+          className="truncate text-[11px] leading-tight"
           title={`章节 ${c.title}`}
         >
-          📖 {c.title}
+          <span className="mr-1 rounded bg-destructive/10 px-1 text-[9px] text-destructive">章</span>
+          {c.title}
         </li>
       ))}
       {visibleStudents.map((s) => (
         <li
           key={`st-${s.studentId}`}
-          className="truncate text-[10px] leading-tight"
+          className="truncate text-[11px] leading-tight"
           title={`学生 ${s.name}`}
         >
-          👤 {s.name}
+          <span className="mr-1 rounded bg-amber-100 px-1 text-[9px] text-amber-800">生</span>
+          {s.name}
         </li>
       ))}
       {total > visibleTotal && (
