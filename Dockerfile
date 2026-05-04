@@ -4,6 +4,7 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
+RUN npm config set registry https://registry.npmmirror.com
 RUN npm ci
 
 # === builder stage: build the Next.js app ===
@@ -54,6 +55,7 @@ COPY --from=builder /app/prisma ./prisma
 
 # Layer 7: prisma CLI + 全部 transitive deps（@prisma/config / @prisma/engines / effect / 等）
 # 关键：在 standalone/node_modules 已铺好 @prisma/client 的基础上，由 npm 自己装齐 prisma CLI 链
+RUN npm config set registry https://registry.npmmirror.com
 RUN npm install --no-save prisma@6.19.3
 
 USER nextjs
