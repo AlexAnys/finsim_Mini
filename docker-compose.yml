@@ -11,8 +11,8 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://finsim:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/finsim
-      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET must be set}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-}
+      - AUTH_SECRET=${AUTH_SECRET:-${NEXTAUTH_SECRET:?AUTH_SECRET or NEXTAUTH_SECRET must be set}}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-${AUTH_SECRET:?AUTH_SECRET or NEXTAUTH_SECRET must be set}}
       - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set (e.g. http://47.100.98.69:3000)}
       - AUTH_TRUST_HOST=true
       - ADMIN_KEY=${ADMIN_KEY:?ADMIN_KEY must be set}
