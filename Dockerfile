@@ -50,13 +50,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/package.json ./p
 # Layer 5: 静态 chunks（每次 build 都变，~10-30MB）
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Layer 6: prisma schema（仅 schema 变才变）— migrate deploy 需要
-COPY --from=builder /app/prisma ./prisma
-
-# Layer 7: prisma CLI + 全部 transitive deps（@prisma/config / @prisma/engines / effect / 等）
+# Layer 6: prisma CLI + 全部 transitive deps（@prisma/config / @prisma/engines / effect / 等）
 # 关键：在 standalone/node_modules 已铺好 @prisma/client 的基础上，由 npm 自己装齐 prisma CLI 链
 RUN npm config set registry https://registry.npmmirror.com
 RUN npm install --no-save prisma@6.19.3
+
+# Layer 7: prisma schema（仅 schema/migration 变才变）— migrate deploy 需要
+COPY --from=builder /app/prisma ./prisma
 
 USER nextjs
 EXPOSE 3000
