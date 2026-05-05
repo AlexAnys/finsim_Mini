@@ -143,6 +143,7 @@ jobs:
 
             ensure_env_value POSTGRES_PASSWORD finsim_dev_password
             ensure_env_value ADMIN_KEY "$(openssl rand -hex 32)"
+            ensure_env_value ENABLE_STUDENT_SELF_REGISTRATION true
             set_env_value AI_PROVIDER mimo
             set_env_value AI_FALLBACK_PROVIDER mimo
             set_env_value MIMO_API_KEY "${MIMO_API_KEY:-}"

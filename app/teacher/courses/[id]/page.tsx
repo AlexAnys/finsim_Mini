@@ -1328,14 +1328,16 @@ export default function TeacherCourseDetailPage() {
         open={editCourseDialogOpen}
         onOpenChange={setEditCourseDialogOpen}
       >
-        <DialogContent className="max-h-[84vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="flex max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] max-w-none flex-col overflow-hidden p-0 sm:max-w-[1120px]">
           <DialogHeader>
-            <DialogTitle>编辑课程</DialogTitle>
-            <DialogDescription>
+            <div className="border-b border-line px-6 py-5">
+              <DialogTitle>编辑课程</DialogTitle>
+              <DialogDescription className="mt-1">
               修改课程名称与描述，并查看 AI 从课程大纲、Excel 标准或整体课程内容中识别出的目录与目标草稿。
-            </DialogDescription>
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             <div className="space-y-2">
               <Label htmlFor="editCourseTitle">课程名称 *</Label>
               <Input
@@ -1478,7 +1480,7 @@ export default function TeacherCourseDetailPage() {
               )}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="border-t border-line bg-background px-6 py-4">
             <Button
               variant="outline"
               onClick={() => setEditCourseDialogOpen(false)}
