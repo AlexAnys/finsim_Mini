@@ -142,7 +142,18 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
               type: q.type as "single_choice" | "multiple_choice" | "true_false" | "short_answer",
               stem: q.prompt,
               options: Array.isArray(q.options)
-                ? q.options.map((o: { id: string; text: string }) => ({ label: o.id, content: o.text }))
+                ? q.options.map(
+                    (
+                      o: { id?: string; text?: string; label?: string; content?: string },
+                      idx: number,
+                    ) => ({
+                      // 兼容两种 DB shape：runner 内部用 {label, content}；Wizard 写入有时是 {id, text}
+                      // 历史数据两种都存在，且 id/label 偶尔为空，统一用 A/B/C/D 兜底
+                      label:
+                        (o.label ?? o.id ?? "").trim() || String.fromCharCode(65 + idx),
+                      content: (o.content ?? o.text ?? "").toString(),
+                    }),
+                  )
                 : null,
               points: q.points,
               explanation: q.explanation,
