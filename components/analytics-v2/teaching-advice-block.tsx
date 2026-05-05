@@ -39,11 +39,13 @@ export function TeachingAdviceBlock({
   onRefresh,
   studentNamesById,
 }: Props) {
+  const skillGoals = data?.skillGoals ?? [];
   const isEmpty =
     !loading &&
     !refreshing &&
     (!data ||
       (data.knowledgeGoals.length === 0 &&
+        skillGoals.length === 0 &&
         data.pedagogyAdvice.length === 0 &&
         data.focusGroups.length === 0 &&
         data.nextSteps.length === 0));
@@ -52,7 +54,7 @@ export function TeachingAdviceBlock({
   const sourceLabel = data?.source === "cache" ? "缓存" : data?.source === "fallback" ? "降级" : "已生成";
 
   return (
-    <Card className="rounded-lg flex flex-col gap-1 overflow-hidden py-3">
+    <Card className="rounded-lg flex h-full min-h-0 flex-col gap-1 overflow-hidden py-3">
       <CardHeader className="pb-1 shrink-0 px-3 grid-cols-[1fr_auto] items-start gap-2 grid space-y-0">
         <div className="min-w-0 flex items-center gap-1.5">
           <Lightbulb className="size-3.5 text-brand shrink-0" />
@@ -88,86 +90,110 @@ export function TeachingAdviceBlock({
           </div>
         )}
       </CardHeader>
-      <CardContent className="px-3 pb-1 pt-0">
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-3 pb-2 pt-0">
         {loading ? (
           <LoadingState />
         ) : isEmpty ? (
           <EmptyPanel icon={Lightbulb} title="AI 教学建议 · 暂无数据" description="当前范围内没有足够数据生成教学建议；请等学生提交批改后再试。" />
         ) : data ? (
-          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
-            <ColumnCard
-              icon={Lightbulb}
-              iconClass="text-brand"
-              title="知识目标"
-              count={data.knowledgeGoals.length}
-            >
-              <ColumnList
-                items={data.knowledgeGoals}
-                renderPrimary={(item: AdviceKnowledgeGoal) => item.point}
-                renderEvidence={(item) => item.evidence}
-              />
-            </ColumnCard>
-            <ColumnCard
-              icon={BookOpen}
-              iconClass="text-success"
-              title="教学方式"
-              count={data.pedagogyAdvice.length}
-            >
-              <ColumnList
-                items={data.pedagogyAdvice}
-                renderPrimary={(item: AdvicePedagogyAdvice) => item.method}
-                renderEvidence={(item) => item.evidence}
-              />
-            </ColumnCard>
-            <ColumnCard
-              icon={Users}
-              iconClass="text-brand-violet"
-              title="关注群体"
-              count={data.focusGroups.length}
-            >
-              <ColumnList
-                items={data.focusGroups}
-                renderPrimary={(item: AdviceFocusGroup) => item.group}
-                renderSub={(item) => item.action}
-                renderEvidence={(item) => item.evidence}
-                renderFooter={(item) => {
-                  const studentNames = item.studentIds
-                    .map((id) => studentNamesById?.get(id) ?? null)
-                    .filter((name): name is string => Boolean(name));
-                  if (studentNames.length === 0) return null;
-                  return (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {studentNames.slice(0, 6).map((name, idx) => (
-                        <Badge
-                          key={`${name}-${idx}`}
-                          variant="outline"
-                          className="rounded-md text-[10px]"
-                        >
-                          {name}
-                        </Badge>
-                      ))}
-                      {studentNames.length > 6 && (
-                        <span className="text-[10px] text-muted-foreground">
-                          ...等 {studentNames.length - 6} 人
-                        </span>
-                      )}
-                    </div>
-                  );
-                }}
-              />
-            </ColumnCard>
-            <ColumnCard
-              icon={ArrowRight}
-              iconClass="text-ochre"
-              title="接下来怎么教"
-              count={data.nextSteps.length}
-            >
-              <ColumnList
-                items={data.nextSteps}
-                renderPrimary={(item: AdviceNextStep) => item.step}
-                renderEvidence={(item) => item.evidence}
-              />
-            </ColumnCard>
+          <div className="grid h-full min-h-0 gap-2 md:grid-cols-3">
+            {/* 列 1：学习目标 = 知识 + 技能（垂直叠加） */}
+            <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
+              <ColumnCard
+                icon={Lightbulb}
+                iconClass="text-brand"
+                title="知识目标"
+                count={data.knowledgeGoals.length}
+              >
+                <ColumnList
+                  items={data.knowledgeGoals}
+                  renderPrimary={(item: AdviceKnowledgeGoal) => item.point}
+                  renderEvidence={(item) => item.evidence}
+                />
+              </ColumnCard>
+              <ColumnCard
+                icon={BookOpen}
+                iconClass="text-brand"
+                title="技能目标"
+                count={skillGoals.length}
+              >
+                <ColumnList
+                  items={skillGoals}
+                  renderPrimary={(item: AdviceKnowledgeGoal) => item.point}
+                  renderEvidence={(item) => item.evidence}
+                />
+              </ColumnCard>
+            </div>
+
+            {/* 列 2：关注群体（独立） */}
+            <div className="flex min-h-0 flex-col overflow-hidden">
+              <ColumnCard
+                icon={Users}
+                iconClass="text-brand-violet"
+                title="关注群体"
+                count={data.focusGroups.length}
+                fullHeight
+              >
+                <ColumnList
+                  items={data.focusGroups}
+                  renderPrimary={(item: AdviceFocusGroup) => item.group}
+                  renderSub={(item) => item.action}
+                  renderEvidence={(item) => item.evidence}
+                  renderFooter={(item) => {
+                    const studentNames = item.studentIds
+                      .map((id) => studentNamesById?.get(id) ?? null)
+                      .filter((name): name is string => Boolean(name));
+                    if (studentNames.length === 0) return null;
+                    return (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {studentNames.slice(0, 6).map((name, idx) => (
+                          <Badge
+                            key={`${name}-${idx}`}
+                            variant="outline"
+                            className="rounded-md text-[10px]"
+                          >
+                            {name}
+                          </Badge>
+                        ))}
+                        {studentNames.length > 6 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            ...等 {studentNames.length - 6} 人
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+              </ColumnCard>
+            </div>
+
+            {/* 列 3：教学方式 + 接下来怎么教（垂直叠加） */}
+            <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
+              <ColumnCard
+                icon={BookOpen}
+                iconClass="text-success"
+                title="教学方式"
+                count={data.pedagogyAdvice.length}
+              >
+                <ColumnList
+                  items={data.pedagogyAdvice}
+                  renderPrimary={(item: AdvicePedagogyAdvice) => item.method}
+                  renderEvidence={(item) => item.evidence}
+                />
+              </ColumnCard>
+              <ColumnCard
+                icon={ArrowRight}
+                iconClass="text-ochre"
+                title="接下来怎么教"
+                count={data.nextSteps.length}
+              >
+                <ColumnList
+                  items={data.nextSteps}
+                  renderPrimary={(item: AdviceNextStep) => item.step}
+                  renderEvidence={(item) => item.evidence}
+                />
+              </ColumnCard>
+            </div>
           </div>
         ) : null}
       </CardContent>
@@ -181,16 +207,24 @@ function ColumnCard({
   title,
   count,
   children,
+  fullHeight,
 }: {
   icon: LucideIcon;
   iconClass: string;
   title: string;
   count: number;
   children: React.ReactNode;
+  /** 占满父容器整高（用于关注群体单独一列时） */
+  fullHeight?: boolean;
 }) {
   return (
-    <div className="flex flex-col rounded-md border bg-background overflow-hidden">
-      <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-2.5 py-1.5">
+    <div
+      className={cn(
+        "flex flex-col rounded-md border bg-background overflow-hidden",
+        fullHeight ? "min-h-0 flex-1" : "min-h-0 flex-1 basis-1/2",
+      )}
+    >
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-muted/30 px-2.5 py-1.5">
         <div className="flex items-center gap-1.5 text-xs font-medium">
           <Icon className={cn("size-3.5", iconClass)} />
           <span>{title}</span>
@@ -199,7 +233,7 @@ function ColumnCard({
           {count}
         </Badge>
       </div>
-      <div className="max-h-[100px] flex-1 overflow-y-auto px-2 py-1.5 min-[1280px]:max-h-[120px] min-[1440px]:max-h-[160px]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
         {count === 0 ? (
           <div className="rounded-md border border-dashed py-3 text-center text-[11px] text-muted-foreground">
             暂无相关建议

@@ -641,22 +641,19 @@ export function AnalyticsV2Dashboard() {
             <KpiRow diagnosis={diagnosis} onKpiClick={handleKpiClick} />
           </div>
 
-          <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[3fr_2fr] overflow-hidden">
-            <div className="flex flex-col overflow-hidden lg:col-start-1 lg:row-start-1">
+          {/* 主体两行布局：
+              row1 = 学生成绩分布 (1/3) + 任务表现 (2/3)
+              row2 = Study Buddy (1/3) + AI 教学建议 (2/3) */}
+          <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-2 overflow-hidden">
+            {/* row 1 */}
+            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1 lg:row-start-1">
               <ScoreDistributionChart
                 distribution={diagnosis.scoreDistribution}
                 onBinClick={handleBinClick}
                 onViewAll={handleViewAllScores}
               />
             </div>
-            <div className="flex flex-col overflow-hidden lg:col-start-1 lg:row-start-2">
-              <StudyBuddyBlock
-                data={scopeInsights.studyBuddy}
-                loading={scopeInsightsLoading && !scopeInsights.studyBuddy}
-                onOpenEvidence={openEvidence}
-              />
-            </div>
-            <div className="flex flex-col overflow-hidden lg:col-start-2 lg:col-end-4 lg:row-start-1 lg:row-end-3">
+            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-2 lg:row-start-1">
               <TaskPerformanceBlock
                 data={scopeInsights.simulation}
                 loading={scopeInsightsLoading && !scopeInsights.simulation}
@@ -668,16 +665,24 @@ export function AnalyticsV2Dashboard() {
                 onTaskChange={setTaskPerfTaskId}
               />
             </div>
-          </div>
 
-          <div className="shrink-0">
-            <TeachingAdviceBlock
-              data={scopeInsights.teachingAdvice}
-              loading={scopeInsightsLoading && !scopeInsights.teachingAdvice}
-              refreshing={scopeInsightsRefreshing}
-              onRefresh={refreshScopeInsights}
-              studentNamesById={studentNamesById}
-            />
+            {/* row 2 */}
+            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1 lg:row-start-2">
+              <StudyBuddyBlock
+                data={scopeInsights.studyBuddy}
+                loading={scopeInsightsLoading && !scopeInsights.studyBuddy}
+                onOpenEvidence={openEvidence}
+              />
+            </div>
+            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-2 lg:row-start-2">
+              <TeachingAdviceBlock
+                data={scopeInsights.teachingAdvice}
+                loading={scopeInsightsLoading && !scopeInsights.teachingAdvice}
+                refreshing={scopeInsightsRefreshing}
+                onRefresh={refreshScopeInsights}
+                studentNamesById={studentNamesById}
+              />
+            </div>
           </div>
 
           <DataQualityCollapsible

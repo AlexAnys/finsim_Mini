@@ -108,6 +108,8 @@ export interface ScopeTeachingAdvice {
   generatedAt: string;
   source: "fresh" | "cache" | "fallback";
   knowledgeGoals: AdviceKnowledgeGoal[];
+  /** 技能 / 能力目标（与 knowledgeGoals 同结构，前端把两者并入"学习目标"列） */
+  skillGoals: AdviceKnowledgeGoal[];
   pedagogyAdvice: AdvicePedagogyAdvice[];
   focusGroups: AdviceFocusGroup[];
   nextSteps: AdviceNextStep[];
@@ -930,6 +932,7 @@ async function buildScopeTeachingAdviceFresh(
 
   const adviceSchema = z.object({
     knowledgeGoals: z.array(z.object({ point: z.string(), evidence: z.string() })),
+    skillGoals: z.array(z.object({ point: z.string(), evidence: z.string() })).default([]),
     pedagogyAdvice: z.array(z.object({ method: z.string(), evidence: z.string() })),
     focusGroups: z.array(
       z.object({
@@ -945,12 +948,13 @@ async function buildScopeTeachingAdviceFresh(
   const systemPrompt =
     "你是高校金融教育的资深教学顾问。基于教师当前班级 / 课程的学情数据，给出本周教学建议。" +
     "每条 evidence 必须直接引用输入数据中的具体数字、学生名或章节名（不能笼统）。" +
-    "中文输出，简明扼要，不要重复输入数据。";
+    "中文输出，简明扼要，不要重复输入数据。" +
+    "knowledgeGoals 是认知 / 概念层目标（如\"理解风险收益权衡\"）；skillGoals 是能力 / 操作层目标（如\"能完成需求澄清问询、撰写理财建议\"）；二者必须分开输出。";
 
   const userPrompt =
     "【输入数据】\n" +
     JSON.stringify(promptInput, null, 2) +
-    "\n\n请输出 JSON: {\"knowledgeGoals\":[{point,evidence},...3-4 项], \"pedagogyAdvice\":[{method,evidence},...3-4 项], \"focusGroups\":[{group,action,studentNames,evidence},...2-3 项], \"nextSteps\":[{step,evidence},...3-4 项]}";
+    "\n\n请输出 JSON: {\"knowledgeGoals\":[{point,evidence},...3-4 项], \"skillGoals\":[{point,evidence},...2-3 项], \"pedagogyAdvice\":[{method,evidence},...3-4 项], \"focusGroups\":[{group,action,studentNames,evidence},...2-3 项], \"nextSteps\":[{step,evidence},...3-4 项]}";
 
   const studentNameToId = new Map(
     diagnosis.studentInterventions.map((row) => [row.studentName, row.studentId]),
@@ -963,6 +967,7 @@ async function buildScopeTeachingAdviceFresh(
       generatedAt: now.toISOString(),
       source: "fresh",
       knowledgeGoals: ai.knowledgeGoals.slice(0, 4),
+      skillGoals: (ai.skillGoals ?? []).slice(0, 3),
       pedagogyAdvice: ai.pedagogyAdvice.slice(0, 4),
       focusGroups: ai.focusGroups.slice(0, 3).map((group) => ({
         group: group.group,
@@ -1071,6 +1076,7 @@ function buildFallbackAdvice(
     generatedAt: now.toISOString(),
     source: "fallback",
     knowledgeGoals,
+    skillGoals: [],
     pedagogyAdvice,
     focusGroups,
     nextSteps,
@@ -1118,6 +1124,7 @@ function serializeTeachingAdvice(advice: ScopeTeachingAdvice) {
     generatedAt: advice.generatedAt,
     source: advice.source,
     knowledgeGoals: advice.knowledgeGoals,
+    skillGoals: advice.skillGoals,
     pedagogyAdvice: advice.pedagogyAdvice,
     focusGroups: advice.focusGroups,
     nextSteps: advice.nextSteps,
@@ -1145,6 +1152,7 @@ function parseCachedTeachingAdvice(
   return {
     generatedAt: a.generatedAt,
     knowledgeGoals: a.knowledgeGoals as AdviceKnowledgeGoal[],
+    skillGoals: Array.isArray(a.skillGoals) ? (a.skillGoals as AdviceKnowledgeGoal[]) : [],
     pedagogyAdvice: a.pedagogyAdvice as AdvicePedagogyAdvice[],
     focusGroups: a.focusGroups as AdviceFocusGroup[],
     nextSteps: a.nextSteps as AdviceNextStep[],
