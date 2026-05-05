@@ -160,6 +160,10 @@ jobs:
             # 启动/更新 app（postgres 已运行 → 保留，复用 pgdata 卷与 uploads 卷）
             docker compose up -d app
 
+            # uploads volume may come from an older deployment/user id. The app runs as
+            # nextjs (uid 1001), so normalize ownership on every deploy.
+            docker compose exec -T -u root app sh -lc 'mkdir -p /data/uploads && chown -R 1001:65533 /data/uploads && chmod -R u+rwX /data/uploads'
+
             # 清理 dangling images
             docker image prune -f
 
