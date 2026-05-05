@@ -408,9 +408,9 @@ export function SubjectiveRunner({
         ]}
       />
 
-      <div className="flex flex-1 gap-4 overflow-hidden">
-        {/* Left panel - Task info (1/3) */}
-        <div className="w-1/3 min-w-[280px]">
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden md:flex-row">
+        {/* Left panel - Task info (md+ 1/3；手机端置顶折叠为 collapsible) */}
+        <div className="w-full md:w-1/3 md:min-w-[280px]">
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -419,7 +419,7 @@ export function SubjectiveRunner({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[calc(100vh-280px)]">
+              <ScrollArea className="max-h-[40vh] md:h-[calc(100vh-280px)]">
                 <div className="space-y-4">
                   {/* Prompt */}
                   <div>

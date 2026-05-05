@@ -456,10 +456,10 @@ export function QuizRunner({
         ]}
       />
 
-      {/* Main area */}
-      <div className="flex flex-1 gap-4 overflow-hidden">
+      {/* Main area — 手机端纵向；md+ 保持原桌面横向布局 */}
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden md:flex-row">
         {/* Question panel */}
-        <div className="flex flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <Card className="flex flex-1 flex-col">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -480,8 +480,8 @@ export function QuizRunner({
             </CardHeader>
             <Separator />
             <CardContent className="flex-1 overflow-hidden p-0">
-              <ScrollArea className="h-[calc(100vh-380px)]">
-                <div className="space-y-6 p-6">
+              <ScrollArea className="h-[calc(100vh-440px)] md:h-[calc(100vh-380px)]">
+                <div className="space-y-6 p-4 md:p-6">
                   {/* Stem */}
                   <p className="whitespace-pre-wrap text-sm leading-relaxed">
                     {currentQuestion.stem}
@@ -650,8 +650,8 @@ export function QuizRunner({
           </Card>
         </div>
 
-        {/* Question map sidebar */}
-        <div className="w-48 shrink-0">
+        {/* Question map sidebar — 手机端在主卡下面；md+ 仍是右侧 192px */}
+        <div className="order-last w-full shrink-0 md:order-none md:w-48">
           <Card className="h-full">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">题目导航</CardTitle>

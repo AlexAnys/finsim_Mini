@@ -67,37 +67,38 @@ export function RunnerTopbar({
 }: RunnerTopbarProps) {
   return (
     <div
-      className="flex h-14 shrink-0 items-center gap-4 px-5"
+      className="flex h-14 shrink-0 items-center gap-2 px-3 md:gap-4 md:px-5"
       style={{ background: "var(--fs-ink)", color: "#fff" }}
       role="banner"
     >
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition hover:opacity-90"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-medium transition hover:opacity-90 md:px-2.5"
         style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
       >
         <ArrowLeft size={12} />
-        <span>{backLabel}</span>
+        <span className="hidden sm:inline">{backLabel}</span>
       </button>
 
-      <div className="min-w-0 flex-shrink-0 pl-1">
+      <div className="min-w-0 flex-shrink pl-1 md:flex-shrink-0">
         <div className="truncate text-[13px] font-semibold leading-tight">
           {title}
         </div>
         {subtitle && (
-          <div className="mt-0.5 truncate text-[10.5px] text-white/55">
+          <div className="mt-0.5 hidden truncate text-[10.5px] text-white/55 md:block">
             {subtitle}
           </div>
         )}
       </div>
 
-      <div className="flex flex-1 items-center gap-3 overflow-hidden">
+      {/* metaSlots 在手机端隐藏（mood badge / 轮次等浮窗），桌面端保留 */}
+      <div className="hidden flex-1 items-center gap-3 overflow-hidden md:flex">
         {metaSlots}
       </div>
 
       {actions && actions.length > 0 && (
-        <div className="flex flex-shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex flex-shrink-0 items-center gap-1.5 md:ml-0">
           {actions.map((a, i) => (
             <ActionButton key={`${a.label}-${i}`} action={a} />
           ))}

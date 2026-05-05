@@ -23,7 +23,8 @@ export default async function StudentLayout({
       <Sidebar initialRole={initialRole} initialName={initialName} />
       <main className="flex min-h-screen flex-col lg:pl-[232px]">
         <Topbar initialRole={initialRole} initialName={initialName} />
-        <div className="flex-1 p-6 pt-20 lg:pt-6">{children}</div>
+        {/* 手机端 Sidebar mobile bar 高 56px (h-14)，所以 pt-16 即够；桌面端无需顶部 padding */}
+        <div className="flex-1 p-4 pt-16 md:p-6 lg:pt-6">{children}</div>
       </main>
     </div>
   );

@@ -173,6 +173,8 @@ export function SimulationRunner({
   });
   const [inputValue, setInputValue] = useState("");
   const [isSending, setIsSending] = useState(false);
+  // 手机端三 tab 切换（< md）：背景 / 对话 / 配置；桌面端 3 列同时显示
+  const [mobileTab, setMobileTab] = useState<"info" | "chat" | "alloc">("chat");
   const [mood, setMood] = useState<MoodType>(() => {
     if (typeof window === "undefined") return "NEUTRAL";
     const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
@@ -750,16 +752,17 @@ export function SimulationRunner({
         ]}
       />
 
-      {/* 3-column body */}
+      {/* 3-column body — 桌面端 3 列；手机端 (<md) 只显示当前 mobileTab */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left rail · 280px */}
+        {/* Left rail · md+ 280px；手机端非 info tab 时隐藏 */}
         <SimLeftRail
           scenario={scenario}
           requirements={requirements}
           scoringCriteria={scoringCriteria}
+          className={mobileTab === "info" ? "flex" : "hidden md:flex"}
         />
 
-        {/* Center · chat */}
+        {/* Center · chat — 始终保持挂载防止输入丢失；非 chat tab 时手机端隐藏 */}
         <SimChat
           messages={messages}
           isSending={isSending}
@@ -769,9 +772,10 @@ export function SimulationRunner({
           disabled={!!evaluation}
           messagesEndRef={messagesEndRef}
           scenario={scenario}
+          className={mobileTab === "chat" ? "flex" : "hidden md:flex"}
         />
 
-        {/* Right · alloc */}
+        {/* Right · alloc · md+ 320px；手机端非 alloc tab 时隐藏 */}
         <SimRightPanel
           allocations={allocations}
           maxSubmissions={maxSubmissions}
@@ -781,7 +785,38 @@ export function SimulationRunner({
           onChange={handleAllocationChange}
           onSubmit={handleSubmitAllocation}
           onReset={handleResetAllocation}
+          className={mobileTab === "alloc" ? "flex" : "hidden md:flex"}
         />
+      </div>
+
+      {/* Mobile bottom tab bar — 仅 < md 显示 */}
+      <div
+        className="flex h-12 shrink-0 items-stretch border-t border-line md:hidden"
+        style={{ background: "var(--fs-surface)" }}
+      >
+        {(
+          [
+            { id: "info", label: "背景" },
+            { id: "chat", label: "对话" },
+            { id: "alloc", label: "配置" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setMobileTab(t.id)}
+            className="flex flex-1 items-center justify-center text-[13px] font-medium"
+            style={{
+              color: mobileTab === t.id ? "var(--fs-brand)" : "var(--fs-ink-3)",
+              borderTop:
+                mobileTab === t.id
+                  ? "2px solid var(--fs-brand)"
+                  : "2px solid transparent",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {/* Study Buddy floating button */}
@@ -882,14 +917,16 @@ function SimLeftRail({
   scenario,
   requirements,
   scoringCriteria,
+  className,
 }: {
   scenario: string;
   requirements?: string[];
   scoringCriteria: ScoringCriterion[];
+  className?: string;
 }) {
   return (
     <aside
-      className="flex w-[280px] shrink-0 flex-col"
+      className={`w-full shrink-0 flex-col md:flex md:w-[280px] ${className ?? "flex"}`}
       style={{
         background: "var(--fs-surface)",
         borderRight: "1px solid var(--fs-line)",
@@ -1017,15 +1054,17 @@ function SimChat({
   disabled,
   messagesEndRef,
   scenario,
+  className,
 }: {
   messages: TranscriptMessage[];
   isSending: boolean;
   inputValue: string;
-  setInputValue: (v: string) => void;
+  setInputValue: React.Dispatch<React.SetStateAction<string>>;
   onSend: () => void;
   disabled: boolean;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   scenario: string;
+  className?: string;
 }) {
   const [listening, setListening] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -1040,7 +1079,7 @@ function SimChat({
     };
   }, []);
 
-  async function transcribeAudio(blob: Blob) {
+  async function transcribeAudio(blob: Blob): Promise<boolean> {
     setTranscribing(true);
     try {
       const formData = new FormData();
@@ -1052,17 +1091,28 @@ function SimChat({
       const json = await res.json();
       if (!json.success) {
         toast.error(json.error?.message || "语音识别失败");
-        return;
+        return false;
       }
       const text = String(json.data?.text || "").trim();
+      const canFallback = json.data?.canFallback !== false;
       if (text) {
-        setInputValue(inputValue ? `${inputValue}\n${text}` : text);
+        setInputValue((prev) => (prev ? `${prev}\n${text}` : text));
         toast.success(json.data?.message || "语音已转成文字，请确认后发送");
+        return true;
+      } else if (canFallback) {
+        toast.warning(
+          json.data?.message
+            ? `${json.data.message} 已切换为浏览器实时识别，请再说一遍。`
+            : "云端语音识别没有返回文本，已切换为浏览器实时识别，请再说一遍。",
+        );
+        return false;
       } else {
-        toast.error(json.data?.message || "语音识别没有返回文本");
+        toast.error(json.data?.message || "云端语音识别暂不可用");
+        return true; // 阻止再降级浏览器，因为后端明确不支持
       }
     } catch {
-      toast.error("语音识别失败，请重试或手动输入");
+      toast.warning("云端语音识别失败，已切换为浏览器实时识别，请再说一遍。");
+      return false;
     } finally {
       setTranscribing(false);
     }
@@ -1091,7 +1141,9 @@ function SimChat({
         mediaRecorderRef.current = null;
         setRecording(false);
         if (blob.size > 0) {
-          transcribeAudio(blob);
+          void transcribeAudio(blob).then((ok) => {
+            if (!ok) startBrowserSpeechToText();
+          });
         } else {
           toast.error("没有录到音频，请重试");
         }
@@ -1100,7 +1152,15 @@ function SimChat({
       setRecording(true);
       toast.message("正在录音，再点一次“停止”后转文字");
       return true;
-    } catch {
+    } catch (err) {
+      const name = (err as Error)?.name;
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        toast.error("浏览器麦克风权限被拒绝，请到系统设置中打开后重试。");
+      } else if (name === "NotFoundError") {
+        toast.error("未检测到麦克风设备，请检查后重试。");
+      } else if (name === "SecurityError") {
+        toast.error("安全策略拒绝访问麦克风（请使用 HTTPS 或 localhost）。");
+      }
       return false;
     }
   }
@@ -1127,16 +1187,28 @@ function SimChat({
         .join("")
         .trim();
       if (transcript) {
-        setInputValue(inputValue ? `${inputValue}\n${transcript}` : transcript);
+        setInputValue((prev) => (prev ? `${prev}\n${transcript}` : transcript));
         toast.success("语音已转成文字，请确认后发送");
       }
     };
-    recognition.onerror = () => {
-      toast.error("语音识别失败，请重试或手动输入");
+    recognition.onerror = (event: { error?: string }) => {
+      const code = event?.error || "";
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        toast.error("浏览器麦克风权限被拒绝，请到系统设置中打开后重试。");
+      } else if (code === "no-speech") {
+        toast.warning("没听到声音，请贴近麦克风后重试。");
+      } else {
+        toast.error("语音识别失败，请重试或手动输入");
+      }
     };
     recognition.onend = () => setListening(false);
     setListening(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      toast.error("无法启动语音识别，请稍后再试或手动输入");
+      setListening(false);
+    }
   }
 
   async function handleSpeechToText() {
@@ -1151,13 +1223,13 @@ function SimChat({
 
   return (
     <main
-      className="flex min-w-0 flex-1 flex-col"
+      className={`min-w-0 flex-1 flex-col ${className ?? "flex"}`}
       style={{ background: "var(--fs-bg)" }}
     >
       {/* Messages */}
       <div className="min-h-0 flex-1">
         <ScrollArea className="h-full">
-          <div className="flex flex-col gap-4 px-10 py-6">
+          <div className="flex flex-col gap-4 px-4 py-4 md:px-10 md:py-6">
             {/* Scene callout */}
             <div
               className="rounded-[10px] px-4 py-3 text-center text-[12px] leading-[1.6]"
@@ -1209,7 +1281,7 @@ function SimChat({
 
       {/* Composer */}
       <div
-        className="shrink-0 px-10 pb-6 pt-4"
+        className="shrink-0 px-4 pb-4 pt-2 md:px-10 md:pb-6 md:pt-4"
         style={{
           background: "var(--fs-bg)",
           borderTop: "1px solid var(--fs-line-2)",
@@ -1406,6 +1478,7 @@ function SimRightPanel({
   onChange,
   onSubmit,
   onReset,
+  className,
 }: {
   allocations: AssetAllocation["sections"];
   maxSubmissions: number;
@@ -1415,11 +1488,12 @@ function SimRightPanel({
   onChange: (s: number, i: number, v: number) => void;
   onSubmit: () => void;
   onReset: () => void;
+  className?: string;
 }) {
   if (allocations.length === 0) {
     return (
       <aside
-        className="flex w-[320px] shrink-0 flex-col"
+        className={`w-full shrink-0 flex-col md:w-[320px] ${className ?? "flex"}`}
         style={{
           background: "var(--fs-surface)",
           borderLeft: "1px solid var(--fs-line)",
@@ -1461,7 +1535,7 @@ function SimRightPanel({
 
   return (
     <aside
-      className="flex w-[320px] shrink-0 flex-col"
+      className={`w-full shrink-0 flex-col md:w-[320px] ${className ?? "flex"}`}
       style={{
         background: "var(--fs-surface)",
         borderLeft: "1px solid var(--fs-line)",
