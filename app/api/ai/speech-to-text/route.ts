@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
       return success({
         text: "",
         provider,
+        canFallback: true,
         message: "当前只接入了 MiMo Omni 语音识别尝试；请设置 STT_PROVIDER=mimo，或手动输入。",
       });
     }
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
       return success({
         text: "",
         provider: "mimo",
+        canFallback: true,
         message: "未配置 MIMO_API_KEY，无法使用云端语音识别。",
       });
     }
@@ -73,11 +75,23 @@ export async function POST(request: NextRequest) {
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      console.error("[speech-to-text] mimo returned", res.status, body.slice(0, 400));
+      // 4xx 通常是格式/鉴权问题，浏览器路径救不了；5xx + network err 才允许降级浏览器
+      const canFallback = res.status >= 500;
+      const userMsg =
+        res.status === 401 || res.status === 403
+          ? "云端语音识别鉴权失败：MIMO_API_KEY 无效或过期。"
+          : res.status === 415 || res.status === 400
+            ? "云端语音识别拒绝当前音频格式，请改用浏览器语音或手动输入。"
+            : res.status === 429
+              ? "云端语音识别已达限流，请稍后再试或手动输入。"
+              : `云端语音识别暂不可用：MiMo 返回 ${res.status}。`;
       return success({
         text: "",
         provider: "mimo",
         model,
-        message: `云端语音识别暂不可用：MiMo 返回 ${res.status} ${body.slice(0, 180)}`,
+        canFallback,
+        message: userMsg,
       });
     }
 
@@ -88,7 +102,8 @@ export async function POST(request: NextRequest) {
       text: usableText,
       provider: "mimo",
       model,
-      message: usableText ? "语音已转成文字，请确认后发送。" : "MiMo 未返回可用转写文本，请重试或手动输入。",
+      canFallback: !usableText,
+      message: usableText ? "语音已转成文字，请确认后发送。" : "MiMo 未返回可用转写文本，可切换浏览器实时识别或手动输入。",
     });
   } catch (err) {
     return handleServiceError(err);
