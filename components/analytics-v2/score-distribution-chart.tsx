@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, BarChart3 } from "lucide-react";
 import {
   Bar,
@@ -112,6 +112,12 @@ export default function ScoreDistributionChart({
 }: Props) {
   const [binCount, setBinCount] = useState<BinCount>(readStoredBinCount);
   const [mode, setMode] = useState<ViewMode>(readStoredMode);
+  const [chartReady, setChartReady] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setChartReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   function persistBinCount(next: BinCount) {
     setBinCount(next);
@@ -267,18 +273,20 @@ export default function ScoreDistributionChart({
           )}
         </div>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 pt-0 pb-1 px-3">
+      <CardContent className="flex-1 min-h-[240px] min-w-[1px] pt-0 pb-1 px-3">
         {!view || allClasses.classes.length === 0 ? (
           <EmptyPanel icon={BarChart3} title="学生成绩分布 · 暂无数据" description="当前范围内尚无已批改的提交；请先批改若干提交或扩大筛选范围。" />
+        ) : !chartReady ? (
+          <div className="h-full min-h-[240px] min-w-[1px]" aria-hidden="true" />
         ) : (
           <div
             role="img"
             aria-label="学生成绩分布柱状图，X 轴分数区间，Y 轴学生人数，按班级分组"
-            className="h-full"
+            className="h-full min-h-[240px] min-w-[1px]"
           >
             <ChartContainer
               config={mode === "single" ? singleConfig : allClasses.config}
-              className="h-full w-full"
+              className="h-full min-h-[240px] w-full min-w-[1px]"
             >
               <BarChart
                 data={chartData}

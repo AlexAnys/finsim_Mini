@@ -11,7 +11,7 @@ export interface WizardStep {
 export const WIZARD_STEPS: WizardStep[] = [
   { id: 0, label: "任务类型", desc: "选择要出的是哪种题" },
   { id: 1, label: "基本信息", desc: "名称、说明、时长" },
-  { id: 2, label: "任务配置", desc: "根据类型填写内容" },
+  { id: 2, label: "素材与配置", desc: "素材导入、AI 辅助与题目配置" },
   { id: 3, label: "预览并创建", desc: "确认后提交" },
 ];
 

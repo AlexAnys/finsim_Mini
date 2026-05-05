@@ -12,7 +12,7 @@ describe("task-wizard WIZARD_STEPS", () => {
     expect(WIZARD_STEPS.map((s) => s.label)).toEqual([
       "任务类型",
       "基本信息",
-      "任务配置",
+      "素材与配置",
       "预览并创建",
     ]);
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Plus, Trash2, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +37,13 @@ interface QuizQuestion {
   explanation: string;
 }
 
+interface QuestionBankIssue {
+  severity: "info" | "warning" | "critical";
+  message: string;
+  questionIndex?: number;
+  sourceRef?: string;
+}
+
 const QUESTION_TYPE_LABELS: Record<QuizQuestionType, string> = {
   single_choice: "单选题",
   multiple_choice: "多选题",
@@ -62,6 +69,8 @@ interface QuizStepProps {
   onOpenAIDialog: () => void;
   onGenerateFromContext?: () => void;
   contextGenerating?: boolean;
+  questionBankWorking?: "import" | "checkOptimize" | null;
+  questionBankIssues?: QuestionBankIssue[];
 }
 
 export function WizardStepQuiz({
@@ -82,6 +91,8 @@ export function WizardStepQuiz({
   onOpenAIDialog,
   onGenerateFromContext,
   contextGenerating = false,
+  questionBankWorking = null,
+  questionBankIssues = [],
 }: QuizStepProps) {
   const totalPoints = questions.reduce((s, q) => s + (q.points || 0), 0);
 
@@ -153,14 +164,14 @@ export function WizardStepQuiz({
                 variant="outline"
                 size="sm"
                 onClick={onGenerateFromContext}
-                disabled={contextGenerating}
+                disabled={contextGenerating || Boolean(questionBankWorking)}
               >
                 {contextGenerating ? (
                   <Loader2 className="size-3 mr-1 animate-spin" />
                 ) : (
                   <Sparkles className="size-3 mr-1" />
                 )}
-                素材生成
+                补全草稿
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={onOpenAIDialog}>
@@ -177,9 +188,31 @@ export function WizardStepQuiz({
         {errors.questions && (
           <p className="text-xs text-danger">{errors.questions}</p>
         )}
+        {questionBankIssues.length > 0 && (
+          <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <div className="flex items-center gap-1.5 font-semibold">
+              <AlertTriangle className="size-3.5" />
+              题库质检与优化结果
+            </div>
+            <div className="grid gap-1">
+              {questionBankIssues.slice(0, 6).map((issue, index) => (
+                <div key={`${issue.message}-${index}`} className="flex gap-2">
+                  <Badge variant="outline" className="h-5 border-amber-300 bg-white text-[10px] text-amber-800">
+                    {issue.severity === "critical" ? "严重" : issue.severity === "warning" ? "提醒" : "信息"}
+                  </Badge>
+                  <span className="min-w-0 flex-1">
+                    {typeof issue.questionIndex === "number" ? `第 ${issue.questionIndex + 1} 题：` : ""}
+                    {issue.message}
+                    {issue.sourceRef ? `（${issue.sourceRef}）` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {questions.length === 0 ? (
           <div className="rounded-lg border border-dashed border-line bg-paper-alt px-4 py-6 text-center text-xs text-ink-4">
-            暂无题目。点击右上角 <b>AI 出题</b> 让系统批量生成，或手动添加。
+            暂无题目。可以在上方 <b>课程素材与 AI 辅助</b> 中选择素材并导入题库，也可以用 <b>AI 出题</b> 或手动添加。
           </div>
         ) : (
           questions.map((q, qi) => (

@@ -6,7 +6,7 @@ import { success, handleServiceError } from "@/lib/api-utils";
 /**
  * GET /api/lms/weekly-insight
  * - teacher / admin only（requireRole(["teacher", "admin"]))
- * - 默认走 1h cache；?force=true 跳缓存重新调用 AI 生成
+ * - 默认走 7 天 cache；?force=true 跳缓存重新调用 AI 生成
  *
  * Returns WeeklyInsightResult（payload + generatedAt + windowStart/End + submissionCount + cached）。
  */

@@ -154,12 +154,51 @@ interface ContextDraftResponse {
   };
 }
 
+interface QuestionBankIssue {
+  severity: "info" | "warning" | "critical";
+  message: string;
+  questionIndex?: number;
+  sourceRef?: string;
+}
+
+interface QuestionBankResponse {
+  summary: string;
+  issues: QuestionBankIssue[];
+  questions: Array<{
+    type: QuizQuestionType;
+    prompt: string;
+    options?: QuizOption[];
+    correctOptionIds?: string[];
+    correctAnswer?: string;
+    points?: number;
+    explanation?: string;
+    needsReview?: boolean;
+    aiSupplemented?: boolean;
+    issues?: string[];
+  }>;
+  sourceSummary?: Array<{ id: string; fileName: string; conceptTags: string[] }>;
+}
+
+interface AsyncJobSnapshot {
+  id: string;
+  type: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled" | string;
+  progress: number;
+  error: string | null;
+  result?: unknown;
+}
+
 interface InitialTaskBuildDraft {
   id: string;
   taskType: string;
   title: string;
   description: string | null;
   sourceIds?: string[];
+  asyncJobId?: string | null;
+  status?: string;
+  progress?: number;
+  error?: string | null;
+  asyncJob?: AsyncJobSnapshot | null;
   draftPayload?: unknown;
 }
 
@@ -293,10 +332,24 @@ export function TaskWizardModal({
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [teacherBrief, setTeacherBrief] = useState("");
   const [draftSourceLabel, setDraftSourceLabel] = useState("");
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJob, setActiveJob] = useState<AsyncJobSnapshot | null>(null);
+  const [questionBankWorking, setQuestionBankWorking] = useState<"import" | "checkOptimize" | null>(null);
+  const [questionBankIssues, setQuestionBankIssues] = useState<QuestionBankIssue[]>([]);
 
   useEffect(() => {
     if (!open || !initialDraft) return;
     const payload = normalizeInitialDraftPayload(initialDraft.draftPayload);
+    setEditingDraftId(initialDraft.id);
+    setActiveJobId(initialDraft.asyncJobId ?? initialDraft.asyncJob?.id ?? null);
+    setActiveJob(initialDraft.asyncJob ?? null);
+    if (initialDraft.asyncJob?.status === "queued" || initialDraft.asyncJob?.status === "running") {
+      setQuestionBankWorking(payload?.questionBankReview?.action === "checkOptimize" ? "checkOptimize" : "import");
+    }
+    if (payload?.questionBankReview?.issues) {
+      setQuestionBankIssues(payload.questionBankReview.issues);
+    }
     if (payload?.form) {
       setForm((prev) => ({ ...prev, ...payload.form }));
       setSelectedSourceIds(initialDraft.sourceIds ?? payload.selectedSourceIds ?? []);
@@ -317,6 +370,50 @@ export function TaskWizardModal({
     setStep(1);
   }, [open, initialDraft]);
 
+  useEffect(() => {
+    if (!open || !activeJobId || !editingDraftId) return;
+    const currentDraftId = editingDraftId;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function pollJob() {
+      try {
+        const res = await fetch(`/api/async-jobs/${activeJobId}`);
+        const json = await res.json();
+        if (cancelled) return;
+        if (!json.success) {
+          timer = setTimeout(pollJob, 2500);
+          return;
+        }
+
+        const job = json.data as AsyncJobSnapshot;
+        setActiveJob(job);
+        if (job.status === "queued" || job.status === "running") {
+          timer = setTimeout(pollJob, 1800);
+          return;
+        }
+
+        setQuestionBankWorking(null);
+        await refreshCurrentDraft(currentDraftId);
+        onSuccess();
+
+        if (job.status === "succeeded") {
+          toast.success(job.type === "task_import_parse" ? "题库处理完成，草稿已更新" : "异步任务完成");
+        } else if (job.status === "failed") {
+          toast.error(job.error || "题库处理失败，可在草稿卡片中重试");
+        }
+      } catch {
+        if (!cancelled) timer = setTimeout(pollJob, 3000);
+      }
+    }
+
+    pollJob();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeJobId, editingDraftId, onSuccess, open]);
+
   function resetState() {
     setStep(0);
     setForm(makeInitialForm());
@@ -328,6 +425,11 @@ export function TaskWizardModal({
     setSelectedSourceIds([]);
     setTeacherBrief("");
     setDraftSourceLabel("");
+    setEditingDraftId(null);
+    setActiveJobId(null);
+    setActiveJob(null);
+    setQuestionBankWorking(null);
+    setQuestionBankIssues([]);
   }
 
   function handleClose() {
@@ -343,6 +445,93 @@ export function TaskWizardModal({
       delete next[key];
       return next;
     });
+  }
+
+  function buildDraftPayload(currentForm: FormData = form) {
+    return {
+      form: currentForm,
+      teacherBrief,
+      draftSourceLabel,
+      selectedSourceIds,
+      questionBankReview: questionBankIssues.length > 0
+        ? {
+            action: questionBankWorking === "checkOptimize" ? "checkOptimize" : "import",
+            summary: draftSourceLabel,
+            issues: questionBankIssues,
+            suggestions: [],
+            sourceSummary: [],
+            updatedAt: new Date().toISOString(),
+          }
+        : undefined,
+      context: context
+        ? {
+            chapterTitle: context.chapterTitle,
+            sectionTitle: context.sectionTitle,
+            slot: context.slot,
+          }
+        : undefined,
+    };
+  }
+
+  async function persistDraft(options: {
+    status?: "draft" | "queued" | "processing" | "ready" | "failed";
+    progress?: number;
+    asyncJobId?: string | null;
+    error?: string | null;
+  } = {}) {
+    if (!context) return null;
+    const missingFields = collectMissingFields(form);
+    const body = {
+      courseId: context.courseId,
+      chapterId: context.chapterId,
+      sectionId: context.sectionId,
+      slot: context.slot,
+      taskType: form.taskType,
+      title: form.taskName.trim() || "未命名任务草稿",
+      description: form.description.trim() || undefined,
+      status: options.status ?? (missingFields.length > 0 ? "draft" : "ready"),
+      progress: options.progress ?? activeJob?.progress ?? 0,
+      sourceIds: selectedSourceIds,
+      asyncJobId: options.asyncJobId ?? activeJobId ?? null,
+      missingFields,
+      draftPayload: buildDraftPayload(),
+      error: options.error ?? null,
+    };
+
+    const targetId = editingDraftId;
+    const res = await fetch(
+      targetId ? `/api/lms/task-build-drafts/${targetId}` : "/api/lms/task-build-drafts",
+      {
+        method: targetId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    const json = await res.json();
+    if (!json.success) {
+      throw new Error(json.error?.message || "保存草稿失败");
+    }
+    const draft = json.data as InitialTaskBuildDraft;
+    setEditingDraftId(draft.id);
+    return draft.id;
+  }
+
+  async function refreshCurrentDraft(draftId: string) {
+    const res = await fetch(`/api/lms/task-build-drafts/${draftId}`);
+    const json = await res.json();
+    if (!json.success) return;
+    const draft = json.data as InitialTaskBuildDraft;
+    const payload = normalizeInitialDraftPayload(draft.draftPayload);
+    setEditingDraftId(draft.id);
+    setActiveJobId(draft.asyncJobId ?? draft.asyncJob?.id ?? null);
+    setActiveJob(draft.asyncJob ?? null);
+    setSelectedSourceIds(draft.sourceIds ?? payload?.selectedSourceIds ?? []);
+    if (payload?.teacherBrief !== undefined) setTeacherBrief(payload.teacherBrief);
+    if (payload?.draftSourceLabel !== undefined) setDraftSourceLabel(payload.draftSourceLabel);
+    if (payload?.questionBankReview?.issues) setQuestionBankIssues(payload.questionBankReview.issues);
+    if (payload?.form) {
+      setForm((prev) => ({ ...prev, ...payload.form }));
+    }
   }
 
   // ---------- Requirements ----------
@@ -531,6 +720,62 @@ export function TaskWizardModal({
     }
   }
 
+  async function handleQuestionBankAction(action: "import" | "checkOptimize") {
+    if (!context) return;
+    if (action === "import" && selectedSourceIds.length === 0) {
+      toast.error("请先选择要导入的题库素材");
+      return;
+    }
+    if (action === "checkOptimize" && selectedSourceIds.length === 0 && form.questions.length === 0) {
+      toast.error("请先选择素材或添加题目后再质检优化");
+      return;
+    }
+
+    setQuestionBankWorking(action);
+    let jobStarted = false;
+    try {
+      const draftId = await persistDraft({ status: "draft", progress: 0, asyncJobId: null, error: null });
+      if (!draftId) {
+        toast.error("请先选择课程位置后再处理题库");
+        return;
+      }
+
+      const res = await fetch("/api/ai/question-bank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          async: true,
+          draftId,
+          action,
+          courseId: context.courseId,
+          chapterId: context.chapterId,
+          sectionId: context.sectionId,
+          sourceIds: selectedSourceIds,
+          teacherBrief,
+          questions: form.questions,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "题库处理失败");
+        return;
+      }
+
+      const job = json.data?.job as AsyncJobSnapshot | undefined;
+      if (job?.id) {
+        jobStarted = true;
+        setActiveJobId(job.id);
+        setActiveJob(job);
+        toast.success(action === "import" ? "题库导入已开始，草稿会显示进度" : "素材质检与优化已开始");
+        onSuccess();
+      }
+    } catch {
+      toast.error("题库处理失败，请稍后重试");
+    } finally {
+      if (!jobStarted) setQuestionBankWorking(null);
+    }
+  }
+
   function applyContextDraft(draft: ContextDraftResponse) {
     setForm((prev) => {
       const next: FormData = {
@@ -585,8 +830,8 @@ export function TaskWizardModal({
     const options =
       question.type === "true_false"
         ? [
-            { id: "T", text: "对" },
-            { id: "F", text: "错" },
+            { id: "A", text: "正确" },
+            { id: "B", text: "错误" },
           ]
         : question.options?.length
           ? question.options
@@ -680,42 +925,18 @@ export function TaskWizardModal({
     setSavingDraft(true);
     try {
       const missingFields = collectMissingFields(form);
-      const res = await fetch("/api/lms/task-build-drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          courseId: context.courseId,
-          chapterId: context.chapterId,
-          sectionId: context.sectionId,
-          slot: context.slot,
-          taskType: form.taskType,
-          title: form.taskName.trim() || "未命名任务草稿",
-          description: form.description.trim() || undefined,
-          sourceIds: selectedSourceIds,
-          missingFields,
-          draftPayload: {
-            form,
-            teacherBrief,
-            draftSourceLabel,
-            context: {
-              chapterTitle: context.chapterTitle,
-              sectionTitle: context.sectionTitle,
-              slot: context.slot,
-            },
-          },
-        }),
+      await persistDraft({
+        status: missingFields.length > 0 ? "draft" : "ready",
+        progress: activeJob?.progress ?? 0,
+        asyncJobId: activeJobId,
+        error: null,
       });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "保存草稿失败");
-        return;
-      }
       toast.success(missingFields.length > 0 ? "草稿已保存，可稍后补全" : "草稿已保存，待审核发布");
       resetState();
       onSuccess();
       onClose();
-    } catch {
-      toast.error("网络错误，请稍后重试");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "网络错误，请稍后重试");
     } finally {
       setSavingDraft(false);
     }
@@ -971,20 +1192,6 @@ export function TaskWizardModal({
             )}
             {step === 1 && (
               <>
-                {context && (
-                  <KnowledgeSourceAssistant
-                    courseId={context.courseId}
-                    chapterId={context.chapterId}
-                    sectionId={context.sectionId}
-                    taskType={form.taskType}
-                    selectedSourceIds={selectedSourceIds}
-                    teacherBrief={teacherBrief}
-                    generating={contextGenerating}
-                    onSelectedSourceIdsChange={setSelectedSourceIds}
-                    onTeacherBriefChange={setTeacherBrief}
-                    onGenerateDraft={handleGenerateFromContext}
-                  />
-                )}
                 <WizardStepBasic
                   taskName={form.taskName}
                   description={form.description}
@@ -1014,6 +1221,32 @@ export function TaskWizardModal({
                   </div>
                 </div>
               </>
+            )}
+            {step === 2 && context && (
+              <KnowledgeSourceAssistant
+                courseId={context.courseId}
+                chapterId={context.chapterId}
+                sectionId={context.sectionId}
+                taskType={form.taskType}
+                selectedSourceIds={selectedSourceIds}
+                teacherBrief={teacherBrief}
+                generating={contextGenerating}
+                questionBankWorking={questionBankWorking}
+                selectedQuestionCount={form.questions.length}
+                onSelectedSourceIdsChange={setSelectedSourceIds}
+                onTeacherBriefChange={setTeacherBrief}
+                onGenerateDraft={handleGenerateFromContext}
+                onImportQuestionBank={
+                  form.taskType === "quiz"
+                    ? () => handleQuestionBankAction("import")
+                    : undefined
+                }
+                onReviewQuestionBank={
+                  form.taskType === "quiz"
+                    ? () => handleQuestionBankAction("checkOptimize")
+                    : undefined
+                }
+              />
             )}
             {step === 2 && form.taskType === "simulation" && (
               <WizardStepSim
@@ -1067,6 +1300,8 @@ export function TaskWizardModal({
                 onOpenAIDialog={() => setAIDialogOpen(true)}
                 onGenerateFromContext={handleGenerateFromContext}
                 contextGenerating={contextGenerating}
+                questionBankWorking={questionBankWorking}
+                questionBankIssues={questionBankIssues}
               />
             )}
             {step === 2 && form.taskType === "subjective" && (
@@ -1188,9 +1423,20 @@ function normalizeInitialDraftPayload(payload: unknown): {
   teacherBrief?: string;
   draftSourceLabel?: string;
   selectedSourceIds?: string[];
+  questionBankReview?: {
+    action?: "import" | "checkOptimize";
+    summary?: string;
+    issues?: QuestionBankIssue[];
+    suggestions?: QuestionBankResponse["questions"];
+    sourceSummary?: QuestionBankResponse["sourceSummary"];
+    updatedAt?: string;
+  };
 } | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const data = payload as Record<string, unknown>;
+  const review = data.questionBankReview && typeof data.questionBankReview === "object" && !Array.isArray(data.questionBankReview)
+    ? (data.questionBankReview as Record<string, unknown>)
+    : null;
   return {
     form:
       data.form && typeof data.form === "object" && !Array.isArray(data.form)
@@ -1202,5 +1448,30 @@ function normalizeInitialDraftPayload(payload: unknown): {
     selectedSourceIds: Array.isArray(data.selectedSourceIds)
       ? data.selectedSourceIds.filter((id): id is string => typeof id === "string")
       : undefined,
+    questionBankReview: review
+      ? {
+          action: review.action === "checkOptimize" ? "checkOptimize" : "import",
+          summary: typeof review.summary === "string" ? review.summary : undefined,
+          issues: Array.isArray(review.issues)
+            ? review.issues.filter(isQuestionBankIssue)
+            : undefined,
+          suggestions: Array.isArray(review.suggestions)
+            ? (review.suggestions as QuestionBankResponse["questions"])
+            : undefined,
+          sourceSummary: Array.isArray(review.sourceSummary)
+            ? (review.sourceSummary as QuestionBankResponse["sourceSummary"])
+            : undefined,
+          updatedAt: typeof review.updatedAt === "string" ? review.updatedAt : undefined,
+        }
+      : undefined,
   };
+}
+
+function isQuestionBankIssue(value: unknown): value is QuestionBankIssue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const issue = value as Record<string, unknown>;
+  return (
+    (issue.severity === "info" || issue.severity === "warning" || issue.severity === "critical") &&
+    typeof issue.message === "string"
+  );
 }

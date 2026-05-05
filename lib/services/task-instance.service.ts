@@ -21,6 +21,32 @@ const taskSnapshotInclude = {
   quizQuestions: { orderBy: { order: "asc" } },
 } satisfies Prisma.TaskInclude;
 
+type PublishableTaskConfig = {
+  taskType: string;
+  simulationConfig?: unknown | null;
+  quizConfig?: unknown | null;
+  subjectiveConfig?: { prompt?: string | null } | null;
+  quizQuestions?: unknown[] | null;
+};
+
+export function assertTaskReadyForPublish(task: PublishableTaskConfig) {
+  if (task.taskType === "simulation" && !task.simulationConfig) {
+    throw new Error("TASK_CONFIG_INCOMPLETE");
+  }
+
+  if (task.taskType === "quiz") {
+    if (!task.quizConfig || !Array.isArray(task.quizQuestions) || task.quizQuestions.length === 0) {
+      throw new Error("TASK_CONFIG_INCOMPLETE");
+    }
+  }
+
+  if (task.taskType === "subjective") {
+    if (!task.subjectiveConfig?.prompt?.trim()) {
+      throw new Error("TASK_CONFIG_INCOMPLETE");
+    }
+  }
+}
+
 async function isAuthorizedForInstance(instance: { createdBy: string; courseId: string | null }, userId: string): Promise<boolean> {
   if (instance.createdBy === userId) return true;
   if (!instance.courseId) return false;
@@ -62,6 +88,7 @@ export async function createPublishedTaskWithInstance(
       include: taskSnapshotInclude,
     });
     if (!taskForSnapshot) throw new Error("TASK_NOT_FOUND");
+    assertTaskReadyForPublish(taskForSnapshot);
 
     const taskSnapshot = JSON.parse(JSON.stringify(taskForSnapshot)) as Prisma.InputJsonValue;
     const instance = await tx.taskInstance.create({
@@ -108,6 +135,7 @@ export async function publishTaskInstance(instanceId: string, createdBy: string)
   if (instance.status !== "draft") {
     throw new Error("INVALID_STATUS");
   }
+  assertTaskReadyForPublish(instance.task);
 
   // 冻结任务快照
   const taskSnapshot = JSON.parse(JSON.stringify(instance.task));

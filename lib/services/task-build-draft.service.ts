@@ -74,6 +74,85 @@ export async function createTaskBuildDraft(
   });
 }
 
+export async function getTaskBuildDraft(draftId: string) {
+  const draft = await prisma.taskBuildDraft.findUnique({
+    where: { id: draftId },
+  });
+  if (!draft) throw new Error("TASK_BUILD_DRAFT_NOT_FOUND");
+
+  if (!draft.asyncJobId) return draft;
+  const asyncJob = await prisma.asyncJob.findUnique({
+    where: { id: draft.asyncJobId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      progress: true,
+      error: true,
+      updatedAt: true,
+    },
+  });
+  return { ...draft, asyncJob };
+}
+
+export async function updateTaskBuildDraft(
+  draftId: string,
+  input: Partial<TaskBuildDraftInput>,
+) {
+  const existing = await prisma.taskBuildDraft.findUnique({
+    where: { id: draftId },
+    select: { id: true, courseId: true, chapterId: true, sectionId: true },
+  });
+  if (!existing) throw new Error("TASK_BUILD_DRAFT_NOT_FOUND");
+
+  const nextScope = {
+    courseId: input.courseId ?? existing.courseId,
+    chapterId:
+      input.chapterId === undefined ? existing.chapterId : input.chapterId,
+    sectionId:
+      input.sectionId === undefined ? existing.sectionId : input.sectionId,
+  };
+  await assertDraftScope(nextScope);
+
+  const data: Prisma.TaskBuildDraftUpdateInput = {};
+  if (input.courseId !== undefined) data.course = { connect: { id: input.courseId } };
+  if (input.chapterId !== undefined) {
+    data.chapter = input.chapterId ? { connect: { id: input.chapterId } } : { disconnect: true };
+  }
+  if (input.sectionId !== undefined) {
+    data.section = input.sectionId ? { connect: { id: input.sectionId } } : { disconnect: true };
+  }
+  if (input.slot !== undefined) data.slot = input.slot ?? null;
+  if (input.taskType !== undefined) data.taskType = input.taskType;
+  if (input.title !== undefined) data.title = normalizeTitle(input.title);
+  if (input.description !== undefined) {
+    data.description = normalizeOptionalText(input.description);
+  }
+  if (input.status !== undefined) data.status = input.status;
+  if (input.progress !== undefined) data.progress = clampProgress(input.progress);
+  if (input.sourceIds !== undefined) data.sourceIds = input.sourceIds;
+  if (input.asyncJobId !== undefined) data.asyncJobId = input.asyncJobId || null;
+  if (input.missingFields !== undefined) data.missingFields = input.missingFields;
+  if (input.draftPayload !== undefined) {
+    data.draftPayload = input.draftPayload ?? Prisma.JsonNull;
+  }
+  if (input.error !== undefined) data.error = normalizeOptionalText(input.error);
+
+  return prisma.taskBuildDraft.update({
+    where: { id: draftId },
+    data,
+  });
+}
+
+export async function deleteTaskBuildDraft(draftId: string) {
+  const existing = await prisma.taskBuildDraft.findUnique({
+    where: { id: draftId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("TASK_BUILD_DRAFT_NOT_FOUND");
+  return prisma.taskBuildDraft.delete({ where: { id: draftId } });
+}
+
 async function assertDraftScope(input: Pick<TaskBuildDraftInput, "courseId" | "chapterId" | "sectionId">) {
   const course = await prisma.course.findUnique({
     where: { id: input.courseId },

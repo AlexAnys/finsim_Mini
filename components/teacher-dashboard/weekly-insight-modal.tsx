@@ -123,7 +123,7 @@ export function WeeklyInsightModal({
               <span>本周纳入 {data.submissionCount} 份提交</span>
               {data.cached && (
                 <Badge variant="secondary" className="text-[11px]">
-                  缓存（1h）
+                  缓存（7天）
                 </Badge>
               )}
             </div>

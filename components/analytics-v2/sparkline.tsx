@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Line, LineChart, ResponsiveContainer, YAxis } from "recharts";
+import { Line, LineChart, YAxis } from "recharts";
 
 interface SparklineProps {
   data: Array<number | null>;
@@ -36,21 +36,19 @@ export function Sparkline({
     );
   }
   return (
-    <div style={{ height, width }} aria-hidden="true">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
-          <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
-          <Line
-            type="monotone"
-            dataKey="value"
-            stroke={color}
-            strokeWidth={1.5}
-            dot={false}
-            isAnimationActive={false}
-            connectNulls
-          />
-        </LineChart>
-      </ResponsiveContainer>
+    <div style={{ height, minHeight: 1, minWidth: 1, width }} aria-hidden="true">
+      <LineChart width={width} height={height} data={chartData} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+        <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          strokeWidth={1.5}
+          dot={false}
+          isAnimationActive={false}
+          connectNulls
+        />
+      </LineChart>
     </div>
   );
 }

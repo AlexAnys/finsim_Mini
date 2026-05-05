@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
+import { FileText, Loader2, RefreshCw, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,9 +30,13 @@ interface KnowledgeSourceAssistantProps {
   selectedSourceIds: string[];
   teacherBrief: string;
   generating: boolean;
+  questionBankWorking?: "import" | "checkOptimize" | null;
+  selectedQuestionCount?: number;
   onSelectedSourceIdsChange: (ids: string[]) => void;
   onTeacherBriefChange: (value: string) => void;
   onGenerateDraft: () => void;
+  onImportQuestionBank?: () => void;
+  onReviewQuestionBank?: () => void;
 }
 
 const TASK_LABELS: Record<TaskType, string> = {
@@ -68,9 +72,13 @@ export function KnowledgeSourceAssistant({
   selectedSourceIds,
   teacherBrief,
   generating,
+  questionBankWorking = null,
+  selectedQuestionCount = 0,
   onSelectedSourceIdsChange,
   onTeacherBriefChange,
   onGenerateDraft,
+  onImportQuestionBank,
+  onReviewQuestionBank,
 }: KnowledgeSourceAssistantProps) {
   const [sources, setSources] = useState<KnowledgeSourceItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -154,13 +162,52 @@ export function KnowledgeSourceAssistant({
   }
 
   const readySources = sources.filter((source) => source.status === "ready" || source.status === "ai_summary_failed");
+  const hasSelectedSources = selectedSourceIds.length > 0;
+  const showQuestionBankActions = taskType === "quiz";
 
   return (
     <WizardCard
-      title="课程素材 / AI 草稿助手"
-      subtitle={`上传或选择课程素材，让 AI 生成 ${TASK_LABELS[taskType]} 草稿；教师审核后才会创建。`}
+      title="课程素材与 AI 辅助"
+      subtitle={`上传或选择课程素材，用于${TASK_LABELS[taskType]}导入、检查、优化或补全草稿。`}
       extra={
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {showQuestionBankActions && onImportQuestionBank && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onImportQuestionBank}
+              disabled={Boolean(questionBankWorking) || !hasSelectedSources || uploading || generating}
+            >
+              {questionBankWorking === "import" ? (
+                <Loader2 className="size-3 mr-1 animate-spin" />
+              ) : (
+                <FileText className="size-3 mr-1" />
+              )}
+              题库导入
+            </Button>
+          )}
+          {showQuestionBankActions && onReviewQuestionBank && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onReviewQuestionBank}
+              disabled={
+                Boolean(questionBankWorking) ||
+                (!hasSelectedSources && selectedQuestionCount === 0) ||
+                uploading ||
+                generating
+              }
+            >
+              {questionBankWorking === "checkOptimize" ? (
+                <Loader2 className="size-3 mr-1 animate-spin" />
+              ) : (
+                <ShieldCheck className="size-3 mr-1" />
+              )}
+              质检优化
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -182,7 +229,7 @@ export function KnowledgeSourceAssistant({
             ) : (
               <Sparkles className="size-3 mr-1" />
             )}
-            生成草稿
+            素材补充
           </Button>
         </div>
       }
@@ -196,7 +243,7 @@ export function KnowledgeSourceAssistant({
           <Input
             ref={inputRef}
             type="file"
-            accept="application/pdf,.pdf,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
+            accept="application/pdf,.pdf,.docx,.xlsx,.xls,.csv,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
             className="mt-2 text-xs"
             disabled={uploading || generating}
             onChange={(event) => handleUpload(event.target.files?.[0] || null)}

@@ -100,6 +100,19 @@ const taskTypeIcons: Record<string, React.ComponentType<{ className?: string }>>
   subjective: FileText,
 };
 
+function getUnavailableReason(task: TaskInstanceDetail["task"]) {
+  if (task.taskType === "quiz") {
+    return "该测验尚未完成题目或测验配置，暂时不能作答。";
+  }
+  if (task.taskType === "subjective") {
+    return "该主观题尚未完成题干配置，暂时不能作答。";
+  }
+  if (task.taskType === "simulation") {
+    return "该模拟任务尚未完成场景配置，暂时不能进入。";
+  }
+  return "该任务尚未完成配置，暂时不能作答。";
+}
+
 function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
   const { task } = instance;
 
@@ -169,9 +182,20 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
 
   return (
     <Card>
-      <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
-        <AlertCircle className="size-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">任务配置异常，请联系教师</p>
+      <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+        <AlertCircle className="size-8 text-amber-600" />
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-foreground">任务暂不可用</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {getUnavailableReason(task)}请联系任课教师确认后再试。
+          </p>
+        </div>
+        <Link
+          href="/dashboard"
+          className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          返回学生首页
+        </Link>
       </CardContent>
     </Card>
   );

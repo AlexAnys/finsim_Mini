@@ -146,6 +146,41 @@ interface CourseOutlineSource {
   structuredData: unknown;
 }
 
+interface OutlineMergePreview {
+  chaptersToAdd: Array<{ title: string; sectionCount: number }>;
+  sectionsToAdd: Array<{ chapterTitle: string; title: string }>;
+  protectedItems: Array<{ type: string; title: string; reason: string }>;
+  notes: string[];
+}
+
+interface EditableOutlineSection {
+  title: string;
+  learningGoals: string[];
+  knowledgeObjectives: string[];
+  skillObjectives: string[];
+  knowledgePoints: string[];
+}
+
+interface EditableOutlineChapter {
+  title: string;
+  learningGoals: string[];
+  knowledgeObjectives: string[];
+  skillObjectives: string[];
+  knowledgePoints: string[];
+  sections: EditableOutlineSection[];
+}
+
+interface EditableOutlineDraft {
+  courseGoals: string[];
+  knowledgeObjectives: string[];
+  skillObjectives: string[];
+  valueObjectives: string[];
+  assessmentRequirements: string[];
+  globalKnowledgePoints: string[];
+  notes: string;
+  chapters: EditableOutlineChapter[];
+}
+
 interface CourseDetail {
   id: string;
   courseTitle: string;
@@ -191,6 +226,12 @@ export default function TeacherCourseDetailPage() {
   const [editCourseTitle, setEditCourseTitle] = useState("");
   const [editCourseDescription, setEditCourseDescription] = useState("");
   const [courseOutlineSources, setCourseOutlineSources] = useState<CourseOutlineSource[]>([]);
+  const [outlineActiveSourceId, setOutlineActiveSourceId] = useState<string | null>(null);
+  const [outlineDraftEditors, setOutlineDraftEditors] = useState<Record<string, EditableOutlineDraft>>({});
+  const [outlineMergePreview, setOutlineMergePreview] = useState<OutlineMergePreview | null>(null);
+  const [outlineMergePreviewSourceId, setOutlineMergePreviewSourceId] = useState<string | null>(null);
+  const [outlinePreviewingSourceId, setOutlinePreviewingSourceId] = useState<string | null>(null);
+  const [outlineApplyingSourceId, setOutlineApplyingSourceId] = useState<string | null>(null);
   const [savingEditCourse, setSavingEditCourse] = useState(false);
 
   const [courseClasses, setCourseClasses] = useState<
@@ -387,6 +428,10 @@ export default function TeacherCourseDetailPage() {
     if (!course) return;
     setEditCourseTitle(course.courseTitle);
     setEditCourseDescription(course.description ?? "");
+    setOutlineActiveSourceId(null);
+    setOutlineDraftEditors({});
+    setOutlineMergePreview(null);
+    setOutlineMergePreviewSourceId(null);
     setEditCourseDialogOpen(true);
     fetchCourseOutlineSources();
   }
@@ -399,6 +444,86 @@ export default function TeacherCourseDetailPage() {
       if (json.success) setCourseOutlineSources(json.data || []);
     } catch {
       // 课程编辑不因大纲素材加载失败而阻塞。
+    }
+  }
+
+  function openOutlineEditor(source: CourseOutlineSource) {
+    const nextSourceId = outlineActiveSourceId === source.id ? null : source.id;
+    setOutlineActiveSourceId(nextSourceId);
+    if (nextSourceId) {
+      setOutlineDraftEditors((prev) => {
+        if (prev[source.id]) return prev;
+        const draft = normalizeOutlineDraft(source.structuredData);
+        return draft ? { ...prev, [source.id]: draft } : prev;
+      });
+    }
+    if (outlineMergePreviewSourceId !== nextSourceId) {
+      setOutlineMergePreview(null);
+      setOutlineMergePreviewSourceId(null);
+    }
+  }
+
+  function updateOutlineEditor(sourceId: string, draft: EditableOutlineDraft) {
+    setOutlineDraftEditors((prev) => ({ ...prev, [sourceId]: draft }));
+    if (outlineMergePreviewSourceId === sourceId) {
+      setOutlineMergePreview(null);
+      setOutlineMergePreviewSourceId(null);
+    }
+  }
+
+  function outlineForSource(source: CourseOutlineSource) {
+    return outlineDraftEditors[source.id] || normalizeOutlineDraft(source.structuredData);
+  }
+
+  async function handleOutlineMergePreview(sourceId: string, outlineOverride?: EditableOutlineDraft | null) {
+    setOutlinePreviewingSourceId(sourceId);
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/outline-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceId, mode: "preview", outline: outlineOverride || undefined }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "生成目录差异失败");
+        return;
+      }
+      setOutlineActiveSourceId(sourceId);
+      setOutlineMergePreview(json.data.preview);
+      setOutlineMergePreviewSourceId(sourceId);
+      toast.success("已生成安全合并预览");
+    } catch {
+      toast.error("生成目录差异失败");
+    } finally {
+      setOutlinePreviewingSourceId(null);
+    }
+  }
+
+  async function handleOutlineSafeMerge(sourceId: string, outlineOverride?: EditableOutlineDraft | null) {
+    setOutlineApplyingSourceId(sourceId);
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/outline-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceId, mode: "apply", outline: outlineOverride || undefined }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "安全合并失败");
+        return;
+      }
+      setOutlineActiveSourceId(sourceId);
+      setOutlineMergePreview(json.data.applied?.preview || null);
+      setOutlineMergePreviewSourceId(sourceId);
+      const createdChapters = json.data.applied?.createdChapters?.length || 0;
+      const createdSections = json.data.applied?.createdSections?.length || 0;
+      toast.success(`已安全合并：新增 ${createdChapters} 章、${createdSections} 节`);
+      fetchCourse();
+      fetchCourseOutlineSources();
+    } catch {
+      toast.error("安全合并失败");
+    } finally {
+      setOutlineApplyingSourceId(null);
     }
   }
 
@@ -619,6 +744,57 @@ export default function TeacherCourseDetailPage() {
       setWizardOpen(true);
     },
     [course],
+  );
+
+  const handleDeleteDraft = useCallback(
+    async (draft: ApiTaskBuildDraft) => {
+      if (!window.confirm(`确认删除草稿「${draft.title}」？已发布任务和学生提交不会受影响。`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/lms/task-build-drafts/${draft.id}`, {
+          method: "DELETE",
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "删除草稿失败");
+          return;
+        }
+        if (wizardDraft?.id === draft.id) {
+          setWizardOpen(false);
+          setWizardDraft(null);
+        }
+        toast.success("草稿已删除");
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [fetchCourse, wizardDraft?.id],
+  );
+
+  const handleRetryDraftJob = useCallback(
+    async (draft: ApiTaskBuildDraft) => {
+      if (!draft.asyncJobId) {
+        toast.error("这个草稿没有可重试的异步任务");
+        return;
+      }
+      try {
+        const res = await fetch(`/api/async-jobs/${draft.asyncJobId}/retry`, {
+          method: "POST",
+        });
+        const json = await res.json();
+        if (!json.success) {
+          toast.error(json.error?.message || "重试失败");
+          return;
+        }
+        toast.success("已重新排队处理");
+        await fetchCourse();
+      } catch {
+        toast.error("网络错误，请稍后重试");
+      }
+    },
+    [fetchCourse],
   );
 
   async function handleUploadOutline() {
@@ -936,6 +1112,8 @@ export default function TeacherCourseDetailPage() {
                   onDeleteSection={handleDeleteSection}
                   onAddTask={handleAddTask}
                   onOpenDraft={handleOpenDraft}
+                  onDeleteDraft={handleDeleteDraft}
+                  onRetryDraftJob={handleRetryDraftJob}
                   onCreateBlock={handleCreateBlock}
                   onUpdateBlock={handleUpdateBlock}
                   onDeleteBlock={handleDeleteBlock}
@@ -1180,7 +1358,7 @@ export default function TeacherCourseDetailPage() {
                 <div>
                   <div className="text-sm font-semibold text-ink">AI 解析大纲管理</div>
                   <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-                    上传的课程大纲、课程标准和 Excel 编码表会被识别为课程级上下文。这里先展示 AI 建议，教师确认后再手动调整课程目录、学习目标、知识目标和技能目标。
+                    上传的课程大纲、课程标准和 Excel 编码表会被识别为课程级上下文。可先查看结构化结果，再用安全合并把缺失章节/小节同步到课程目录。
                   </p>
                 </div>
                 <Button
@@ -1202,33 +1380,99 @@ export default function TeacherCourseDetailPage() {
                 </p>
               ) : (
                 <div className="mt-3 space-y-2">
-                  {courseOutlineSources.slice(0, 3).map((source) => (
+                  {courseOutlineSources.slice(0, 5).map((source) => {
+                    const draft = outlineForSource(source);
+                    const hasOutline = Boolean(draft && draft.chapters.length > 0);
+                    return (
                     <div key={source.id} className="rounded-md border border-line bg-surface px-3 py-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium text-ink">{source.fileName}</span>
-                        <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10.5px] text-brand">
-                          {source.status === "ready" ? "可用" : source.status}
-                        </span>
-                        {outlineChapterCount(source.structuredData) > 0 && (
-                          <span className="rounded bg-paper-alt px-1.5 py-0.5 text-[10.5px] text-ink-4">
-                            AI 目录 · {outlineChapterCount(source.structuredData)} 章
-                          </span>
-                        )}
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-medium text-ink">{source.fileName}</span>
+                            <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10.5px] text-brand">
+                              {source.status === "ready" ? "可用" : source.status}
+                            </span>
+                            {hasOutline && (
+                              <span className="rounded bg-paper-alt px-1.5 py-0.5 text-[10.5px] text-ink-4">
+                                AI 目录 · {draft?.chapters.length || 0} 章
+                              </span>
+                            )}
+                          </div>
+                          {source.summary && (
+                            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                              {source.summary}
+                            </p>
+                          )}
+                          {outlineObjectiveSummary(source.structuredData) && (
+                            <p className="mt-1 text-[11px] leading-relaxed text-ink-4">
+                              {outlineObjectiveSummary(source.structuredData)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={!hasOutline}
+                            onClick={() => openOutlineEditor(source)}
+                          >
+                            编辑目录草稿
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              !hasOutline ||
+                              outlinePreviewingSourceId === source.id
+                            }
+                            onClick={() => handleOutlineMergePreview(source.id, draft)}
+                          >
+                            {outlinePreviewingSourceId === source.id ? (
+                              <Loader2 className="mr-1.5 size-3 animate-spin" />
+                            ) : null}
+                            预览合并
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={
+                              !hasOutline ||
+                              outlineApplyingSourceId === source.id
+                            }
+                            onClick={() => handleOutlineSafeMerge(source.id, draft)}
+                          >
+                            {outlineApplyingSourceId === source.id ? (
+                              <Loader2 className="mr-1.5 size-3 animate-spin" />
+                            ) : null}
+                            安全合并
+                          </Button>
+                        </div>
                       </div>
-                      {source.summary && (
-                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                          {source.summary}
-                        </p>
-                      )}
-                      {outlineObjectiveSummary(source.structuredData) && (
-                        <p className="mt-1 text-[11px] leading-relaxed text-ink-4">
-                          {outlineObjectiveSummary(source.structuredData)}
-                        </p>
+                      {outlineActiveSourceId === source.id && (
+                        <div className="mt-3 space-y-3 rounded-md border border-line bg-paper px-3 py-3">
+                          {draft ? (
+                            <OutlineEditableDraft
+                              draft={draft}
+                              currentChapters={course?.chapters || []}
+                              preview={outlineMergePreviewSourceId === source.id ? outlineMergePreview : null}
+                              isPreviewing={outlinePreviewingSourceId === source.id}
+                              isApplying={outlineApplyingSourceId === source.id}
+                              onChange={(nextDraft) => updateOutlineEditor(source.id, nextDraft)}
+                              onPreview={() => handleOutlineMergePreview(source.id, draft)}
+                              onApply={() => handleOutlineSafeMerge(source.id, draft)}
+                            />
+                          ) : (
+                            <OutlineDraftDetails value={source.structuredData} />
+                          )}
+                        </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   <p className="text-[11px] text-muted-foreground">
-                    完整解析文本、目标分类和删除操作在“教学上下文”Tab 中管理。
+                    素材删除、原文查看和标签管理在“教学上下文”Tab 中进行；安全合并不会删除已有任务或提交。
                   </p>
                 </div>
               )}
@@ -1276,7 +1520,7 @@ export default function TeacherCourseDetailPage() {
               <Input
                 id="outlineFile"
                 type="file"
-                accept=".pdf,.docx,.doc,.txt,.md,.zip,.png,.jpg,.jpeg,.xlsx,.xls,.csv"
+                accept=".pdf,.docx,.txt,.md,.zip,.png,.jpg,.jpeg,.xlsx,.xls,.csv"
                 onChange={(event) => setOutlineFile(event.target.files?.[0] ?? null)}
               />
               <p className="mt-2 text-xs text-muted-foreground">
@@ -1336,10 +1580,420 @@ export default function TeacherCourseDetailPage() {
   );
 }
 
-function outlineChapterCount(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
-  const chapters = (value as { chapters?: unknown }).chapters;
-  return Array.isArray(chapters) ? chapters.length : 0;
+function OutlineEditableDraft({
+  draft,
+  currentChapters,
+  preview,
+  isPreviewing,
+  isApplying,
+  onChange,
+  onPreview,
+  onApply,
+}: {
+  draft: EditableOutlineDraft;
+  currentChapters: ApiChapter[];
+  preview: OutlineMergePreview | null;
+  isPreviewing: boolean;
+  isApplying: boolean;
+  onChange: (draft: EditableOutlineDraft) => void;
+  onPreview: () => void;
+  onApply: () => void;
+}) {
+  const updateList = (
+    field: "courseGoals" | "knowledgeObjectives" | "skillObjectives" | "valueObjectives" | "assessmentRequirements" | "globalKnowledgePoints",
+    value: string,
+  ) => onChange({ ...draft, [field]: parseLines(value) });
+
+  const updateChapter = (chapterIndex: number, patch: Partial<EditableOutlineChapter>) => {
+    onChange({
+      ...draft,
+      chapters: draft.chapters.map((chapter, index) =>
+        index === chapterIndex ? { ...chapter, ...patch } : chapter,
+      ),
+    });
+  };
+
+  const updateSection = (
+    chapterIndex: number,
+    sectionIndex: number,
+    patch: Partial<EditableOutlineSection>,
+  ) => {
+    onChange({
+      ...draft,
+      chapters: draft.chapters.map((chapter, index) => {
+        if (index !== chapterIndex) return chapter;
+        return {
+          ...chapter,
+          sections: chapter.sections.map((section, sIndex) =>
+            sIndex === sectionIndex ? { ...section, ...patch } : section,
+          ),
+        };
+      }),
+    });
+  };
+
+  const removeChapter = (chapterIndex: number) => {
+    onChange({ ...draft, chapters: draft.chapters.filter((_, index) => index !== chapterIndex) });
+  };
+
+  const addChapter = () => {
+    onChange({
+      ...draft,
+      chapters: [
+        ...draft.chapters,
+        {
+          title: "新章节",
+          learningGoals: [],
+          knowledgeObjectives: [],
+          skillObjectives: [],
+          knowledgePoints: [],
+          sections: [],
+        },
+      ],
+    });
+  };
+
+  const addSection = (chapterIndex: number) => {
+    onChange({
+      ...draft,
+      chapters: draft.chapters.map((chapter, index) =>
+        index === chapterIndex
+          ? {
+              ...chapter,
+              sections: [
+                ...chapter.sections,
+                {
+                  title: "新小节",
+                  learningGoals: [],
+                  knowledgeObjectives: [],
+                  skillObjectives: [],
+                  knowledgePoints: [],
+                },
+              ],
+            }
+          : chapter,
+      ),
+    });
+  };
+
+  const removeSection = (chapterIndex: number, sectionIndex: number) => {
+    onChange({
+      ...draft,
+      chapters: draft.chapters.map((chapter, index) =>
+        index === chapterIndex
+          ? {
+              ...chapter,
+              sections: chapter.sections.filter((_, sIndex) => sIndex !== sectionIndex),
+            }
+          : chapter,
+      ),
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <details open className="rounded-md border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-ink">
+          课程背景与目标草稿
+        </summary>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <OutlineTextarea
+            label="课程目标"
+            value={joinLines(draft.courseGoals)}
+            onChange={(value) => updateList("courseGoals", value)}
+          />
+          <OutlineTextarea
+            label="课程级知识点"
+            value={joinLines(draft.globalKnowledgePoints)}
+            onChange={(value) => updateList("globalKnowledgePoints", value)}
+          />
+          <OutlineTextarea
+            label="知识目标"
+            value={joinLines(draft.knowledgeObjectives)}
+            onChange={(value) => updateList("knowledgeObjectives", value)}
+          />
+          <OutlineTextarea
+            label="技能目标"
+            value={joinLines(draft.skillObjectives)}
+            onChange={(value) => updateList("skillObjectives", value)}
+          />
+          <OutlineTextarea
+            label="素养/思政目标"
+            value={joinLines(draft.valueObjectives)}
+            onChange={(value) => updateList("valueObjectives", value)}
+          />
+          <OutlineTextarea
+            label="评价要求"
+            value={joinLines(draft.assessmentRequirements)}
+            onChange={(value) => updateList("assessmentRequirements", value)}
+          />
+        </div>
+        <div className="mt-3 space-y-1">
+          <Label className="text-xs text-ink-3">教师确认备注</Label>
+          <Textarea
+            value={draft.notes}
+            onChange={(event) => onChange({ ...draft, notes: event.target.value })}
+            rows={2}
+            className="text-xs"
+            placeholder="记录需要确认、暂不合并或后续补充的地方。"
+          />
+        </div>
+      </details>
+
+      <details open className="rounded-md border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-ink">
+          可编辑课程目录草稿 · {draft.chapters.length} 章
+        </summary>
+        <div className="mt-3 space-y-3">
+          {draft.chapters.map((chapter, chapterIndex) => (
+            <div key={`${chapter.title}-${chapterIndex}`} className="rounded-md border border-line bg-paper px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={chapter.title}
+                  onChange={(event) => updateChapter(chapterIndex, { title: event.target.value })}
+                  className="h-8 flex-1 text-sm font-medium"
+                  placeholder="章节标题"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addSection(chapterIndex)}
+                >
+                  添加小节
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeChapter(chapterIndex)}
+                >
+                  删除章
+                </Button>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                <OutlineTextarea
+                  label="本章学习目标"
+                  value={joinLines(chapter.learningGoals)}
+                  onChange={(value) => updateChapter(chapterIndex, { learningGoals: parseLines(value) })}
+                />
+                <OutlineTextarea
+                  label="本章知识点"
+                  value={joinLines(chapter.knowledgePoints)}
+                  onChange={(value) => updateChapter(chapterIndex, { knowledgePoints: parseLines(value) })}
+                />
+              </div>
+              <div className="mt-2 space-y-2">
+                {chapter.sections.map((section, sectionIndex) => (
+                  <div key={`${section.title}-${sectionIndex}`} className="rounded border border-line bg-surface px-2.5 py-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={section.title}
+                        onChange={(event) =>
+                          updateSection(chapterIndex, sectionIndex, { title: event.target.value })
+                        }
+                        className="h-8 flex-1 text-xs"
+                        placeholder="小节标题"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeSection(chapterIndex, sectionIndex)}
+                      >
+                        删除
+                      </Button>
+                    </div>
+                    <div className="mt-2">
+                      <OutlineTextarea
+                        label="本节知识点"
+                        value={joinLines(section.knowledgePoints)}
+                        onChange={(value) =>
+                          updateSection(chapterIndex, sectionIndex, { knowledgePoints: parseLines(value) })
+                        }
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+                ))}
+                {chapter.sections.length === 0 && (
+                  <p className="rounded border border-dashed border-line bg-surface px-2 py-2 text-xs text-muted-foreground">
+                    该章节暂无小节草稿，可以添加后再预览合并。
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+          <Button type="button" variant="outline" size="sm" onClick={addChapter}>
+            添加章节草稿
+          </Button>
+        </div>
+      </details>
+
+      <details className="rounded-md border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-ink">
+          当前课程目录 · {currentChapters.length} 章
+        </summary>
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          {currentChapters.map((chapter) => (
+            <div key={chapter.id} className="rounded border border-line bg-paper-alt px-2.5 py-2">
+              <div className="text-xs font-semibold text-ink">{chapter.title}</div>
+              <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                {chapter.sections.map((section) => (
+                  <div key={section.id} className="flex justify-between gap-2">
+                    <span>{section.title}</span>
+                    {section.taskInstances.length > 0 && <span>{section.taskInstances.length} 个任务</span>}
+                  </div>
+                ))}
+                {chapter.sections.length === 0 && <div>暂无小节</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {preview && <OutlineMergePreviewPanel preview={preview} />}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onPreview} disabled={isPreviewing}>
+          {isPreviewing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+          按当前草稿预览合并
+        </Button>
+        <Button type="button" size="sm" onClick={onApply} disabled={isApplying}>
+          {isApplying ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+          应用当前草稿安全合并
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function OutlineTextarea({
+  label,
+  value,
+  onChange,
+  rows = 3,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-ink-3">{label}</Label>
+      <Textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={rows}
+        className="text-xs"
+        placeholder="每行一条，可在合并前调整。"
+      />
+    </div>
+  );
+}
+
+function OutlineDraftDetails({ value }: { value: unknown }) {
+  const data = normalizeOutlineDraft(value);
+  if (!data) {
+    return <p className="text-xs text-muted-foreground">该素材暂无结构化目录。</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <details open className="rounded-md border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-ink">课程背景与目标</summary>
+        <div className="mt-2 grid gap-2 text-xs leading-relaxed text-muted-foreground sm:grid-cols-2">
+          <OutlineList title="课程目标" items={data.courseGoals} />
+          <OutlineList title="知识目标" items={data.knowledgeObjectives} />
+          <OutlineList title="技能目标" items={data.skillObjectives} />
+          <OutlineList title="素养/思政目标" items={data.valueObjectives} />
+          <OutlineList title="评价要求" items={data.assessmentRequirements} />
+        </div>
+      </details>
+      <details className="rounded-md border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-ink">
+          AI 目录草稿 · {data.chapters.length} 章
+        </summary>
+        <div className="mt-2 space-y-2">
+          {data.chapters.slice(0, 8).map((chapter, index) => (
+            <div key={`${chapter.title}-${index}`} className="rounded border border-line bg-paper-alt px-2.5 py-2">
+              <div className="text-xs font-semibold text-ink">
+                {index + 1}. {chapter.title || "未命名章节"}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {chapter.knowledgePoints.slice(0, 6).map((point) => (
+                  <span key={point} className="rounded bg-surface px-1.5 py-0.5 text-[10.5px] text-ink-4">
+                    {point}
+                  </span>
+                ))}
+              </div>
+              {chapter.sections.length > 0 && (
+                <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {chapter.sections.map((section) => section.title).filter(Boolean).join(" / ")}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function OutlineList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <div className="font-semibold text-ink-3">{title}</div>
+      {items.length === 0 ? (
+        <div className="text-ink-5">暂无识别内容</div>
+      ) : (
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+          {items.slice(0, 5).map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function OutlineMergePreviewPanel({ preview }: { preview: OutlineMergePreview }) {
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+      <div className="font-semibold">安全合并预览</div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        <div>
+          <div className="font-medium">新增章节 {preview.chaptersToAdd.length}</div>
+          <div className="mt-1 space-y-0.5 text-amber-900">
+            {preview.chaptersToAdd.slice(0, 4).map((item) => (
+              <div key={item.title}>{item.title}（{item.sectionCount} 节）</div>
+            ))}
+            {preview.chaptersToAdd.length === 0 && <div>无</div>}
+          </div>
+        </div>
+        <div>
+          <div className="font-medium">新增小节 {preview.sectionsToAdd.length}</div>
+          <div className="mt-1 space-y-0.5 text-amber-900">
+            {preview.sectionsToAdd.slice(0, 4).map((item) => (
+              <div key={`${item.chapterTitle}-${item.title}`}>{item.chapterTitle} / {item.title}</div>
+            ))}
+            {preview.sectionsToAdd.length === 0 && <div>无</div>}
+          </div>
+        </div>
+        <div>
+          <div className="font-medium">受保护内容 {preview.protectedItems.length}</div>
+          <div className="mt-1 space-y-0.5 text-amber-900">
+            {preview.protectedItems.slice(0, 4).map((item) => (
+              <div key={`${item.type}-${item.title}`}>{item.title}：{item.reason}</div>
+            ))}
+            {preview.protectedItems.length === 0 && <div>无</div>}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 text-[11px] text-amber-800">{preview.notes.join(" ")}</div>
+    </div>
+  );
 }
 
 function outlineObjectiveSummary(value: unknown) {
@@ -1366,4 +2020,89 @@ function outlineObjectiveSummary(value: unknown) {
     })
     .filter(Boolean);
   return parts.join(" · ");
+}
+
+function normalizeOutlineDraft(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const data = value as {
+    courseGoals?: unknown;
+    knowledgeObjectives?: unknown;
+    skillObjectives?: unknown;
+    valueObjectives?: unknown;
+    assessmentRequirements?: unknown;
+    globalKnowledgePoints?: unknown;
+    notes?: unknown;
+    chapters?: unknown;
+  };
+  const chapters = Array.isArray(data.chapters)
+    ? data.chapters
+        .map((raw) => {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+          const chapter = raw as {
+            title?: unknown;
+            learningGoals?: unknown;
+            knowledgeObjectives?: unknown;
+            skillObjectives?: unknown;
+            knowledgePoints?: unknown;
+            sections?: unknown;
+          };
+          return {
+            title: typeof chapter.title === "string" ? chapter.title : "",
+            learningGoals: stringArray(chapter.learningGoals),
+            knowledgeObjectives: stringArray(chapter.knowledgeObjectives),
+            skillObjectives: stringArray(chapter.skillObjectives),
+            knowledgePoints: stringArray(chapter.knowledgePoints),
+            sections: Array.isArray(chapter.sections)
+              ? chapter.sections
+                  .map((rawSection) => {
+                    if (!rawSection || typeof rawSection !== "object" || Array.isArray(rawSection)) return null;
+                    const section = rawSection as {
+                      title?: unknown;
+                      learningGoals?: unknown;
+                      knowledgeObjectives?: unknown;
+                      skillObjectives?: unknown;
+                      knowledgePoints?: unknown;
+                    };
+                    return {
+                      title: typeof section.title === "string" ? section.title : "",
+                      learningGoals: stringArray(section.learningGoals),
+                      knowledgeObjectives: stringArray(section.knowledgeObjectives),
+                      skillObjectives: stringArray(section.skillObjectives),
+                      knowledgePoints: stringArray(section.knowledgePoints),
+                    };
+                  })
+                  .filter((section): section is EditableOutlineSection => Boolean(section))
+              : [],
+          };
+        })
+        .filter((chapter): chapter is EditableOutlineChapter => Boolean(chapter))
+    : [];
+
+  return {
+    courseGoals: stringArray(data.courseGoals),
+    knowledgeObjectives: stringArray(data.knowledgeObjectives),
+    skillObjectives: stringArray(data.skillObjectives),
+    valueObjectives: stringArray(data.valueObjectives),
+    assessmentRequirements: stringArray(data.assessmentRequirements),
+    globalKnowledgePoints: stringArray(data.globalKnowledgePoints),
+    notes: typeof data.notes === "string" ? data.notes : "",
+    chapters,
+  };
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+}
+
+function parseLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function joinLines(values: string[]) {
+  return values.join("\n");
 }

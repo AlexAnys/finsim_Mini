@@ -1,12 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dot,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -136,8 +135,9 @@ const InternalLineChart = dynamic(
         return point[primaryKey] === null ? last : index;
       }, -1);
       return (
-        <ResponsiveContainer width="100%" height="100%">
           <LineChart
+            width={160}
+            height={36}
             data={chartData}
             margin={{ top: 4, right: 4, left: 4, bottom: 2 }}
           >
@@ -208,7 +208,6 @@ const InternalLineChart = dynamic(
               connectNulls
             />
           </LineChart>
-        </ResponsiveContainer>
       );
     }),
   { ssr: false, loading: () => null },
@@ -229,6 +228,11 @@ function TrailingLineChart({
   const secondaryCount = data.filter((p) =>
     focus === "completion" ? p.avgNormalizedScore !== null : p.completionRate !== null,
   ).length;
+  const [chartReady, setChartReady] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setChartReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   if (Math.max(primaryCount, secondaryCount) < 2) {
     return (
       <div
@@ -241,12 +245,20 @@ function TrailingLineChart({
   }
   const primaryLabel = focus === "completion" ? "完成" : "均分";
   const secondaryLabel = focus === "completion" ? "均分" : "完成";
+  if (!chartReady) {
+    return (
+      <div
+        className={`h-full w-full min-h-[1px] min-w-[1px] ${className ?? ""}`}
+        aria-hidden="true"
+      />
+    );
+  }
   return (
     <div
-      className={`flex h-full w-full min-w-0 flex-col ${className ?? ""}`}
+      className={`flex h-full w-full min-w-[1px] flex-col ${className ?? ""}`}
       aria-label="最近十次任务双线趋势"
     >
-      <div className="min-h-0 flex-1">
+      <div className="min-h-[1px] min-w-[1px] flex-1">
         <InternalLineChart data={data} focus={focus} />
       </div>
       <div className="flex h-3 items-center justify-end gap-2 text-[9px] leading-none text-muted-foreground">
@@ -326,36 +338,36 @@ function TrailingRiskList({
       </div>
     );
   }
-  const visibleChapters = chapters.slice(0, 2);
-  const visibleStudents = students.slice(0, 2);
+  const visibleChapters = chapters.slice(0, 1);
+  const visibleStudents = students.slice(0, 1);
   const visibleTotal = visibleChapters.length + visibleStudents.length;
   return (
     <ul
-      className={`flex h-full w-full flex-col justify-center gap-1 ${className ?? ""}`}
+      className={`flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden ${className ?? ""}`}
       aria-label="风险样本"
     >
       {visibleChapters.map((c) => (
         <li
           key={`ch-${c.chapterId}`}
-          className="truncate text-[11px] leading-tight"
+          className="flex min-w-0 items-center text-[10px] leading-[1.15]"
           title={`章节 ${c.title}`}
         >
-          <span className="mr-1 rounded bg-destructive/10 px-1 text-[9px] text-destructive">章</span>
-          {c.title}
+          <span className="mr-1 shrink-0 rounded bg-destructive/10 px-1 text-[9px] text-destructive">章</span>
+          <span className="min-w-0 truncate">{c.title}</span>
         </li>
       ))}
       {visibleStudents.map((s) => (
         <li
           key={`st-${s.studentId}`}
-          className="truncate text-[11px] leading-tight"
+          className="flex min-w-0 items-center text-[10px] leading-[1.15]"
           title={`学生 ${s.name}`}
         >
-          <span className="mr-1 rounded bg-amber-100 px-1 text-[9px] text-amber-800">生</span>
-          {s.name}
+          <span className="mr-1 shrink-0 rounded bg-amber-100 px-1 text-[9px] text-amber-800">生</span>
+          <span className="min-w-0 truncate">{s.name}</span>
         </li>
       ))}
       {total > visibleTotal && (
-        <li className="text-[10px] text-muted-foreground leading-tight">
+        <li className="truncate text-[9.5px] leading-[1.1] text-muted-foreground">
           + 更多 {total - visibleTotal}
         </li>
       )}

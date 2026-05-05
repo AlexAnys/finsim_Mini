@@ -187,6 +187,18 @@ interface InlineSectionRowProps {
     sectionId: string,
     slot: SlotType,
   ) => void;
+  onDeleteDraft: (
+    draft: InlineTaskBuildDraft,
+    chapterId: string,
+    sectionId: string,
+    slot: SlotType,
+  ) => Promise<void> | void;
+  onRetryDraftJob: (
+    draft: InlineTaskBuildDraft,
+    chapterId: string,
+    sectionId: string,
+    slot: SlotType,
+  ) => Promise<void> | void;
   onCreateBlock: (
     chapterId: string,
     sectionId: string,
@@ -209,6 +221,8 @@ export function InlineSectionRow({
   onDeleteSection,
   onAddTask,
   onOpenDraft,
+  onDeleteDraft,
+  onRetryDraftJob,
   onCreateBlock,
   onUpdateBlock,
   onDeleteBlock,
@@ -484,57 +498,86 @@ export function InlineSectionRow({
                       ? `${jobStatusLabel(job.status)} · ${job.type}`
                       : DRAFT_STATUS_LABEL[draft.status] ?? draft.status;
                     const displayError = job?.error || draft.error;
+                    const questionCount = countDraftQuestions(draft.draftPayload);
 
                     return (
-                    <button
-                      key={draft.id}
-                      type="button"
-                      onClick={() => onOpenDraft(draft, chapter.id, section.id, slot)}
-                      className={cn(
-                        "w-full rounded-md border px-2 py-1.5 text-left text-xs transition hover:ring-2 hover:ring-brand-soft",
-                        DRAFT_STATUS_CLASS[draft.status] ??
-                          "border-line bg-paper-alt text-ink-3",
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Sparkles className="size-3 shrink-0" />
-                        <span className="truncate font-medium">
-                          {draft.title}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-                        <Badge
-                          variant="outline"
-                          className="h-4 px-1 py-0 text-[10px]"
-                        >
-                          {TASK_TYPE_LABEL[draft.taskType] ?? draft.taskType}
-                        </Badge>
-                        <span>{statusLabel}</span>
-                        {displayProgress > 0 && (
-                          <span className="tabular-nums opacity-70">
-                            {displayProgress}%
-                          </span>
+                      <div
+                        key={draft.id}
+                        className={cn(
+                          "w-full rounded-md border px-2 py-1.5 text-xs transition hover:ring-2 hover:ring-brand-soft",
+                          DRAFT_STATUS_CLASS[draft.status] ??
+                            "border-line bg-paper-alt text-ink-3",
                         )}
-                      </div>
-                      {job && (
-                        <div className="mt-1 h-1 rounded-full bg-white/70">
-                          <div
-                            className="h-1 rounded-full bg-current transition-all"
-                            style={{ width: `${Math.max(4, Math.min(100, displayProgress))}%` }}
-                          />
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onOpenDraft(draft, chapter.id, section.id, slot)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <Sparkles className="size-3 shrink-0" />
+                            <span className="truncate font-medium">
+                              {draft.title}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                            <Badge
+                              variant="outline"
+                              className="h-4 px-1 py-0 text-[10px]"
+                            >
+                              {TASK_TYPE_LABEL[draft.taskType] ?? draft.taskType}
+                            </Badge>
+                            <span>{statusLabel}</span>
+                            {displayProgress > 0 && (
+                              <span className="tabular-nums opacity-70">
+                                {displayProgress}%
+                              </span>
+                            )}
+                            {questionCount > 0 && (
+                              <span className="tabular-nums opacity-70">
+                                {questionCount} 题
+                              </span>
+                            )}
+                          </div>
+                          {job && (
+                            <div className="mt-1 h-1 rounded-full bg-white/70">
+                              <div
+                                className="h-1 rounded-full bg-current transition-all"
+                                style={{ width: `${Math.max(4, Math.min(100, displayProgress))}%` }}
+                              />
+                            </div>
+                          )}
+                          {draft.missingFields.length > 0 && (
+                            <p className="mt-1 line-clamp-1 text-[10px] opacity-70">
+                              待补：{draft.missingFields.slice(0, 3).join("、")}
+                            </p>
+                          )}
+                          {displayError && (
+                            <p className="mt-1 line-clamp-1 text-[10px] text-danger">
+                              {displayError}
+                            </p>
+                          )}
+                        </button>
+                        <div className="mt-1 flex items-center justify-end gap-1 border-t border-current/10 pt-1">
+                          {job?.status === "failed" && (
+                            <button
+                              type="button"
+                              onClick={() => onRetryDraftJob(draft, chapter.id, section.id, slot)}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-medium hover:bg-white/70"
+                            >
+                              重试
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onDeleteDraft(draft, chapter.id, section.id, slot)}
+                            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-danger hover:bg-white/70"
+                          >
+                            <Trash2 className="size-2.5" />
+                            删除
+                          </button>
                         </div>
-                      )}
-                      {draft.missingFields.length > 0 && (
-                        <p className="mt-1 line-clamp-1 text-[10px] opacity-70">
-                          待补：{draft.missingFields.slice(0, 3).join("、")}
-                        </p>
-                      )}
-                      {displayError && (
-                        <p className="mt-1 line-clamp-1 text-[10px] text-danger">
-                          {displayError}
-                        </p>
-                      )}
-                    </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -665,4 +708,17 @@ function jobStatusLabel(status: string) {
     default:
       return status;
   }
+}
+
+function countDraftQuestions(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return 0;
+  const form = (payload as Record<string, unknown>).form;
+  if (!form || typeof form !== "object" || Array.isArray(form)) return 0;
+  const questions = (form as Record<string, unknown>).questions;
+  if (!Array.isArray(questions)) return 0;
+  return questions.filter((question) => {
+    if (!question || typeof question !== "object" || Array.isArray(question)) return false;
+    const stem = (question as Record<string, unknown>).stem;
+    return typeof stem === "string" && stem.trim().length > 0;
+  }).length;
 }

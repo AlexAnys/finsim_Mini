@@ -137,12 +137,12 @@ export function KpiStrip({ data }: { data: KpiStripData }) {
         urgent={data.pendingCount > 0}
       />
       <KpiCell
-        label="典型实例"
+        label="薄弱任务"
         value={data.weakInstanceCount}
         sub={
           data.weakInstanceCount > 0
             ? "低均分，建议讲解"
-            : "无低分实例"
+            : "暂无薄弱任务"
         }
         icon={Target}
         tone="danger"

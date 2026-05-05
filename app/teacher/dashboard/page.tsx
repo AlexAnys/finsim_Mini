@@ -13,6 +13,7 @@ import {
   WeeklyInsightModal,
   type WeeklyInsightUiResult,
 } from "@/components/teacher-dashboard/weekly-insight-modal";
+import { toast } from "sonner";
 import {
   buildActivityFeed,
   buildClassPerformance,
@@ -227,13 +228,21 @@ export default function TeacherDashboardPage() {
         setWeeklyError(json.error?.message || "生成洞察失败");
         return;
       }
-      setWeeklyData(json.data as WeeklyInsightUiResult);
+      const nextData = json.data as WeeklyInsightUiResult;
+      if (force && weeklyData) {
+        if (weeklyData.submissionCount === nextData.submissionCount) {
+          toast.info("本周纳入数据量没有变化，已刷新当前洞察。");
+        } else {
+          toast.success("一周洞察已刷新。");
+        }
+      }
+      setWeeklyData(nextData);
     } catch {
       setWeeklyError("网络错误，请稍后重试");
     } finally {
       setWeeklyLoading(false);
     }
-  }, []);
+  }, [weeklyData]);
 
   const handleWeeklyClick = useCallback(() => {
     setWeeklyOpen(true);

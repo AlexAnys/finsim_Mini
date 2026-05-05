@@ -50,6 +50,18 @@ interface Props {
     sectionId: string,
     slot: SlotType,
   ) => void;
+  onDeleteDraft: (
+    draft: InlineTaskBuildDraft,
+    chapterId: string,
+    sectionId: string,
+    slot: SlotType,
+  ) => Promise<void> | void;
+  onRetryDraftJob: (
+    draft: InlineTaskBuildDraft,
+    chapterId: string,
+    sectionId: string,
+    slot: SlotType,
+  ) => Promise<void> | void;
   onCreateBlock: (
     chapterId: string,
     sectionId: string,
@@ -74,6 +86,8 @@ export function ChapterSectionList({
   onDeleteSection,
   onAddTask,
   onOpenDraft,
+  onDeleteDraft,
+  onRetryDraftJob,
   onCreateBlock,
   onUpdateBlock,
   onDeleteBlock,
@@ -134,6 +148,8 @@ export function ChapterSectionList({
                       onDeleteSection={onDeleteSection}
                       onAddTask={onAddTask}
                       onOpenDraft={onOpenDraft}
+                      onDeleteDraft={onDeleteDraft}
+                      onRetryDraftJob={onRetryDraftJob}
                       onCreateBlock={onCreateBlock}
                       onUpdateBlock={onUpdateBlock}
                       onDeleteBlock={onDeleteBlock}

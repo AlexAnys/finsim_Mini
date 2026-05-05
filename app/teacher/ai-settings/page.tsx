@@ -87,7 +87,7 @@ export default function AiSettingsPage() {
           thinking: tool.thinking,
           temperature: tool.temperature,
           systemPromptSuffix: tool.systemPromptSuffix,
-          enableSearch: tool.enableSearch,
+          enableSearch: searchConfigured ? tool.enableSearch : false,
           strictness: tool.strictness,
           outputStyle: tool.outputStyle,
         }),
@@ -129,7 +129,7 @@ export default function AiSettingsPage() {
           </p>
         </div>
         <Badge variant="outline" className={searchConfigured ? "bg-success-soft text-success" : "bg-warn-soft text-warn"}>
-          搜索 provider：{searchConfigured ? "已配置" : "未配置"}
+          {searchConfigured ? "搜索已启用" : "搜索未启用 · AI 不会联网搜索"}
         </Badge>
       </div>
 
@@ -206,10 +206,13 @@ export default function AiSettingsPage() {
                     <div className="flex items-center justify-between rounded-lg border border-line p-3">
                       <div>
                         <div className="text-sm font-medium text-ink-2">搜索增强</div>
-                        <div className="text-xs text-ink-4">未配置时不会伪造结果。</div>
+                        <div className="text-xs text-ink-4">
+                          {searchConfigured ? "允许使用已配置搜索 provider。" : "搜索未启用，AI 不会联网搜索或伪造结果。"}
+                        </div>
                       </div>
                       <Switch
-                        checked={tool.enableSearch}
+                        checked={searchConfigured && tool.enableSearch}
+                        disabled={!searchConfigured}
                         onCheckedChange={(checked) => updateTool(tool.key, { enableSearch: checked })}
                       />
                     </div>

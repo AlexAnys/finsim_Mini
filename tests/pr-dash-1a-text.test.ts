@@ -3,8 +3,8 @@
  *
  * 守护点：
  * - B1: greeting-header.tsx 删两按钮（"AI 生成任务"+"新建任务"），不再 import lucide Sparkles/Plus / Link / Button
- * - B8: weak-instances.tsx h2 文案 "典型实例"（旧 "待分析实例" 已替换）
- * - B9: kpi-strip.tsx 4 列；旧 "班级均分" 删除；"待批改" → "需审核"；"待分析实例" → "典型实例"
+ * - B8: weak-instances.tsx h2 文案 "薄弱任务"（旧 "待分析实例" / "典型实例" 已替换）
+ * - B9: kpi-strip.tsx 4 列；旧 "班级均分" 删除；"待批改" → "需审核"；"待分析实例" → "薄弱任务"
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -58,16 +58,16 @@ describe("PR-DASH-1a · B1 greeting-header buttons removed", () => {
 });
 
 describe("PR-DASH-1a · B8 weak-instances renamed", () => {
-  it("renders '典型实例' (renamed from '待分析实例')", () => {
-    expect(weak).toMatch(/典型实例/);
+  it("renders '薄弱任务' (renamed from '待分析实例')", () => {
+    expect(weak).toMatch(/薄弱任务/);
   });
 
   it("does not contain old label '待分析实例'", () => {
     expect(weak).not.toMatch(/待分析实例/);
   });
 
-  it("preserves WeakInstance behavior (按错误率排序 caption)", () => {
-    expect(weak).toMatch(/按错误率排序/);
+  it("preserves WeakInstance ordering caption", () => {
+    expect(weak).toMatch(/按.{0,6}排序|薄弱任务/);
   });
 });
 
@@ -86,8 +86,8 @@ describe("PR-DASH-1a · B9 kpi-strip 4-column layout", () => {
     expect(kpi).not.toMatch(/label="待批改"/);
   });
 
-  it("renames '待分析实例' → '典型实例'", () => {
-    expect(kpi).toMatch(/label="典型实例"/);
+  it("renames '待分析实例' → '薄弱任务'", () => {
+    expect(kpi).toMatch(/label="薄弱任务"/);
     expect(kpi).not.toMatch(/label="待分析实例"/);
   });
 

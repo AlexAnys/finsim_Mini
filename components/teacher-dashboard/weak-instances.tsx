@@ -16,13 +16,13 @@ export function WeakInstances({ items }: WeakInstancesProps) {
   return (
     <section>
       <header className="mb-2.5 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-ink-2">典型实例</h2>
-        <span className="text-xs text-ink-4">按错误率排序 · 前 3</span>
+        <h2 className="text-[15px] font-semibold text-ink-2">薄弱任务</h2>
+        <span className="text-xs text-ink-4">按低分风险排序 · 前 3</span>
       </header>
       {items.length === 0 ? (
         <Card className="py-6">
           <p className="text-center text-sm text-ink-4">
-            暂无低分实例，等待更多批改数据
+            暂无薄弱任务，等待更多批改数据
           </p>
         </Card>
       ) : (
