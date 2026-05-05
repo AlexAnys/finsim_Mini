@@ -16,7 +16,7 @@ import { teacherCourseFilter } from "@/lib/services/course.service";
  *  - upcomingClassRecommendations — 接下来 N 节课的教学建议
  *  - highlightSummary — 本周教学需关注摘要
  *
- * Cache 1h（in-memory Map by teacherId + 时间戳）。?force=true 跳缓存重新生成。
+ * Cache 7d（in-memory Map by teacherId + 时间戳）。?force=true 跳缓存重新生成。
  */
 
 // ============================================
@@ -82,7 +82,7 @@ interface CacheEntry {
   expiresAt: number;
 }
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const cache = new Map<string, CacheEntry>();
 
 /** Test-only helper: 清空缓存以便单测之间隔离。 */
@@ -372,6 +372,7 @@ export async function generateWeeklyInsight(
   const { systemPrompt, userPrompt } = buildWeeklyInsightPrompt(promptInput);
 
   let payload: WeeklyInsightPayload;
+  let aiSucceeded = true;
   try {
     const ai = await aiGenerateJSON(
       "weeklyInsight",
@@ -388,6 +389,7 @@ export async function generateWeeklyInsight(
       highlightSummary: ai.highlightSummary,
     };
   } catch (err) {
+    aiSucceeded = false;
     console.error("[weekly-insight] AI 聚合失败，降级返回空 payload：", err);
     payload = {
       weakConceptsByCourse: [],
@@ -410,10 +412,19 @@ export async function generateWeeklyInsight(
     cached: false,
   };
 
-  cache.set(teacherId, {
-    result,
-    expiresAt: now.getTime() + CACHE_TTL_MS,
-  });
+  // 仅成功结果或"无可聚合数据"才写长缓存；AI 失败用短缓存避免锁死 7 天。
+  const noData = aiSucceeded === false && promptInput.submissions.length === 0;
+  if (aiSucceeded || noData) {
+    cache.set(teacherId, {
+      result,
+      expiresAt: now.getTime() + CACHE_TTL_MS,
+    });
+  } else {
+    cache.set(teacherId, {
+      result,
+      expiresAt: now.getTime() + 5 * 60 * 1000,
+    });
+  }
 
   return result;
 }

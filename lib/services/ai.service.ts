@@ -206,8 +206,26 @@ function createProvider(config: ProviderConfig) {
   });
 }
 
-export function getProviderOptions(provider: ProviderConfig, setting?: AiRuntimeSetting | null) {
-  const thinking = setting?.thinking || "disabled";
+// 这些 feature 必须返回严格 JSON。即便 setting/数据库里启了 thinking，也强制
+// 关闭 reasoning，避免 reasoning_content 吃光输出 token 导致 content 为空 / JSON 截断。
+const JSON_FORCE_DISABLE_THINKING: ReadonlySet<AIFeature> = new Set([
+  "weeklyInsight",
+  "importParse",
+  "questionAnalysis",
+  "examCheck",
+  "insights",
+  "quizDraft",
+  "subjectiveDraft",
+  "taskDraft",
+]);
+
+export function getProviderOptions(
+  provider: ProviderConfig,
+  setting?: AiRuntimeSetting | null,
+  feature?: AIFeature,
+) {
+  const baseThinking = setting?.thinking || "disabled";
+  const thinking = feature && JSON_FORCE_DISABLE_THINKING.has(feature) ? "disabled" : baseThinking;
   if (provider.name === "mimo") {
     return {
       openai: {
@@ -354,12 +372,65 @@ function checkRateLimit(userId: string, feature: AIFeature): boolean {
 // JSON 解析鲁棒性
 // ============================================
 
+// 通过平衡括号扫描，找出第一个完整的顶层 JSON 对象。
+// 解决贪心 `\{[\s\S]*\}` 在 thinking 模型输出中跨多个 {...} 截到非法 JSON 的问题。
+function extractBalancedJson(text: string): string | null {
+  let inString = false;
+  let escape = false;
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        return text.slice(start, i + 1);
+      }
+      if (depth < 0) {
+        depth = 0;
+        start = -1;
+      }
+    }
+  }
+  return null;
+}
+
 function extractJSON(text: string): string {
-  // 去除 markdown 代码块
-  const cleaned = text.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "");
-  // 尝试提取 JSON 对象
+  // 1. 去除 markdown 代码块标记
+  const cleaned = text
+    .replace(/```(?:json|JSON)?\s*/g, "")
+    .replace(/```\s*/g, "")
+    .trim();
+  // 2. 平衡括号扫描第一个完整 JSON 对象（覆盖 thinking 模式 reasoning 文本污染）
+  const balanced = extractBalancedJson(cleaned);
+  if (balanced) return balanced;
+  // 3. 兜底：贪心匹配（旧行为，保证不退化已有 case）
   const match = cleaned.match(/\{[\s\S]*\}/);
   return match ? match[0] : cleaned;
+}
+
+function isJsonShapeError(err: Error): boolean {
+  if (err instanceof SyntaxError) return true;
+  if (err.name === "ZodError") return true;
+  // 其他匹配
+  const msg = err.message.toLowerCase();
+  return /unexpected (?:end|token)|json|zod/.test(msg);
 }
 
 function errorMessage(err: unknown) {
@@ -406,7 +477,7 @@ export async function aiGenerateText(
       prompt: userPrompt,
       temperature,
       maxOutputTokens: 4096,
-      providerOptions: getProviderOptions(provider, setting),
+      providerOptions: getProviderOptions(provider, setting, feature),
     });
 
     await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: text });
@@ -453,13 +524,19 @@ export async function aiGenerateJSON<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      // 上一轮是 JSON / Schema 失败时，下一轮在 prompt 末尾追加严格 JSON 提示
+      const repairHint =
+        attempt > 0 && lastError && isJsonShapeError(lastError)
+          ? "\n\n上一次返回的 JSON 不完整或包含多余内容，请只输出严格 JSON 对象，不要 Markdown 代码块、不要多余文字。"
+          : "";
       const { text } = await generateText({
         model: openai.chat(model),
         system: mergedSystemPrompt,
-        prompt: userPrompt,
+        prompt: userPrompt + repairHint,
         temperature,
-        maxOutputTokens: 4096,
-        providerOptions: getProviderOptions(provider, setting),
+        // 提高输出上限：weeklyInsight / questionBank 长 prompt 在 4096 容易截断
+        maxOutputTokens: 8192,
+        providerOptions: getProviderOptions(provider, setting, feature),
       });
 
       const jsonStr = extractJSON(text);

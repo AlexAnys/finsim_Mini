@@ -151,8 +151,27 @@ async function performAsyncJob(job: AsyncJob): Promise<JsonInput | undefined> {
       };
     }
     case "task_draft_generate":
-    case "task_import_parse":
       throw new Error("ASYNC_JOB_HANDLER_NOT_IMPLEMENTED");
+    case "task_import_parse": {
+      await updateAsyncJobProgress(job.id, 15);
+      const { runQuestionBankProcessing } = await import("@/lib/services/question-bank.service");
+      const draftId = readInputString(job, "draftId");
+      try {
+        return await runQuestionBankProcessing(job.input, job.createdBy, (progress) =>
+          updateAsyncJobProgress(job.id, progress).then(() => undefined),
+        );
+      } catch (err) {
+        if (draftId) {
+          const { updateTaskBuildDraft } = await import("@/lib/services/task-build-draft.service");
+          await updateTaskBuildDraft(draftId, {
+            status: "failed",
+            progress: 0,
+            error: errorMessage(err),
+          }).catch(() => undefined);
+        }
+        throw err;
+      }
+    }
     case "analytics_recompute": {
       const courseId = readInputString(job, "courseId") || job.entityId;
       if (!courseId) throw new Error("COURSE_NOT_FOUND");
