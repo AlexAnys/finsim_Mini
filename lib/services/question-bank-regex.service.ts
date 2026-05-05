@@ -101,26 +101,29 @@ export function parseStructuredQuestionBank(rawText: string): RegexParseResult {
 // Helpers
 // ============================================
 
-/** 全角→半角 + 空白标准化 + 删 OCR 噪声页眉页脚 */
+/** 全角→半角（限定不会破坏题干语义）+ 空白标准化 + 删 OCR 噪声页眉页脚 */
 export function normalize(text: string): string {
   if (!text) return "";
   let out = text;
-  // 全角符号→半角（句末标点 / 括号 / 冒号）
+  // 全角括号、全角冒号、全角问号 → 半角（影响 regex 锚点的标点）
+  // 注意：不动 `、` `，` `。` —— 中文题号 `1、` 是结构信号，不能转 `.`
   out = out
     .replace(/【/g, "[")
     .replace(/】/g, "]")
     .replace(/（/g, "(")
     .replace(/）/g, ")")
     .replace(/：/g, ":")
-    .replace(/；/g, ";")
-    .replace(/？/g, "?")
-    .replace(/，/g, ",")
-    .replace(/、/g, ",")
-    .replace(/。/g, ".");
-  // 移除中括号内典型页脚: [第 X 页] [Page X] 等
-  out = out.replace(/\[第\s*\d+\s*页\]/g, "").replace(/\[Page\s*\d+\]/gi, "");
-  // 标准化换行 + 多空行压缩为 2 行
+    .replace(/？/g, "?");
+  // 移除典型页脚 / 页码：[第 X 页] / [Page X] / -- 1 of 5 -- / 第 X 页共 Y 页
+  out = out
+    .replace(/\[第\s*\d+\s*页\]/g, "")
+    .replace(/\[Page\s*\d+\]/gi, "")
+    .replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gim, "")
+    .replace(/^\s*第\s*\d+\s*页\s*共\s*\d+\s*页\s*$/gm, "")
+    .replace(/^\s*-\s*\d+\s*-\s*$/gm, "");
+  // 标准化换行
   out = out.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // 多空行压缩为 2 行
   out = out.replace(/\n{3,}/g, "\n\n");
   // 行尾空白
   out = out
@@ -158,12 +161,12 @@ function splitIntoQuestionBlocks(text: string): string[] {
   return blocks.filter((b) => b.length > 0);
 }
 
-/** 识别「这一行像题目起始」 */
+/** 识别「这一行像题目起始」 — 不识别 (1) (2) 形式以避免误吞简答题答案的项目编号 */
 function isQuestionStartAnchor(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return false;
-  // 1. 1. / 1、 / 1) / (1) — 后接非选项标记
-  if (/^\(?\d+\s*[.、)]/.test(trimmed) && !/^\(?[A-Ha-h]/.test(trimmed)) {
+  // 1. "1. " / "1、" / "1)"  题号 — 但不接 A-H（防选项行被误判）
+  if (/^\d+\s*[.、)]\s*\S/.test(trimmed) && !/^\d+\s*[.、)]\s*[A-Ha-h]\b/.test(trimmed)) {
     return true;
   }
   // 2. 第 X 题
@@ -184,7 +187,12 @@ function parseSingleQuestion(block: string): ParsedQuestion | null {
   const lines = block.split("\n");
   if (lines.length === 0) return null;
 
-  // 第 1 步：判定题型（标记 > 选项推断 > 默认 single_choice）
+  // 不是题号锚点行起始 → 不算题（过滤掉文档标题、说明文字等噪声前缀块）
+  // 跳过空行后找第一个非空行
+  const firstNonEmpty = lines.find((l) => l.trim().length > 0) ?? "";
+  if (!isQuestionStartAnchor(firstNonEmpty)) return null;
+
+  // 第 1 步：判定显式题型（标记 / 题干末尾标注）
   const explicitType = detectExplicitType(block);
   // 第 2 步：抽 prompt
   const prompt = extractPrompt(lines);
@@ -200,13 +208,24 @@ function parseSingleQuestion(block: string): ParsedQuestion | null {
   // 题型推断
   let type: ParsedQuestionType = explicitType ?? "single_choice";
   if (!explicitType) {
+    // 优先级 1：选项里就是「正确/错误」二选一 → 判断题
     if (options.length === 2 && /^(对|错|正确|错误|true|false|t|f)$/i.test(options[0]?.text ?? "")) {
       type = "true_false";
-    } else if (options.length === 0) {
+    }
+    // 优先级 2：无选项 + 答案是布尔词 → 判断题（这是真实 PDF 的常见格式）
+    // 中文 \b 不工作，改用：要么是单独的布尔词（短文本 ≤ 4 字符），要么以布尔词开头紧跟标点/空白
+    else if (options.length === 0 && !answer.optionIds.length && isBooleanAnswer(answer.text)) {
+      type = "true_false";
+    }
+    // 优先级 3：无选项 → 简答 / 填空（题干含下划线）
+    else if (options.length === 0) {
       type = "short_answer";
-    } else if (Array.isArray(answer.optionIds) && answer.optionIds.length > 1) {
+    }
+    // 优先级 4：选项 ≥ 2 + 答案是多个字母 → 多选
+    else if (Array.isArray(answer.optionIds) && answer.optionIds.length > 1) {
       type = "multiple_choice";
     }
+    // 否则单选
   }
 
   // 判断题特殊归一化
@@ -218,10 +237,11 @@ function parseSingleQuestion(block: string): ParsedQuestion | null {
       { id: "A", text: "正确" },
       { id: "B", text: "错误" },
     ];
-    if (/^(对|正确|true|t)$/i.test(correctAnswer)) {
+    const ans = answer.text.trim();
+    if (/^(?:对|正确|true|t)(?:[\s,，。.!！?？]|$)/i.test(ans)) {
       correctOptionIds = ["A"];
       correctAnswer = "";
-    } else if (/^(错|错误|false|f)$/i.test(correctAnswer)) {
+    } else if (/^(?:错|错误|false|f)(?:[\s,，。.!！?？]|$)/i.test(ans)) {
       correctOptionIds = ["B"];
       correctAnswer = "";
     }
@@ -269,12 +289,26 @@ function parseSingleQuestion(block: string): ParsedQuestion | null {
   };
 }
 
+/** 判断答案是否为「布尔词」(对/错/正确/错误/true/false) — 中文 \b 不可用，独立判断 */
+function isBooleanAnswer(rawAnswer: string): boolean {
+  const trimmed = rawAnswer.trim();
+  if (!trimmed) return false;
+  // 简单情况：整个答案就是布尔词
+  if (/^(?:对|错|正确|错误|true|false|t|f)$/i.test(trimmed)) return true;
+  // 答案以布尔词开头紧跟标点 / 空白
+  if (/^(?:对|错|正确|错误|true|false)(?:[\s,，。.!！?？]|$)/i.test(trimmed)) return true;
+  return false;
+}
+
 function detectExplicitType(block: string): ParsedQuestionType | null {
   const m = block.match(/\[(单选|单选题|多选|多选题|判断|判断题|正误|简答|简答题|问答|问答题|论述|论述题)\]/);
   if (m) return TYPE_LABELS[m[1]] ?? null;
-  // 题号后紧跟"单选/多选/判断/简答"
+  // 题号后紧跟 "单选 / 多选 / 判断 / 简答"
   const m2 = block.match(/^[^\n]{0,12}(单选题|多选题|判断题|简答题|问答题|论述题)/);
   if (m2) return TYPE_LABELS[m2[1]] ?? null;
+  // 题干括号末尾标记：(简答题) / (判断题) / (单选题)
+  const m3 = block.match(/\((单选题|多选题|判断题|简答题|问答题|论述题)\)/);
+  if (m3) return TYPE_LABELS[m3[1]] ?? null;
   return null;
 }
 
@@ -315,14 +349,19 @@ function extractOptions(lines: string[]): Array<{ id: string; text: string }> {
   const options: Array<{ id: string; text: string }> = [];
   for (const line of lines) {
     const trimmed = line.trim();
-    const m = trimmed.match(/^\(?([A-Ha-h])\)?\s*[.、:]?\s*(.+)$/);
+    const m = trimmed.match(/^\(?([A-Ha-h])\)?\s*[.、:]\s*(.+)$/);
     if (m) {
       const id = m[1].toUpperCase();
       const text = m[2].trim();
       if (text) options.push({ id, text });
     } else if (options.length > 0) {
-      // 选项续行：如果当前行不是新选项 / 答案 / 解析，且上一行是选项，就把它接到上一项
-      if (!isAnswerLine(trimmed) && !isExplanationLine(trimmed) && trimmed) {
+      // 选项续行：仅当当前行不是新选项 / 答案 / 解析 / 新题号锚点时才追加
+      if (
+        !isAnswerLine(trimmed) &&
+        !isExplanationLine(trimmed) &&
+        !isQuestionStartAnchor(trimmed) &&
+        trimmed
+      ) {
         options[options.length - 1].text += " " + trimmed;
       }
     }
@@ -330,25 +369,49 @@ function extractOptions(lines: string[]): Array<{ id: string; text: string }> {
   return options;
 }
 
-/** 抽答案 — 既支持选项 ID 又支持简答文本 */
+/** 抽答案 — 既支持选项 ID 又支持简答文本（多行答案直到下一题号 / 块结束） */
 function extractAnswer(block: string): { optionIds: string[]; text: string } {
-  // 答案: A / 答案: AB / 答案: A、B / 答案: 对
-  const m = block.match(/(?:答案|参考答案|正确答案|答|Answer)\s*[:：]\s*([^\n]+)/i);
-  if (!m) return { optionIds: [], text: "" };
-  const raw = m[1].trim();
-  // 优先尝试选项 ID
-  const ids = raw.match(/[A-Ha-h]/g);
-  if (ids && ids.length > 0 && raw.length <= 30) {
-    return { optionIds: Array.from(new Set(ids.map((s) => s.toUpperCase()))), text: "" };
+  // 找 "答案: ..." 起始位置
+  const startMatch = block.match(/(?:答案|参考答案|正确答案|答|Answer)\s*[:：]\s*/i);
+  if (!startMatch || startMatch.index === undefined) return { optionIds: [], text: "" };
+  const startIdx = startMatch.index + startMatch[0].length;
+  // 从此处往后取，直到下一题号锚点 / 解析关键字 / 块结束
+  const tail = block.slice(startIdx);
+  const lines = tail.split("\n");
+  const collected: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (isQuestionStartAnchor(trimmed)) break;
+    if (isExplanationLine(trimmed)) break;
+    collected.push(line);
+  }
+  const raw = collected.join("\n").trim();
+  if (!raw) return { optionIds: [], text: "" };
+  // 单行 or 短文本（≤ 30 字）才尝试选项 ID 推断（避免简答题答案里的字母被误当作选项）
+  const firstLine = raw.split("\n")[0].trim();
+  if (firstLine.length <= 30 && !/[一-鿿]{4,}/.test(firstLine)) {
+    const ids = firstLine.match(/[A-Ha-h]/g);
+    if (ids && ids.length > 0) {
+      return { optionIds: Array.from(new Set(ids.map((s) => s.toUpperCase()))), text: "" };
+    }
   }
   return { optionIds: [], text: raw };
 }
 
-/** 抽解析 */
+/** 抽解析（支持多段，直到下一题号 / 块结束） */
 function extractExplanation(block: string): string {
-  const m = block.match(/(?:解析|解答|解释|分析|Explanation)\s*[:：]\s*([\s\S]*?)(?=(?:\n\s*\n|$))/i);
-  if (!m) return "";
-  return m[1].trim();
+  const startMatch = block.match(/(?:解析|解答|解释|分析|Explanation)\s*[:：]\s*/i);
+  if (!startMatch || startMatch.index === undefined) return "";
+  const startIdx = startMatch.index + startMatch[0].length;
+  const tail = block.slice(startIdx);
+  const lines = tail.split("\n");
+  const collected: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (isQuestionStartAnchor(trimmed)) break;
+    collected.push(line);
+  }
+  return collected.join("\n").trim();
 }
 
 // ============================================

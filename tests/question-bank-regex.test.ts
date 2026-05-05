@@ -132,6 +132,106 @@ B. 负债
     expect(r.unparsedTail.length).toBeGreaterThanOrEqual(0);
   });
 
+  it("真实 PDF：1、 顿号题号 + 单选 A、 选项 + 答案: B", () => {
+    const text = `
+个人理财-题库
+1、稳健型投资者在进行资产配置时，主要配置高波动性的金融产品。
+答案： 错误
+2、下列哪种金融工具最适合稳健型投资者？
+A、 期货合约
+B、 货币市场基金
+C、 期权交易
+D、 创业投资基金
+答案： B
+`;
+    const r = parseStructuredQuestionBank(text);
+    expect(r.questions.length).toBeGreaterThanOrEqual(2);
+    // 第 1 题应被识别为判断题（无选项 + 答案"错误"）
+    expect(r.questions[0].type).toBe("true_false");
+    expect(r.questions[0].correctOptionIds).toEqual(["B"]); // 错误 → B
+    // 第 2 题为单选
+    expect(r.questions[1].type).toBe("single_choice");
+    expect(r.questions[1].options).toHaveLength(4);
+    expect(r.questions[1].correctOptionIds).toEqual(["B"]);
+  });
+
+  it("真实 PDF：多选 5 选项 + 答案 ACE 三连字母", () => {
+    const text = `
+12、保守型投资者在资产配置中，应避免哪些行为？
+A、 高杠杆投资
+B、 分散投资
+C、 频繁交易
+D、 集中投资于低风险资产
+E、 盲目追求高收益
+答案： ACE
+`;
+    const r = parseStructuredQuestionBank(text);
+    expect(r.questions).toHaveLength(1);
+    expect(r.questions[0].type).toBe("multiple_choice");
+    expect(r.questions[0].options).toHaveLength(5);
+    expect(r.questions[0].correctOptionIds.sort()).toEqual(["A", "C", "E"]);
+  });
+
+  it("真实 PDF：题干含 (简答题) 标记 + 多行答案", () => {
+    const text = `
+21、请简述基金理财的风险控制。(简答题)
+答案： (1)选择适合自己的基金类型。就长期统计平均而言,在同等条件下,股票基金的收益较高,风险也较高。
+(2)对自身财务状况进行长远规划。
+(3)稳定投资,避免频繁操作。基金定投是长期的理财规划。
+22、在个人理财规划中，单身期稳健型投资者的核心目标是什么？
+A、 追求高收益，承担高风险
+B、 平衡收益与风险，注重资金安全
+答案： B
+`;
+    const r = parseStructuredQuestionBank(text);
+    expect(r.questions).toHaveLength(2);
+    expect(r.questions[0].type).toBe("short_answer");
+    expect(r.questions[0].correctAnswer).toContain("选择适合自己");
+    expect(r.questions[0].correctAnswer).toContain("稳定投资");
+    // 关键：第 21 题的答案不会"吃"掉第 22 题
+    expect(r.questions[0].correctAnswer).not.toContain("追求高收益");
+    // 第 22 题正确解析为单选
+    expect(r.questions[1].type).toBe("single_choice");
+    expect(r.questions[1].correctOptionIds).toEqual(["B"]);
+  });
+
+  it("真实 PDF：页码 -- 1 of 5 -- 行被剔除", () => {
+    const text = `
+7、稳健型投资者在选择基金时，首要考虑的因素是？
+A、 历史收益
+B、 基金经理的名气
+C、 风险水平
+
+-- 1 of 5 --
+
+D、 基金规模
+答案： C
+`;
+    const r = parseStructuredQuestionBank(text);
+    expect(r.questions).toHaveLength(1);
+    expect(r.questions[0].options.length).toBeGreaterThanOrEqual(4);
+    expect(r.questions[0].correctOptionIds).toEqual(["C"]);
+    // 选项 C 文本不应被 "-- 1 of 5 --" 污染
+    expect(r.questions[0].options.find((o) => o.id === "C")?.text).not.toMatch(/of\s+5/);
+  });
+
+  it("真实 PDF：填空题（题干含 _____ + 分号分隔多答案）", () => {
+    const text = `
+29、一只基金的资产配置比例为：股票30%，债券60%，现金10%，这种配置体现了_____型投资理念，
+其主要目的是为了在收益与_____之间取得平衡。
+答案：
+稳健
+；
+风险
+；
+`;
+    const r = parseStructuredQuestionBank(text);
+    expect(r.questions).toHaveLength(1);
+    expect(r.questions[0].type).toBe("short_answer");
+    expect(r.questions[0].correctAnswer).toContain("稳健");
+    expect(r.questions[0].correctAnswer).toContain("风险");
+  });
+
   it("toImportedQuestion 形成 question-bank service 兼容结构", () => {
     const text = `
 1. 简单测试题？
