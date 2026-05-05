@@ -125,10 +125,14 @@ function normalizeTranscription(text: string) {
   return normalized;
 }
 
+// mimo Omni 仅接受 mp3/flac/m4a/wav/ogg。前端会把 webm 转码成 wav 上传，
+// 但保留 fallback 推断以应对其他客户端直接上传 mp3/m4a/ogg 的场景。
 function audioFormatFromMime(mimeType: string) {
   if (mimeType.includes("mp3") || mimeType.includes("mpeg")) return "mp3";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return "mp4";
-  if (mimeType.includes("ogg")) return "ogg";
-  return "webm";
+  if (mimeType.includes("wav") || mimeType.includes("wave") || mimeType.includes("x-wav")) return "wav";
+  if (mimeType.includes("flac")) return "flac";
+  if (mimeType.includes("m4a")) return "m4a";
+  if (mimeType.includes("mp4")) return "m4a"; // mp4/aac 容器映射到 m4a
+  if (mimeType.includes("ogg") || mimeType.includes("opus")) return "ogg";
+  return "wav"; // 兜底，避免 mimo 直接拒绝 webm
 }

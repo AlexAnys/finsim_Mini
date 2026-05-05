@@ -1045,6 +1045,78 @@ function SimLeftRail({
   );
 }
 
+/**
+ * 将任意浏览器 MediaRecorder 录到的音频 Blob（webm / mp4 等）转码为 WAV。
+ * 走 Web Audio API 解码 → 重写 PCM + 自定义 WAV 头。无外部依赖。
+ *
+ * mimo Omni STT 只接受 mp3/flac/m4a/wav/ogg；webm 容器无法直接被识别，
+ * 因此前端必须转码后再上传。
+ */
+async function encodeBlobAsWav(blob: Blob): Promise<Blob> {
+  const arrayBuf = await blob.arrayBuffer();
+  const AudioCtxCtor =
+    (window as unknown as {
+      AudioContext?: typeof AudioContext;
+      webkitAudioContext?: typeof AudioContext;
+    }).AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtxCtor) throw new Error("AudioContext not available");
+  const ctx = new AudioCtxCtor();
+  try {
+    const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0));
+    const wav = audioBufferToWav(audioBuffer);
+    return new Blob([wav], { type: "audio/wav" });
+  } finally {
+    if (ctx.state !== "closed") void ctx.close();
+  }
+}
+
+function audioBufferToWav(audioBuffer: AudioBuffer): ArrayBuffer {
+  const numChannels = Math.min(audioBuffer.numberOfChannels, 2);
+  const sampleRate = audioBuffer.sampleRate;
+  const numSamples = audioBuffer.length;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numSamples * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  // RIFF header
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, "WAVE");
+  // fmt chunk
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  // data chunk
+  writeString(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+  // PCM 16-bit interleaved
+  const channelData: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) channelData.push(audioBuffer.getChannelData(c));
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    for (let c = 0; c < numChannels; c++) {
+      let sample = channelData[c][i];
+      sample = Math.max(-1, Math.min(1, sample));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return buffer;
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
 function SimChat({
   messages,
   isSending,
@@ -1082,8 +1154,18 @@ function SimChat({
   async function transcribeAudio(blob: Blob): Promise<boolean> {
     setTranscribing(true);
     try {
+      // mimo Omni 只接受 mp3/flac/m4a/wav/ogg，浏览器 MediaRecorder 默认录 webm。
+      // 用 Web Audio API 解码后手写 wav 头打包，确保上传到后端一定是 wav 真实数据。
+      let wavBlob: Blob;
+      try {
+        wavBlob = await encodeBlobAsWav(blob);
+      } catch (encErr) {
+        console.error("[stt] webm->wav encode failed", encErr);
+        toast.error("浏览器无法转码录音，请使用浏览器实时识别或手动输入。");
+        return true; // 不再降级浏览器（已经提示）
+      }
       const formData = new FormData();
-      formData.set("audio", blob, `simulation-${Date.now()}.webm`);
+      formData.set("audio", wavBlob, `simulation-${Date.now()}.wav`);
       const res = await fetch("/api/ai/speech-to-text", {
         method: "POST",
         body: formData,
