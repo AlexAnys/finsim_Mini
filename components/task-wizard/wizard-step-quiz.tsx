@@ -254,14 +254,14 @@ export function WizardStepQuiz({
                 )}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-[1fr_160px]">
+              <div className="grid gap-2 md:grid-cols-[1fr_180px]">
                 <div className="space-y-1">
                   <Label className="text-xs">题干 <span className="text-danger">*</span></Label>
                   <Textarea
                     placeholder="请输入题目内容..."
                     value={q.stem}
                     onChange={(e) => onQuestionChange(qi, "stem", e.target.value)}
-                    rows={2}
+                    rows={3}
                     className="font-medium"
                   />
                   {errors[`q_${qi}_stem`] && (

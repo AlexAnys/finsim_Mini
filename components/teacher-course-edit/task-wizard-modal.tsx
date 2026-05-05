@@ -1120,7 +1120,7 @@ export function TaskWizardModal({
     >
       <DialogContent
         showCloseButton={false}
-        className="flex h-[92vh] max-h-[92vh] w-[96vw] max-w-[1180px] flex-col gap-0 overflow-hidden bg-paper p-0 sm:max-w-[1180px]"
+        className="flex h-[96vh] max-h-[96vh] w-[98vw] max-w-[1480px] flex-col gap-0 overflow-hidden bg-paper p-0 sm:max-w-[1480px]"
       >
         {/* Top header */}
         <div className="flex items-end justify-between gap-4 border-b border-line px-6 pt-5 pb-4">
