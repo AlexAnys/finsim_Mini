@@ -1,0 +1,78 @@
+# Staging stack（独立于生产）
+#
+# 部署位置: /opt/finsim-staging/
+# 入口: https://staging.finsim.anlanai.cn
+# Caddy: 反代 127.0.0.1:3001（caddy 在 host network）
+#
+# 启停（compose project 名固定为 finsim-staging）:
+#   docker compose -f docker-compose.staging.yml -p finsim-staging up -d --build
+#   docker compose -f docker-compose.staging.yml -p finsim-staging down
+#
+# Migration / seed（首次或手动）:
+#   docker compose -f docker-compose.staging.yml -p finsim-staging exec staging-app npx prisma migrate deploy
+#   docker compose -f docker-compose.staging.yml -p finsim-staging exec staging-app npm run db:seed
+services:
+  staging-app:
+    container_name: finsim-staging-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    depends_on:
+      staging-postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://finsim:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@staging-postgres:5432/finsim
+      - AUTH_SECRET=${AUTH_SECRET:-${NEXTAUTH_SECRET:?AUTH_SECRET or NEXTAUTH_SECRET must be set}}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-${AUTH_SECRET:?AUTH_SECRET or NEXTAUTH_SECRET must be set}}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-https://staging.finsim.anlanai.cn}
+      - AUTH_TRUST_HOST=true
+      - ADMIN_KEY=${ADMIN_KEY:?ADMIN_KEY must be set}
+      - ENABLE_STUDENT_SELF_REGISTRATION=${ENABLE_STUDENT_SELF_REGISTRATION:-true}
+      - AI_PROVIDER=${AI_PROVIDER:-mimo}
+      - AI_FALLBACK_PROVIDER=${AI_FALLBACK_PROVIDER:-mimo}
+      - MIMO_API_KEY=${MIMO_API_KEY:-}
+      - MIMO_BASE_URL=${MIMO_BASE_URL:-}
+      - MIMO_MODEL=${MIMO_MODEL:-mimo-v2.5-pro}
+      - MIMO_OCR_MODEL=${MIMO_OCR_MODEL:-mimo-v2-omni}
+      - MIMO_ANTHROPIC_BASE_URL=${MIMO_ANTHROPIC_BASE_URL:-https://token-plan-cn.xiaomimimo.com/anthropic}
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-}
+      - SEARCH_API_KEY=${SEARCH_API_KEY:-}
+      - QWEN_API_KEY=${QWEN_API_KEY:-}
+      - QWEN_BASE_URL=${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - QWEN_MODEL=${QWEN_MODEL:-qwen-turbo}
+      - OCR_PROVIDER=${OCR_PROVIDER:-qwen}
+      - QWEN_OCR_MODEL=${QWEN_OCR_MODEL:-qwen-vl-ocr}
+      - OCR_MAX_PAGES=${OCR_MAX_PAGES:-20}
+      - OCR_MIN_TEXT_CHARS=${OCR_MIN_TEXT_CHARS:-200}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - FILE_STORAGE_TYPE=local
+      - FILE_STORAGE_PATH=/data/uploads
+    volumes:
+      - staging-uploads:/data/uploads
+    restart: unless-stopped
+
+  staging-postgres:
+    container_name: finsim-staging-postgres
+    image: postgres:16-alpine
+    volumes:
+      - staging-pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=finsim
+      - POSTGRES_USER=finsim
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finsim"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
+volumes:
+  staging-pgdata:
+  staging-uploads:

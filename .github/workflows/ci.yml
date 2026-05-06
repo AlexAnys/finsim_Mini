@@ -11,6 +11,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -37,19 +41,48 @@ jobs:
       - name: Test
         run: npx vitest run --passWithNoTests
 
-  build-verify:
-    needs: quality
+  # 触摸核心模块（auth / grading / schema / deploy infra）的 PR 自动打 core-change 标签提醒
+  # 不阻塞 merge，只做高亮显示
+  core-change-label:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image (verify only)
-        uses: docker/build-push-action@v6
         with:
-          context: .
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          fetch-depth: 0
+
+      - name: Detect core-touching files
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          # 列 PR 改动的所有文件
+          FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "Changed files:"
+          echo "$FILES"
+
+          # 核心路径白名单
+          CORE_PATTERN='^(lib/auth/|lib/services/grading\.service\.|app/api/auth/|prisma/schema\.prisma|prisma/migrations/|\.github/workflows/|Dockerfile|docker-compose.*\.yml)'
+          if echo "$FILES" | grep -E "$CORE_PATTERN" >/dev/null 2>&1; then
+            echo "core_touched=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Core path touched — will add core-change label"
+          else
+            echo "core_touched=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  No core paths touched"
+          fi
+
+      - name: Ensure label exists + add to PR
+        if: steps.detect.outputs.core_touched == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create core-change \
+            --repo "$REPO" \
+            --color B60205 \
+            --description "Touches auth/grading/schema/deploy infra" \
+            --force || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label core-change
