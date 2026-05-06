@@ -53,3 +53,12 @@ next-env.d.ts
 
 # 服务器接入信息卡（含 SSH 公钥指纹/IP/Instance ID 等半敏感信息，仅本地）
 .harness/server-*.md
+
+# Claude Code worktree（不同 agent session 的隔离工作区，临时产物）
+.claude/worktrees/
+
+# Agent 中间产物（PRD 草稿、研究报告、harness 阶段研究）— 仅本地工作流使用
+agent_docs/export/
+.harness/r5-*.md
+.harness/spec-builder-deploy-rewrite.md
+.harness/r5-analytics-static-research.md

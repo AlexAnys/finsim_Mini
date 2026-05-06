@@ -8,8 +8,6 @@
  * 纯函数：parseStructuredQuestionBank(text) -> { questions, confidence, unparsedTail }
  * 不依赖 prisma / AI，方便单测。
  */
-import { z } from "zod";
-
 export type ParsedQuestionType =
   | "single_choice"
   | "multiple_choice"
@@ -418,31 +416,28 @@ function extractExplanation(block: string): string {
 // 兼容 question-bank.service 现有 schema 的转换
 // ============================================
 
-const importedQuestionShape = z.object({
-  type: z.enum(["single_choice", "multiple_choice", "true_false", "short_answer"]),
-  prompt: z.string(),
-  options: z.array(z.object({ id: z.string(), text: z.string() })),
-  correctOptionIds: z.array(z.string()),
-  correctAnswer: z.string(),
-  explanation: z.string(),
-  points: z.number(),
-  conceptTags: z.array(z.string()),
-  sourceRefs: z.array(
-    z.object({
-      sourceId: z.string().optional(),
-      fileName: z.string().optional(),
-      page: z.string().optional(),
-      row: z.string().optional(),
-      excerpt: z.string().optional(),
-    }),
-  ),
-  confidence: z.number(),
-  needsReview: z.boolean(),
-  aiSupplemented: z.boolean(),
-  issues: z.array(z.string()),
-});
-
-export type RegexImportedQuestion = z.infer<typeof importedQuestionShape>;
+/** question-bank.service 消费的导入题目 shape（与 questionBankResponseSchema.questions 对齐） */
+export interface RegexImportedQuestion {
+  type: ParsedQuestionType;
+  prompt: string;
+  options: Array<{ id: string; text: string }>;
+  correctOptionIds: string[];
+  correctAnswer: string;
+  explanation: string;
+  points: number;
+  conceptTags: string[];
+  sourceRefs: Array<{
+    sourceId?: string;
+    fileName?: string;
+    page?: string;
+    row?: string;
+    excerpt?: string;
+  }>;
+  confidence: number;
+  needsReview: boolean;
+  aiSupplemented: boolean;
+  issues: string[];
+}
 
 /** 将 ParsedQuestion 转成 question-bank.service 期望的导入题目格式 */
 export function toImportedQuestion(

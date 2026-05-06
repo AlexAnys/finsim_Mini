@@ -1480,7 +1480,7 @@ export default function TeacherCourseDetailPage() {
               )}
             </div>
           </div>
-          <DialogFooter className="border-t border-line bg-background px-6 py-4">
+          <DialogFooter className="sticky bottom-0 z-10 border-t border-line bg-background px-6 py-4">
             <Button
               variant="outline"
               onClick={() => setEditCourseDialogOpen(false)}
