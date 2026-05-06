@@ -157,10 +157,22 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 ## CI/CD & Deployment
 
 - 仓库：GitHub `AlexAnys/finsim_Mini`（私有）
-- CI：PR/push 触发类型检查 + lint + 测试 + Docker 构建验证
-- CD：push 到 main → 构建镜像推送 ghcr.io → SSH 部署到服务器
+- main 受 branch protection 保护：必须 PR + `quality` + `staging-deploy` 两项 check 全绿才能 merge；admin 可紧急 bypass
+- 流程：feature 分支 → push → 自动开 PR → CI quality + staging deploy 并行 → 用户 staging 实测 → squash merge → 生产部署 (~4 min)
 - 本地开发：`docker compose up --build`
-- 部署详情见 `agent_docs/deployment.md`
+- 详见 `agent_docs/deployment.md`、`AGENTS.md`
+
+## Workflow（多 agent 协作）
+
+> 详见仓库根目录 `AGENTS.md`。所有 agent（Claude / Codex / 其他）在本仓库工作必须遵守。
+
+1. **不直 push main**：被 protection 拒绝。每个任务一个 feature 分支 `<agent>-<topic>`（例 `claude-quiz-fix`、`codex-deploy-env`）
+2. **commit 前必跑** `npx tsc --noEmit && npx vitest run`，绿了才 commit
+3. **每个 PR 自动起 staging**：https://staging.finsim.anlanai.cn（共享栈，跨 PR 串行）
+4. **用户兜底 QA**：靠 staging 浏览器实测，不读代码 review
+5. **squash merge**：repo 强制 squash + 自动删分支，main 历史一行一 PR
+6. **撞车 rebase**：`git rebase origin/main` + `git push --force-with-lease` 自己分支
+7. **core-change 标签自动打**：触摸 `lib/auth/`、`grading.service`、`prisma/schema.prisma`、`prisma/migrations/`、`.github/workflows/`、`Dockerfile`、`docker-compose*.yml` 时自动加红色 `core-change` 标签提醒（不阻塞 merge）
 
 ## CLAUDE.md 维护原则
 
