@@ -208,7 +208,15 @@ function createProvider(config: ProviderConfig) {
 
 // 这些 feature 必须返回严格 JSON。即便 setting/数据库里启了 thinking，也强制
 // 关闭 reasoning，避免 reasoning_content 吃光输出 token 导致 content 为空 / JSON 截断。
+//
+// 加入此集合的判断标准：
+//   sync user-facing（学生/教师在等回复，延迟敏感）→ 必须 OFF
+//   async batch（grading / summary / draft 后台跑）→ 不进集合，让 thinking 自由
+//
+// 异步任务即便偶尔 JSON 截断也可重试 / 回退，质量收益 > 偶发失败成本；同步对话
+// thinking 拖慢首 token 直接伤 UX。
 const JSON_FORCE_DISABLE_THINKING: ReadonlySet<AIFeature> = new Set([
+  // 已有：教师 sync 草稿生成（点按钮等返回）
   "weeklyInsight",
   "importParse",
   "questionAnalysis",
@@ -217,14 +225,9 @@ const JSON_FORCE_DISABLE_THINKING: ReadonlySet<AIFeature> = new Set([
   "quizDraft",
   "subjectiveDraft",
   "taskDraft",
-  // 主对话 / 评分路径也走 JSON：thinking 启用时会软失败到 NEUTRAL mood / 评分缺失，
-  // 表面看起来还能用，实际状态机已失效，运行时无法察觉。
+  // 新增：学生/教师 sync 对话路径（学生在等客户回复 / 在等学习助手回复）
   "simulation",
-  "evaluation",
-  "quizGrade",
-  "subjectiveGrade",
   "studyBuddyReply",
-  "studyBuddySummary",
 ]);
 
 export function getProviderOptions(

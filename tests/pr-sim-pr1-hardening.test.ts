@@ -56,18 +56,28 @@ describe("PR-1 · /api/ai/evaluate 限教师/管理员", () => {
 });
 
 describe("PR-1 · ai.service.ts thinking 强制关闭集合", () => {
-  it("JSON_FORCE_DISABLE_THINKING 包含 simulation 主对话 + evaluation 评分", () => {
+  it("sync user-facing 路径（simulation / studyBuddyReply）在集合内 — 延迟敏感强制 OFF", () => {
     const src = readFile("lib/services/ai.service.ts");
-    // 截取 JSON_FORCE_DISABLE_THINKING set 块
     const setMatch = src.match(/JSON_FORCE_DISABLE_THINKING[\s\S]*?\]\)/);
     expect(setMatch, "JSON_FORCE_DISABLE_THINKING 集合未找到").toBeTruthy();
     const block = setMatch![0];
     expect(block).toContain('"simulation"');
-    expect(block).toContain('"evaluation"');
-    expect(block).toContain('"quizGrade"');
-    expect(block).toContain('"subjectiveGrade"');
     expect(block).toContain('"studyBuddyReply"');
-    expect(block).toContain('"studyBuddySummary"');
+  });
+
+  it("async batch 路径（evaluation / quizGrade / subjectiveGrade / studyBuddySummary）不在集合内 — 让 thinking 提升质量", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    const setMatch = src.match(/JSON_FORCE_DISABLE_THINKING[\s\S]*?\]\)/);
+    const block = setMatch![0];
+    expect(block).not.toContain('"evaluation"');
+    expect(block).not.toContain('"quizGrade"');
+    expect(block).not.toContain('"subjectiveGrade"');
+    expect(block).not.toContain('"studyBuddySummary"');
+  });
+
+  it("注释明确 sync OFF / async ON 决策原则，防止后人盲加 feature", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    expect(src).toMatch(/sync user-facing[\s\S]*?async batch/);
   });
 
   it("getProviderOptions 仍然按 feature 决定 thinking（保留原有逻辑）", () => {
