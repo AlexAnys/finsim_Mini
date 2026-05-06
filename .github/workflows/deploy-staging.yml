@@ -89,7 +89,13 @@ jobs:
             tar -xzf finsim-staging-src.tar.gz
             rm finsim-staging-src.tar.gz
 
-            # 构建 + 启动独立 staging stack
+            # 服务器内存只有 ~3.5G，next build 需要 2G+，build 前停旧 staging-app
+            # 释放内存（保留 staging-postgres，volumes 不受影响）
+            docker compose -f docker-compose.staging.yml -p finsim-staging stop staging-app 2>/dev/null || true
+            # docker prune 释放 build cache（保留近期镜像）
+            docker builder prune -f --filter "until=24h" 2>/dev/null || true
+            sleep 2
+
             docker compose -f docker-compose.staging.yml -p finsim-staging build staging-app
             docker compose -f docker-compose.staging.yml -p finsim-staging up -d staging-postgres
             # 等 postgres 健康
