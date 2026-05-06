@@ -1,0 +1,162 @@
+name: Deploy Staging
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+# Staging 是「单一共享栈」（一个 /opt/finsim-staging 目录 + 一个 compose project），
+# 因此用全局 concurrency group：任何 PR 同步推送都串行排队，避免互相覆盖 tarball / build。
+# 同 PR 重复 push 时取消旧的（throwaway 数据）；不同 PR 之间则**等前一个跑完**再跑下一个。
+concurrency:
+  group: staging-shared
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# 部署到 /opt/finsim-staging/，反代 staging.finsim.anlanai.cn → 127.0.0.1:3001
+# Caddy 在 host network，独立 stack 不污染生产容器
+jobs:
+  staging-deploy:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Create source tarball
+        run: |
+          git archive --format=tar.gz -o finsim-staging-src.tar.gz HEAD
+          ls -lh finsim-staging-src.tar.gz
+
+      - name: Copy source tarball to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh_opts=(
+            -i ~/.ssh/deploy_key
+            -o StrictHostKeyChecking=accept-new
+            -o ConnectTimeout=90
+            -o ConnectionAttempts=3
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=4
+          )
+
+          for attempt in 1 2 3 4; do
+            if ssh "${ssh_opts[@]}" "$SERVER_USER@$SERVER_HOST" 'mkdir -p /opt/finsim-staging' \
+              && scp "${ssh_opts[@]}" finsim-staging-src.tar.gz "$SERVER_USER@$SERVER_HOST:/opt/finsim-staging/finsim-staging-src.tar.gz"; then
+              exit 0
+            fi
+            sleep $((attempt * 30))
+          done
+
+          echo "staging source upload failed after 4 attempts" >&2
+          exit 1
+
+      - name: Build and deploy staging on server
+        uses: appleboy/ssh-action@v1
+        env:
+          GIT_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: GIT_SHA,PR_NUMBER
+          command_timeout: 60m
+          script: |
+            set -e
+            cd /opt/finsim-staging
+
+            # .env 由首次手动初始化（cp /opt/finsim/.env + 改 NEXTAUTH_URL），workflow 不覆盖
+            if [ ! -f .env ]; then
+              echo "::error::/opt/finsim-staging/.env missing. First-time bootstrap required (see plan Phase B4)." >&2
+              exit 1
+            fi
+
+            # 解压源码（覆盖文件，保留 .env / last-deployed-* / volumes）
+            tar -xzf finsim-staging-src.tar.gz
+            rm finsim-staging-src.tar.gz
+
+            # 构建 + 启动独立 staging stack
+            docker compose -f docker-compose.staging.yml -p finsim-staging build staging-app
+            docker compose -f docker-compose.staging.yml -p finsim-staging up -d staging-postgres
+            # 等 postgres 健康
+            for i in 1 2 3 4 5 6; do
+              if docker compose -f docker-compose.staging.yml -p finsim-staging ps staging-postgres | grep -q "healthy"; then
+                break
+              fi
+              sleep 5
+            done
+            docker compose -f docker-compose.staging.yml -p finsim-staging up -d staging-app
+
+            # 修 uploads 卷权限（与生产 deploy 一致）
+            docker compose -f docker-compose.staging.yml -p finsim-staging exec -T -u root staging-app sh -lc \
+              'mkdir -p /data/uploads && chown -R 1001:65533 /data/uploads && chmod -R u+rwX /data/uploads'
+
+            # 增量 migrate（首次部署需手动 db:seed，详见 plan Phase B5）
+            docker compose -f docker-compose.staging.yml -p finsim-staging exec -T staging-app npx prisma migrate deploy
+
+            docker image prune -f
+            echo "${GIT_SHA}" > /opt/finsim-staging/last-deployed-sha
+            echo "${PR_NUMBER}" > /opt/finsim-staging/last-deployed-pr
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > /opt/finsim-staging/last-deployed-at
+
+            sleep 5
+            docker compose -f docker-compose.staging.yml -p finsim-staging ps
+
+      - name: Staging smoke test
+        env:
+          STAGING_URL: https://staging.finsim.anlanai.cn/login
+        run: |
+          sleep 8
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 "$STAGING_URL" || echo "000")
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::staging smoke test failed: $STAGING_URL did not return 200" >&2
+          exit 1
+
+      - name: Comment staging URL on PR
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          BODY=$(cat <<EOF
+          ✅ **Staging deployed**
+
+          - URL: https://staging.finsim.anlanai.cn
+          - Commit: \`${GIT_SHA:0:7}\`
+          - Stack: \`docker compose -p finsim-staging\`
+
+          请用 \`teacher1@finsim.edu.cn / password123\` / \`student1@finsim.edu.cn / password123\` 实测。
+
+          确认无问题后点 **Squash and merge** 推生产。
+          EOF
+          )
+
+          # 找已有 staging deploy 评论编辑掉，避免每次 push 刷屏
+          EXISTING=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("✅ **Staging deployed**")))][0].id // empty')
+
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$EXISTING" -f body="$BODY"
+          else
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          fi

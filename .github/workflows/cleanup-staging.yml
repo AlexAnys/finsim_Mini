@@ -1,0 +1,51 @@
+name: Cleanup Staging
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+# Staging 是「单一共享栈」。closed PR 只在 staging 当前装的就是这个 PR 时才 down，
+# 否则当前 staging 属于另一个还在 review 的 PR，一刀切会干扰别人。
+concurrency:
+  group: staging-shared
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop staging stack (only if owned by this PR)
+        uses: appleboy/ssh-action@v1
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: PR_NUMBER
+          command_timeout: 5m
+          script: |
+            set -e
+            if [ ! -d /opt/finsim-staging ]; then
+              echo "/opt/finsim-staging missing, nothing to do"
+              exit 0
+            fi
+            cd /opt/finsim-staging
+
+            owner=""
+            if [ -f last-deployed-pr ]; then
+              owner=$(tr -d '[:space:]' < last-deployed-pr)
+            fi
+
+            if [ "$owner" != "$PR_NUMBER" ]; then
+              echo "Staging is currently owned by PR=${owner:-<none>}; this PR=$PR_NUMBER; skipping teardown."
+              docker ps --filter "name=finsim-staging" --format '{{.Names}}\t{{.Status}}' || true
+              exit 0
+            fi
+
+            echo "Staging owned by PR $PR_NUMBER → tearing down."
+            docker compose -f docker-compose.staging.yml -p finsim-staging down || true
+            echo "Staging stopped at $(date -u +%Y-%m-%dT%H:%M:%SZ) by PR $PR_NUMBER" > last-stopped-at
+            rm -f last-deployed-pr
+            docker ps --filter "name=finsim-staging" --format '{{.Names}}\t{{.Status}}' || true
