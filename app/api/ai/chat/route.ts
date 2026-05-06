@@ -22,10 +22,13 @@ const MAX_ALLOCATION_LABEL_CHARS = 80;
 const chatSchema = z.object({
   taskId: z.string().uuid().optional(),
   taskInstanceId: z.string().uuid().optional(),
+  // role 限定 enum 防 transcript 注入：之前 z.string() 允许学生伪造任意 role
+  // (例如 "customer" / "ai")，被 ai.service.ts:723 的 m.role==="student"?... 三元
+  // 化为"客户"喂回 prompt，等于学生可以塞自己想让 AI 客户说过的话。
   transcript: z
     .array(
       z.object({
-        role: z.string(),
+        role: z.enum(["student", "ai"]),
         text: z.string().max(MAX_TRANSCRIPT_TEXT_CHARS, "单条消息超长"),
         // PR-FIX-2 B1: 服务端从 transcript 推导 lastHintTurn，需要可选 hint 字段
         hint: z.string().max(MAX_TRANSCRIPT_TEXT_CHARS).optional(),
@@ -92,6 +95,19 @@ export async function POST(request: NextRequest) {
       (!parsed.data.allocations || parsed.data.allocations.length === 0)
     ) {
       return validationError("提交配置时必须附带 allocations");
+    }
+
+    // transcript 必须严格交替 student/ai 且首条为 student：客户端发送时 transcript
+    // 是已含本轮新学生消息的完整历史，结构上必须是 (student, ai)+, student。
+    // 拒掉 [student, student, ...] 这类伪造历史 — 没此校验时学生可塞虚假 ai 轮次
+    // 让模型基于"假 AI 上下文"继续。
+    for (let i = 0; i < parsed.data.transcript.length; i++) {
+      const expected = i % 2 === 0 ? "student" : "ai";
+      if (parsed.data.transcript[i].role !== expected) {
+        return validationError(
+          "transcript 角色顺序错误：必须从 student 开始且严格交替 student/ai",
+        );
+      }
     }
 
     // PR-FIX-1 A9: 服务端最终只保留最近 N 轮（即使客户端绕过 max 限制 也能兜底）

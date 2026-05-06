@@ -217,6 +217,14 @@ const JSON_FORCE_DISABLE_THINKING: ReadonlySet<AIFeature> = new Set([
   "quizDraft",
   "subjectiveDraft",
   "taskDraft",
+  // 主对话 / 评分路径也走 JSON：thinking 启用时会软失败到 NEUTRAL mood / 评分缺失，
+  // 表面看起来还能用，实际状态机已失效，运行时无法察觉。
+  "simulation",
+  "evaluation",
+  "quizGrade",
+  "subjectiveGrade",
+  "studyBuddyReply",
+  "studyBuddySummary",
 ]);
 
 export function getProviderOptions(
