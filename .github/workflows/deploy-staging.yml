@@ -5,10 +5,12 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
 
-# 同 PR 多次推送：取消旧 deploy 跑新的（staging 数据是 throwaway）
+# Staging 是「单一共享栈」（一个 /opt/finsim-staging 目录 + 一个 compose project），
+# 因此用全局 concurrency group：任何 PR 同步推送都串行排队，避免互相覆盖 tarball / build。
+# 同 PR 重复 push 时取消旧的（throwaway 数据）；不同 PR 之间则**等前一个跑完**再跑下一个。
 concurrency:
-  group: staging-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: staging-shared
+  cancel-in-progress: false
 
 permissions:
   contents: read
