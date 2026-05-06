@@ -27,16 +27,14 @@ describe("PR-1 · /api/ai/chat 角色信任收紧", () => {
     expect(src).toMatch(/role:\s*z\.enum\(\[\s*"student"\s*,\s*"ai"\s*\]\)/);
   });
 
-  it("transcript 加角色严格交替校验：必须从 student 开始", () => {
+  // 注：不做结构层 alternation 校验 —— openingLine 必然导致 transcript[0] 是 ai；
+  // 失败重试合法形成 [ai, student, student]。真正的 transcript 信任要靠服务端
+  // turn log 做内容比对，下一迭代专项处理。这里只确认代码里有"为什么不校验"
+  // 的注释，避免后人重新引入 alternation 校验把 simulation 弄坏。
+  it("有显式注释说明为什么不在此处做结构校验（防止后人再加 alternation 拦截）", () => {
     const src = readFile("app/api/ai/chat/route.ts");
-    expect(src).toContain("严格交替 student/ai");
-    expect(src).toMatch(/i % 2 === 0 \? "student" : "ai"/);
-  });
-
-  it("校验不通过时返回 validationError（不是直接抛 500）", () => {
-    const src = readFile("app/api/ai/chat/route.ts");
-    // 在交替校验段落里要走 validationError 路径
-    expect(src).toMatch(/validationError\([\s\S]*?transcript[\s\S]*?角色顺序错误/);
+    expect(src).toMatch(/openingLine[\s\S]*?messages\[0\]/);
+    expect(src).toMatch(/可信\s*turn\s*log/);
   });
 });
 

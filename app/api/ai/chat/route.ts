@@ -97,18 +97,16 @@ export async function POST(request: NextRequest) {
       return validationError("提交配置时必须附带 allocations");
     }
 
-    // transcript 必须严格交替 student/ai 且首条为 student：客户端发送时 transcript
-    // 是已含本轮新学生消息的完整历史，结构上必须是 (student, ai)+, student。
-    // 拒掉 [student, student, ...] 这类伪造历史 — 没此校验时学生可塞虚假 ai 轮次
-    // 让模型基于"假 AI 上下文"继续。
-    for (let i = 0; i < parsed.data.transcript.length; i++) {
-      const expected = i % 2 === 0 ? "student" : "ai";
-      if (parsed.data.transcript[i].role !== expected) {
-        return validationError(
-          "transcript 角色顺序错误：必须从 student 开始且严格交替 student/ai",
-        );
-      }
-    }
+    // 不在此处做 transcript 角色顺序校验：
+    // (1) runner 初始化把 openingLine 作为 role="ai" 放进 messages[0]，所以学生
+    //     第一次发送时 transcript 必然是 [ai, student]，"必须从 student 开始" 这种
+    //     检查会把每个 simulation 的第一条消息全拒掉；
+    // (2) AI 调用失败时学生消息保留 + 重发，会形成 [ai, student, student] 这类
+    //     合法重试模式，结构层面无法稳定区分 "失败重试" 与 "伪造连发"；
+    // (3) role enum 已限制为 ["student","ai"]，能拦下手写 "customer"/"system" 等
+    //     乱写的字符串；但学生用 role="ai" 伪造 customer 历史（codex P0#1 描述的
+    //     真实攻击路径）光靠结构校验拦不住，需要服务端可信 turn log（migration
+    //     工作量较大，下一迭代专项做）。
 
     // PR-FIX-1 A9: 服务端最终只保留最近 N 轮（即使客户端绕过 max 限制 也能兜底）
     const trimmedTranscript = parsed.data.transcript.slice(
