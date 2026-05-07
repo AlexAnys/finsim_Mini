@@ -70,6 +70,9 @@ interface SubjectiveRunnerProps {
   taskId: string;
   taskInstanceId: string;
   taskName: string;
+  /** 当前登录用户 ID — localStorage draft 必须 scope 到用户，避免同浏览器
+   *  教师 preview / 学生切换时 draft 互串。 */
+  userId: string;
   taskSubtitle?: string;
   isPreview?: boolean;
 }
@@ -86,6 +89,11 @@ interface UploadedFile {
 // ---------- Constants ----------
 
 const DRAFT_KEY_PREFIX = "finsim_subj_draft_";
+
+/** 数据隔离：localStorage key 必须包含 userId 和 preview/live 维度。 */
+function buildDraftKey(userId: string, isPreview: boolean, taskInstanceId: string): string {
+  return `${DRAFT_KEY_PREFIX}${userId}_${isPreview ? "preview" : "live"}_${taskInstanceId}`;
+}
 const AUTO_SAVE_INTERVAL = 30_000;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "jpg", "jpeg", "png", "xlsx"];
@@ -124,6 +132,7 @@ export function SubjectiveRunner({
   taskId,
   taskInstanceId,
   taskName,
+  userId,
   taskSubtitle,
   isPreview = false,
 }: SubjectiveRunnerProps) {
@@ -142,7 +151,7 @@ export function SubjectiveRunner({
   // Content state
   const [content, setContent] = useState<string>(() => {
     if (typeof window === "undefined") return "";
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -157,7 +166,7 @@ export function SubjectiveRunner({
   // File state
   const [files, setFiles] = useState<UploadedFile[]>(() => {
     if (typeof window === "undefined") return [];
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -188,7 +197,7 @@ export function SubjectiveRunner({
   const saveDraftToStorage = useCallback(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem(
-      DRAFT_KEY_PREFIX + taskInstanceId,
+      buildDraftKey(userId, isPreview, taskInstanceId),
       JSON.stringify({ content, files })
     );
   }, [content, files, taskInstanceId]);
@@ -350,7 +359,7 @@ export function SubjectiveRunner({
       const data = await res.json();
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
-      localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
+      localStorage.removeItem(buildDraftKey(userId, isPreview, taskInstanceId));
       toast.success("提交成功，系统正在后台批改");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "提交失败，请重试");

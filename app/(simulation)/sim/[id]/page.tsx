@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Loader2, AlertCircle } from "lucide-react";
 import { SimulationRunner } from "@/components/simulation/simulation-runner";
 
@@ -55,8 +56,10 @@ export default function SimulationPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const taskInstanceId = params.id as string;
   const isPreview = searchParams.get("preview") === "true";
+  const userId = session?.user?.id;
 
   const [instance, setInstance] = useState<TaskInstanceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,6 +112,16 @@ export default function SimulationPage() {
   }
 
   if (!instance) return null;
+  // 等待 session 解析完成才挂 runner — runner 的 localStorage draft key 必须含 userId
+  // 才能避免同浏览器多账号串数据（详见 runner 内 buildDraftKey 注释）。
+  if (!userId) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-muted-foreground">正在加载用户...</span>
+      </div>
+    );
+  }
 
   const { task } = instance;
   const simConfig = task.simulationConfig;
@@ -117,6 +130,7 @@ export default function SimulationPage() {
   return (
     <SimulationRunner
       taskName={task.taskName}
+      userId={userId}
       evaluatorPersona={simConfig.evaluatorPersona || undefined}
       strictnessLevel={simConfig.strictnessLevel || "MODERATE"}
       systemPrompt={simConfig.systemPrompt || undefined}

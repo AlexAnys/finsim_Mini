@@ -63,6 +63,9 @@ interface SimulationRunnerProps {
   taskId: string;
   taskInstanceId: string;
   taskName: string;
+  /** 当前登录用户 ID — 用于把 localStorage draft key scope 到具体用户，避免同浏览器
+   *  教师 preview → 学生切换时学生看到 / 提交教师测试内容（产生错误归因）。 */
+  userId: string;
   evaluatorPersona?: string;
   strictnessLevel?: string;
   isPreview?: boolean;
@@ -126,6 +129,13 @@ const MOOD_COLORS: Record<MoodType, { bg: string; text: string; label: string; b
 
 const DRAFT_KEY_PREFIX = "finsim_sim_draft_";
 
+/** Bug fix · 数据隔离：localStorage key 必须包含 userId 和 preview/live 维度。
+ *  历史版本只用 taskInstanceId，导致同浏览器先教师 preview 后学生登录会读到教师的
+ *  测试 messages/snapshots/allocations，并可能被学生 submit 提交（错误归因）。 */
+function buildDraftKey(userId: string, isPreview: boolean, taskInstanceId: string): string {
+  return `${DRAFT_KEY_PREFIX}${userId}_${isPreview ? "preview" : "live"}_${taskInstanceId}`;
+}
+
 const DONUT_COLORS = [
   "#3b5a8c",
   "#5b7b9c",
@@ -142,6 +152,7 @@ export function SimulationRunner({
   taskId,
   taskInstanceId,
   taskName,
+  userId,
   evaluatorPersona,
   strictnessLevel,
   isPreview,
@@ -160,7 +171,7 @@ export function SimulationRunner({
   // Chat state
   const [messages, setMessages] = useState<TranscriptMessage[]>(() => {
     if (typeof window === "undefined") return [];
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -177,7 +188,7 @@ export function SimulationRunner({
   const [mobileTab, setMobileTab] = useState<"info" | "chat" | "alloc">("chat");
   const [mood, setMood] = useState<MoodType>(() => {
     if (typeof window === "undefined") return "NEUTRAL";
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -194,7 +205,7 @@ export function SimulationRunner({
   const [allocations, setAllocations] = useState<AssetAllocation["sections"]>(() => {
     if (!allocationSections) return [];
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+      const saved = localStorage.getItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -218,7 +229,7 @@ export function SimulationRunner({
   // submitted with the final Submission via assets.snapshots).
   const [snapshots, setSnapshots] = useState<AllocationSnapshot[]>(() => {
     if (typeof window === "undefined") return [];
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -267,7 +278,7 @@ export function SimulationRunner({
     ) => {
       if (typeof window === "undefined") return;
       localStorage.setItem(
-        DRAFT_KEY_PREFIX + taskInstanceId,
+        buildDraftKey(userId, isPreview ?? false, taskInstanceId),
         JSON.stringify({
           messages: msgs,
           mood: moodVal,
@@ -590,7 +601,7 @@ export function SimulationRunner({
         throw new Error(errData?.error?.message || "提交失败");
       }
       const data = await res.json();
-      localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
+      localStorage.removeItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
       // PR-SIM-1c · D1 防作弊：不再立即 router.back()，展示"已提交·分析中"页面让学生看到状态确认
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
@@ -636,7 +647,7 @@ export function SimulationRunner({
       const data = await res.json();
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
-      localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
+      localStorage.removeItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
       toast.success("提交成功，AI 分析中");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "提交失败，请重试");
@@ -662,7 +673,7 @@ export function SimulationRunner({
     );
     // PR-FIX-3 C2: setSnapshots([]) 间接重置计数（snapshots.length=0）
     setSnapshots([]);
-    localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    localStorage.removeItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
   }
 
   function handleClose() {

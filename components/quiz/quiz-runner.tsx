@@ -56,6 +56,9 @@ interface QuizRunnerProps {
   taskId: string;
   taskInstanceId: string;
   taskName: string;
+  /** 当前登录用户 ID — localStorage draft 必须 scope 到用户，避免同浏览器
+   *  教师 preview / 学生切换时 draft 互串。 */
+  userId: string;
   taskSubtitle?: string;
   isPreview?: boolean;
 }
@@ -81,6 +84,11 @@ interface QuizResult {
 
 const DRAFT_KEY_PREFIX = "finsim_quiz_draft_";
 
+/** 数据隔离：localStorage key 必须包含 userId 和 preview/live 维度。 */
+function buildDraftKey(userId: string, isPreview: boolean, taskInstanceId: string): string {
+  return `${DRAFT_KEY_PREFIX}${userId}_${isPreview ? "preview" : "live"}_${taskInstanceId}`;
+}
+
 // ---------- Helpers ----------
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -99,6 +107,7 @@ export function QuizRunner({
   taskId,
   taskInstanceId,
   taskName,
+  userId,
   taskSubtitle,
   isPreview = false,
 }: QuizRunnerProps) {
@@ -123,7 +132,7 @@ export function QuizRunner({
   // Answers state: questionId -> answer value
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>(() => {
     if (typeof window === "undefined") return {};
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -144,7 +153,7 @@ export function QuizRunner({
   const [timeRemaining, setTimeRemaining] = useState<number | null>(() => {
     if (!timeLimit) return null;
     if (typeof window === "undefined") return timeLimit * 60;
-    const saved = localStorage.getItem(DRAFT_KEY_PREFIX + taskInstanceId);
+    const saved = localStorage.getItem(buildDraftKey(userId, isPreview, taskInstanceId));
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -184,7 +193,7 @@ export function QuizRunner({
   const saveDraft = useCallback(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem(
-      DRAFT_KEY_PREFIX + taskInstanceId,
+      buildDraftKey(userId, isPreview, taskInstanceId),
       JSON.stringify({ answers, timeRemaining })
     );
   }, [answers, timeRemaining, taskInstanceId]);
@@ -290,7 +299,7 @@ export function QuizRunner({
       const data = await res.json();
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
-      localStorage.removeItem(DRAFT_KEY_PREFIX + taskInstanceId);
+      localStorage.removeItem(buildDraftKey(userId, isPreview, taskInstanceId));
 
       if (showResult && data.data?.evaluation) {
         setQuizResult(data.data.evaluation);
