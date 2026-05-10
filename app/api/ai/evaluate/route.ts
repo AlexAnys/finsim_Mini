@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireAuth } from "@/lib/auth/guards";
+import { requireRole } from "@/lib/auth/guards";
 import { evaluateSimulation } from "@/lib/services/ai.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { assetAllocationSchema } from "@/lib/validators/submission.schema";
@@ -26,8 +26,12 @@ const evaluateSchema = z.object({
   assets: assetAllocationSchema.optional(),
 });
 
+// 学生正常评分流程走 /api/submissions（异步队列），从不直接打 evaluate。
+// /sim/<id>?preview=true 链接全部从教师 dashboard 出来（teacher/instances/[id]/page.tsx
+// 与 attention-list / task-card），没有任何学生入口。给学生开放 evaluate 等于
+// 让学生用 DevTools 改 rubric / scenario 反复试取分上限 + 烧 AI 配额。
 export async function POST(request: NextRequest) {
-  const result = await requireAuth();
+  const result = await requireRole(["teacher", "admin"]);
   if (result.error) return result.error;
 
   try {

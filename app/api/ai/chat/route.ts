@@ -22,10 +22,13 @@ const MAX_ALLOCATION_LABEL_CHARS = 80;
 const chatSchema = z.object({
   taskId: z.string().uuid().optional(),
   taskInstanceId: z.string().uuid().optional(),
+  // role 限定 enum 防 transcript 注入：之前 z.string() 允许学生伪造任意 role
+  // (例如 "customer" / "ai")，被 ai.service.ts:723 的 m.role==="student"?... 三元
+  // 化为"客户"喂回 prompt，等于学生可以塞自己想让 AI 客户说过的话。
   transcript: z
     .array(
       z.object({
-        role: z.string(),
+        role: z.enum(["student", "ai"]),
         text: z.string().max(MAX_TRANSCRIPT_TEXT_CHARS, "单条消息超长"),
         // PR-FIX-2 B1: 服务端从 transcript 推导 lastHintTurn，需要可选 hint 字段
         hint: z.string().max(MAX_TRANSCRIPT_TEXT_CHARS).optional(),
@@ -93,6 +96,17 @@ export async function POST(request: NextRequest) {
     ) {
       return validationError("提交配置时必须附带 allocations");
     }
+
+    // 不在此处做 transcript 角色顺序校验：
+    // (1) runner 初始化把 openingLine 作为 role="ai" 放进 messages[0]，所以学生
+    //     第一次发送时 transcript 必然是 [ai, student]，"必须从 student 开始" 这种
+    //     检查会把每个 simulation 的第一条消息全拒掉；
+    // (2) AI 调用失败时学生消息保留 + 重发，会形成 [ai, student, student] 这类
+    //     合法重试模式，结构层面无法稳定区分 "失败重试" 与 "伪造连发"；
+    // (3) role enum 已限制为 ["student","ai"]，能拦下手写 "customer"/"system" 等
+    //     乱写的字符串；但学生用 role="ai" 伪造 customer 历史（codex P0#1 描述的
+    //     真实攻击路径）光靠结构校验拦不住，需要服务端可信 turn log（migration
+    //     工作量较大，下一迭代专项做）。
 
     // PR-FIX-1 A9: 服务端最终只保留最近 N 轮（即使客户端绕过 max 限制 也能兜底）
     const trimmedTranscript = parsed.data.transcript.slice(
