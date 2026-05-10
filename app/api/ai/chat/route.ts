@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { chatReply } from "@/lib/services/ai.service";
-import { success, validationError, handleServiceError, forbidden } from "@/lib/api-utils";
+import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 import { assertTaskInstanceReadable, assertTaskReadable } from "@/lib/auth/resource-access";
 import { z } from "zod";
@@ -80,15 +80,6 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
-    // PR-FIX-1 UX4: 学生 role 不允许传 systemPrompt（防 prompt-injection 绕过 AI 客户人设）
-    // 教师 / admin 可传（用于任务向导预览模拟对话功能）
-    if (
-      parsed.data.systemPrompt !== undefined &&
-      result.session.user.role === "student"
-    ) {
-      return forbidden("学生不允许传入自定义系统提示");
-    }
-
     // PR-SIM-3 D3: messageType=config_submission 时必须带 allocations
     if (
       parsed.data.messageType === "config_submission" &&
@@ -113,6 +104,22 @@ export async function POST(request: NextRequest) {
       -SERVER_TRIM_RECENT_TURNS
     );
 
+    // 学生身份的 systemPrompt 处理：原 PR-FIX-1 UX4 在学生传 systemPrompt 时返回 403，
+    // 但 SimulationRunner 始终透传从 task config 读到的 systemPrompt（见 sim/[id]/page.tsx
+    // 的 systemPrompt={simConfig.systemPrompt || undefined}），导致教师只要在
+    // SimulationConfig 设了自定义 systemPrompt，所有学生发送对话都立即 403、整个
+    // simulation 任务对学生不可用。
+    //
+    // 修复：服务端从 task config 读权威 systemPrompt，**忽略学生客户端传入值**
+    // （仍然防 prompt-injection），教师/admin 在 preview 时仍允许传客户端值
+    // （任务向导预览自定义 prompt 的功能保留）。
+    const trustedSystemPrompt = await resolveSystemPrompt({
+      user: result.session.user,
+      clientValue: parsed.data.systemPrompt,
+      taskId: parsed.data.taskId,
+      taskInstanceId: parsed.data.taskInstanceId,
+    });
+
     const settingsUserId = await resolveSettingsUserId({
       user: result.session.user,
       taskId: parsed.data.taskId,
@@ -122,6 +129,7 @@ export async function POST(request: NextRequest) {
     const out = await chatReply(result.session.user.id, {
       ...parsed.data,
       transcript: trimmedTranscript,
+      systemPrompt: trustedSystemPrompt,
     }, {
       settingsUserId,
       metadata: {
@@ -141,6 +149,43 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     return handleServiceError(err);
   }
+}
+
+/**
+ * 决定本次 chat 用哪个 systemPrompt：
+ * - 学生：忽略客户端传入值，从 SimulationConfig 拉服务端权威值（防 prompt-injection）
+ * - 教师/admin：客户端值优先（用于任务向导 preview 测试新 prompt），无客户端值时
+ *   也回落到服务端值（保持行为一致）
+ */
+async function resolveSystemPrompt(input: {
+  user: { id: string; role: string };
+  clientValue?: string;
+  taskId?: string;
+  taskInstanceId?: string;
+}): Promise<string | undefined> {
+  const isStudent = input.user.role === "student";
+
+  if (!isStudent && input.clientValue !== undefined) {
+    return input.clientValue;
+  }
+
+  // 服务端拉 task simulationConfig.systemPrompt
+  if (input.taskInstanceId) {
+    const instance = await prisma.taskInstance.findUnique({
+      where: { id: input.taskInstanceId },
+      select: { task: { select: { simulationConfig: { select: { systemPrompt: true } } } } },
+    });
+    return instance?.task?.simulationConfig?.systemPrompt ?? undefined;
+  }
+  if (input.taskId) {
+    const config = await prisma.simulationConfig.findUnique({
+      where: { taskId: input.taskId },
+      select: { systemPrompt: true },
+    });
+    return config?.systemPrompt ?? undefined;
+  }
+
+  return undefined;
 }
 
 async function resolveSettingsUserId(input: {

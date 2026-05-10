@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   Loader2,
@@ -113,7 +114,7 @@ function getUnavailableReason(task: TaskInstanceDetail["task"]) {
   return "该任务尚未完成配置，暂时不能作答。";
 }
 
-function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
+function renderRunner(instance: TaskInstanceDetail, isPreview: boolean, userId: string) {
   const { task } = instance;
 
   // Simulation tasks are handled by the full-page /sim/[id] route
@@ -127,6 +128,7 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
       <QuizRunner
         taskId={task.id}
         taskInstanceId={instance.id}
+        userId={userId}
         taskName={instance.title || task.taskName}
         taskSubtitle={`测验 · ${task.quizConfig.mode === "adaptive" ? "练习模式" : "考试模式"}`}
         isPreview={isPreview}
@@ -168,6 +170,7 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean) {
       <SubjectiveRunner
         taskId={task.id}
         taskInstanceId={instance.id}
+        userId={userId}
         taskName={instance.title || task.taskName}
         taskSubtitle="主观题"
         isPreview={isPreview}
@@ -216,8 +219,10 @@ export default function StudentTaskPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const taskInstanceId = params.id as string;
   const isPreview = searchParams.get("preview") === "true";
+  const userId = session?.user?.id;
 
   const [instance, setInstance] = useState<TaskInstanceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -327,7 +332,16 @@ export default function StudentTaskPage() {
       </Card>
 
       {/* Runner */}
-      {renderRunner(instance, isPreview)}
+      {/* 等 session 解析完成才挂 runner — runner 的 localStorage draft key 必须含
+          userId 才能避免同浏览器多账号串数据。 */}
+      {userId ? (
+        renderRunner(instance, isPreview, userId)
+      ) : (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">正在加载用户...</span>
+        </div>
+      )}
     </div>
   );
 }
