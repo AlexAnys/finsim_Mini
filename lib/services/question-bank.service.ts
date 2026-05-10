@@ -642,13 +642,6 @@ ${questionText || "暂无。"}
 }`;
 }
 
-function formatParseError(err: unknown) {
-  if (err instanceof z.ZodError) {
-    return err.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
-  }
-  return err instanceof Error ? err.message : String(err);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
