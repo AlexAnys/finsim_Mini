@@ -238,9 +238,18 @@ export function getProviderOptions(
   const baseThinking = setting?.thinking || "disabled";
   const thinking = feature && JSON_FORCE_DISABLE_THINKING.has(feature) ? "disabled" : baseThinking;
   if (provider.name === "mimo") {
+    // Vercel AI SDK @ai-sdk/openai 的 providerOptions.openai 是白名单 schema，
+    // 历史上传的 `thinking: { type: ... }` 不在白名单 → SDK 静默吞掉，从未真正
+    // 下发到 MiMo。结果 MiMo v2.5-pro 默认开启 reasoning，所有 sim chat 一直在
+    // reasoning 模式跑（直接 curl baseline 实测 reasoning_content 156 bytes / 2.18s；
+    // 关掉 reasoning 后 0.24s — 9× 提速）。
+    //
+    // 修复：用 OpenAI 标准 `reasoningEffort`（在 SDK 白名单内，序列化为
+    // `reasoning_effort` 下发到 MiMo）。MiMo 把 'none' 当 reasoning OFF；
+    // 'low'/'medium'/'high' 都当 reasoning ON。
     return {
       openai: {
-        thinking: { type: thinking },
+        reasoningEffort: thinking === "enabled" ? "high" : "none",
       },
     };
   }

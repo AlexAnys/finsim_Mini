@@ -99,7 +99,10 @@ describe("AI provider selection", () => {
     expect(model).toBe("mimo-v2.5-pro");
   });
 
-  it("sends MiMo thinking disabled without applying Qwen options", () => {
+  it("sends MiMo reasoningEffort=none by default + Qwen enable_thinking=false", () => {
+    // 历史曾用 `thinking: { type: 'disabled' }`，但 @ai-sdk/openai 白名单不接受
+    // 该字段（SDK 静默吞掉），导致 MiMo 默认开启 reasoning。改用 SDK 白名单内
+    // 的标准 reasoningEffort（序列化为 reasoning_effort 下发）。
     const mimo = {
       name: "mimo" as const,
       apiKey: "test-key",
@@ -114,7 +117,7 @@ describe("AI provider selection", () => {
     };
 
     expect(getProviderOptions(mimo)).toEqual({
-      openai: { thinking: { type: "disabled" } },
+      openai: { reasoningEffort: "none" },
     });
     expect(getProviderOptions(qwen)).toEqual({
       openai: { enable_thinking: false },
