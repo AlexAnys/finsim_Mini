@@ -313,3 +313,130 @@ describe("Fix 6 · stripSubmissionForStudent preserves feedback when status='fai
     expect(out.analysisStatus).toBe("pending");
   });
 });
+
+describe("Fix 6 r2 · joinSubmissions picks evaluation from nested submission tables", () => {
+  // QA r1 FAIL 修复：lib/utils/grades-transforms.ts 之前读 s.evaluation（Submission 顶层），
+  // 但 Submission schema 没有 evaluation 字段（仅 simulationSubmission/quizSubmission/subjectiveSubmission 上有）。
+  // 这导致 EvaluationPanel 永远走 hard-coded fallback，看不到差异化的 FAILED_FEEDBACK_JSON。
+  it("simulation: row.evaluation 来自 simulationSubmission.evaluation（含 JSON-shape 失败的 feedback）", async () => {
+    const { joinSubmissions } = await import("@/lib/utils/grades-transforms");
+    const rows = joinSubmissions(
+      [
+        {
+          id: "sub-1",
+          taskId: "t-1",
+          taskInstanceId: "ti-1",
+          taskType: "simulation",
+          status: "failed",
+          score: null,
+          maxScore: null,
+          simulationSubmission: {
+            evaluation: {
+              feedback: "AI 批改暂未完成（模型输出格式异常），请联系老师手动批改。",
+            },
+          },
+          submittedAt: "2026-05-13T10:00:00Z",
+          gradedAt: null,
+        },
+      ],
+      [],
+    );
+    expect(rows[0].evaluation).toEqual({
+      feedback: "AI 批改暂未完成（模型输出格式异常），请联系老师手动批改。",
+    });
+  });
+
+  it("subjective: row.evaluation 来自 subjectiveSubmission.evaluation（通用失败的 feedback）", async () => {
+    const { joinSubmissions } = await import("@/lib/utils/grades-transforms");
+    const rows = joinSubmissions(
+      [
+        {
+          id: "sub-2",
+          taskId: "t-2",
+          taskInstanceId: "ti-2",
+          taskType: "subjective",
+          status: "failed",
+          score: null,
+          maxScore: null,
+          subjectiveSubmission: {
+            evaluation: { feedback: "AI 批改暂未完成，请联系老师手动批改。" },
+          },
+          submittedAt: "2026-05-13T10:00:00Z",
+          gradedAt: null,
+        },
+      ],
+      [],
+    );
+    expect(rows[0].evaluation).toEqual({
+      feedback: "AI 批改暂未完成，请联系老师手动批改。",
+    });
+  });
+
+  it("quiz: row.evaluation 来自 quizSubmission.evaluation", async () => {
+    const { joinSubmissions } = await import("@/lib/utils/grades-transforms");
+    const rows = joinSubmissions(
+      [
+        {
+          id: "sub-3",
+          taskId: "t-3",
+          taskInstanceId: "ti-3",
+          taskType: "quiz",
+          status: "graded",
+          score: 80,
+          maxScore: 100,
+          quizSubmission: {
+            evaluation: { feedback: "完成", quizBreakdown: [] },
+          },
+          submittedAt: "2026-05-13T10:00:00Z",
+          gradedAt: "2026-05-13T10:05:00Z",
+        },
+      ],
+      [],
+    );
+    expect(rows[0].evaluation).toEqual({ feedback: "完成", quizBreakdown: [] });
+  });
+
+  it("向后兼容：旧 mock 测试传顶层 evaluation 时仍能落到 row.evaluation（fallback）", async () => {
+    const { joinSubmissions } = await import("@/lib/utils/grades-transforms");
+    const rows = joinSubmissions(
+      [
+        {
+          id: "sub-4",
+          taskId: "t-4",
+          taskInstanceId: "ti-4",
+          taskType: "simulation",
+          status: "graded",
+          score: 90,
+          maxScore: 100,
+          // 旧测试 fixture：顶层 evaluation（未嵌套）— 仅兼容已有 pr-stu-1-grades.test.ts
+          evaluation: { feedback: "legacy" },
+          submittedAt: "2026-05-13T10:00:00Z",
+          gradedAt: "2026-05-13T10:05:00Z",
+        },
+      ],
+      [],
+    );
+    expect(rows[0].evaluation).toEqual({ feedback: "legacy" });
+  });
+
+  it("所有源都缺：evaluation = null", async () => {
+    const { joinSubmissions } = await import("@/lib/utils/grades-transforms");
+    const rows = joinSubmissions(
+      [
+        {
+          id: "sub-5",
+          taskId: "t-5",
+          taskInstanceId: "ti-5",
+          taskType: "simulation",
+          status: "submitted",
+          score: null,
+          maxScore: null,
+          submittedAt: "2026-05-13T10:00:00Z",
+          gradedAt: null,
+        },
+      ],
+      [],
+    );
+    expect(rows[0].evaluation).toBeNull();
+  });
+});

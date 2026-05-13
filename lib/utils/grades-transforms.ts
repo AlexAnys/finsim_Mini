@@ -186,7 +186,16 @@ export interface RawSubmissionLite {
   status: string;
   score: number | string | null;
   maxScore: number | string | null;
-  evaluation: Record<string, unknown> | null;
+  /**
+   * Fix 6 修订：Submission 本身没有 evaluation 字段（prisma schema 表 16）。
+   * evaluation 在三个嵌套表上（simulationSubmission / quizSubmission / subjectiveSubmission），
+   * `/api/submissions` 透传这些嵌套对象，joinSubmissions 据此挑出当前 taskType 的那个。
+   * 此处保留可选字段供向后兼容（旧 mock 测试可能直接传顶层 evaluation）。
+   */
+  evaluation?: Record<string, unknown> | null;
+  simulationSubmission?: { evaluation?: Record<string, unknown> | null } | null;
+  quizSubmission?: { evaluation?: Record<string, unknown> | null } | null;
+  subjectiveSubmission?: { evaluation?: Record<string, unknown> | null } | null;
   submittedAt: string;
   gradedAt: string | null;
   releasedAt?: string | null;
@@ -233,7 +242,12 @@ export function joinSubmissions(
       status: s.status,
       score,
       maxScore,
-      evaluation: s.evaluation ?? null,
+      evaluation:
+        s.simulationSubmission?.evaluation ??
+        s.subjectiveSubmission?.evaluation ??
+        s.quizSubmission?.evaluation ??
+        s.evaluation ??
+        null,
       submittedAt: s.submittedAt,
       gradedAt: s.gradedAt,
       releasedAt,
