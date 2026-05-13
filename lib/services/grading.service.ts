@@ -85,6 +85,68 @@ function appendLatePenaltyFeedback(
   return `${prefix}已应用迟交扣分 20%，原始得分 ${penalty.originalScore}，扣除 ${penalty.penaltyAmount} 分，最终得分 ${penalty.score}。`;
 }
 
+// Fix 6: 批改失败时给学生的中文兜底文案（写进 evaluation.feedback）。
+//
+// 仅 sim / subjective 走这套（quiz 简答已有 per-question fallback）。
+// 失败模式分两类：
+//   - JSON parse / schema 失败 → "AI 模型输出格式异常"（提示老师）
+//   - 其它（网络 / 超时 / provider 报错）→ "AI 批改服务暂未完成"（提示重试 / 联系老师）
+// 评估对象保留 totalScore=0 + 空 rubric，避免前端 evaluation 渲染异常。
+const FAILED_FEEDBACK_MESSAGE = "AI 批改暂未完成，请联系老师手动批改。";
+const FAILED_FEEDBACK_JSON = "AI 批改暂未完成（模型输出格式异常），请联系老师手动批改。";
+
+function isJsonShapeFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err instanceof SyntaxError) return true;
+  if (err.name === "ZodError") return true;
+  const msg = err.message.toLowerCase();
+  return /unexpected (?:end|token)|json|zod|ai_generate_failed/.test(msg);
+}
+
+async function writeGradingFailureFeedback(
+  submission: SubmissionFull,
+  err: unknown,
+) {
+  const taskType = submission.taskType;
+  // quiz 简答已有 per-question 兜底；外层失败也保持不写 evaluation（不覆盖已有 quiz breakdown）
+  if (taskType !== "simulation" && taskType !== "subjective") return;
+
+  const feedback = isJsonShapeFailure(err)
+    ? FAILED_FEEDBACK_JSON
+    : FAILED_FEEDBACK_MESSAGE;
+  const rubric =
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (submission.task?.scoringCriteria || []).map((c: any) => ({
+      criterionId: c.id,
+      score: 0,
+      maxScore: c.maxPoints,
+      comment: "批改失败",
+    }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const maxScore = (submission.task?.scoringCriteria || []).reduce(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sum: number, c: any) => sum + c.maxPoints,
+    0,
+  );
+
+  try {
+    await updateSubmissionGrade(submission.id, {
+      status: "failed",
+      score: 0,
+      maxScore,
+      evaluation: {
+        totalScore: 0,
+        maxScore,
+        feedback,
+        rubricBreakdown: rubric,
+        failureReason: err instanceof Error ? err.message : String(err),
+      },
+    });
+  } catch (writeErr) {
+    console.error("[grading] 写入失败反馈失败（不阻塞）：", writeErr);
+  }
+}
+
 /**
  * PR-SIM-1a D1: AI 批改完成时计算 releasedAt
  *
@@ -161,7 +223,9 @@ export async function gradeSubmission(submissionId: string) {
     });
   } catch (error) {
     console.error("批改失败:", error);
-    await updateSubmissionGrade(submissionId, { status: "failed" });
+    // Fix 6: 写入学生可见的中文失败反馈（sim/subjective）。
+    // 必须在 status="failed" 之前写 evaluation — 否则 updateSubmissionGrade 顺序会覆盖。
+    await writeGradingFailureFeedback(submission, error);
 
     await logAudit({
       action: "submission.grade.failed",
