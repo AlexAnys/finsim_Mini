@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { SimulationRunner } from "@/components/simulation/simulation-runner";
+import { NotFoundState, ForbiddenState } from "@/components/states";
 
 interface ScoringCriterion {
   id: string;
@@ -63,7 +64,7 @@ export default function SimulationPage() {
 
   const [instance, setInstance] = useState<TaskInstanceDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code: string | null; message: string } | null>(null);
 
   useEffect(() => {
     async function fetchTask() {
@@ -71,7 +72,10 @@ export default function SimulationPage() {
         const res = await fetch(`/api/lms/task-instances/${taskInstanceId}`);
         const json = await res.json();
         if (!json.success) {
-          setError(json.error?.message || "加载失败");
+          setError({
+            code: json.error?.code ?? null,
+            message: json.error?.message || "加载失败",
+          });
           return;
         }
 
@@ -85,7 +89,7 @@ export default function SimulationPage() {
 
         setInstance(data);
       } catch {
-        setError("网络错误，请稍后重试");
+        setError({ code: "NETWORK_ERROR", message: "网络错误，请稍后重试" });
       } finally {
         setLoading(false);
       }
@@ -102,12 +106,27 @@ export default function SimulationPage() {
     );
   }
 
+  // 模拟全屏页无 sidebar，出错时必须给用户中文返回 CTA，否则陷入死路。
   if (error) {
+    if (error.code === "FORBIDDEN") {
+      return (
+        <ForbiddenState
+          title="你还不能进入这个模拟"
+          description={error.message || "这个模拟任务可能不属于你所在的班级。"}
+          primaryAction={{ label: "退出模拟，返回作业列表", href: "/dashboard" }}
+          secondaryAction={{ label: "查看课程", href: "/courses" }}
+          fullPage
+        />
+      );
+    }
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-2">
-        <AlertCircle className="size-8 text-destructive" />
-        <p className="text-destructive">{error}</p>
-      </div>
+      <NotFoundState
+        title="模拟任务不存在"
+        description={error.message || "你访问的模拟任务不存在或已被删除。"}
+        primaryAction={{ label: "退出模拟，返回作业列表", href: "/dashboard" }}
+        secondaryAction={{ label: "查看课程", href: "/courses" }}
+        fullPage
+      />
     );
   }
 
