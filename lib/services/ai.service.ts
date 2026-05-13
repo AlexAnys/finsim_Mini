@@ -217,10 +217,68 @@ function isModelCompatible(provider: ProviderConfig, model: string): boolean {
 }
 
 function createProvider(config: ProviderConfig) {
+  if (config.name === "mimo") {
+    // Fix 3 r3 (qa-ai r2 反馈): MiMo `reasoning_effort` 系列参数 (none/low/medium/high)
+    // **全部**让 reasoning ON（low 也 ON，只是轻量；上游 14-22s 等 reasoning_content
+    // 完成才出 content 首 chunk）。MiMo 真正"reasoning OFF"开关是顶层 body 字段
+    // `chat_template_kwargs: {enable_thinking: false}`（curl 实测 OFF 后 1.5s 完成）。
+    //
+    // @ai-sdk/openai 的白名单 schema 不允许在 body 注入非标准字段，只能从 fetch
+    // 拦截层加。仅 MiMo branch — 其它 provider 走原生路径。
+    //
+    // 注入规则（与 getProviderOptions 对齐）:
+    //   - body.reasoning_effort === "low"     → 学生/教师 sync 路径，注入 enable_thinking:false + 删 reasoning_effort（OFF）
+    //   - body.reasoning_effort === "high"    → 教师启用 thinking，保留 reasoning_effort（ON）
+    //   - body 缺 reasoning_effort            → 不动（默认 reasoning ON）
+    return createOpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+      fetch: createMimoFetch(),
+    });
+  }
   return createOpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,
   });
+}
+
+/**
+ * Fix 3 r3 · MiMo-only fetch 拦截器。
+ *
+ * 把上游 body 解析 → 若 reasoning_effort === "low"（thinking-off 意图），删掉它并
+ * 注入 chat_template_kwargs: {enable_thinking: false}（MiMo 真正认得的 OFF 开关）。
+ * 其它 reasoning_effort 值（"high"）或没有此字段则透传。
+ *
+ * 副作用纯局限：只改 chat/completions endpoint 的 JSON body；非 JSON / 非 mimo 路径走原 fetch。
+ */
+function createMimoFetch(): typeof fetch {
+  const baseFetch = globalThis.fetch.bind(globalThis);
+  return async function mimoFetch(input, init) {
+    if (!init?.body || typeof init.body !== "string") return baseFetch(input, init);
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(init.body) as Record<string, unknown>;
+    } catch {
+      // body 不是 JSON（multipart/form 等）→ 透传
+      return baseFetch(input, init);
+    }
+    if (typeof body !== "object" || body === null) return baseFetch(input, init);
+
+    const re = body.reasoning_effort;
+    if (re === "low") {
+      delete body.reasoning_effort;
+      const existing = body.chat_template_kwargs;
+      body.chat_template_kwargs =
+        existing && typeof existing === "object"
+          ? { ...(existing as Record<string, unknown>), enable_thinking: false }
+          : { enable_thinking: false };
+    }
+    // re === "high" 或 undefined → 不动 body（reasoning ON）
+
+    const headers = new Headers(init.headers);
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    return baseFetch(input, { ...init, body: JSON.stringify(body), headers });
+  };
 }
 
 // 这些 feature 必须返回严格 JSON。即便 setting/数据库里启了 thinking，也强制

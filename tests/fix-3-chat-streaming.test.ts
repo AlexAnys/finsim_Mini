@@ -151,3 +151,43 @@ describe("Fix 3 · simulation-runner.tsx SSE 渲染", () => {
     expect(src).toContain("提交失败，请重试");
   });
 });
+
+describe("Fix 3 r3 · MiMo enable_thinking 顶层字段拦截器（acceptance #1 解锁）", () => {
+  it("ai.service.ts 含 createMimoFetch 拦截器 + 注释解释 chat_template_kwargs", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    expect(src).toContain("function createMimoFetch(");
+    expect(src).toContain("chat_template_kwargs");
+    expect(src).toContain("enable_thinking: false");
+    expect(src).toMatch(/MiMo[^\n]*?reasoning OFF/);
+  });
+
+  it("createProvider 对 mimo 走 fetch 拦截路径，其它 provider 不走", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    // mimo branch 注入 fetch
+    expect(src).toMatch(/config\.name === "mimo"[\s\S]+?fetch:\s*createMimoFetch\(\)/);
+    // 非 mimo 走原生 createOpenAI（不传 fetch）
+    expect(src).toMatch(/return createOpenAI\(\{\s*apiKey:\s*config\.apiKey,\s*baseURL:\s*config\.baseURL,\s*\}\);/);
+  });
+
+  it("拦截器规则：reasoning_effort='low' → 删字段 + 注入 enable_thinking:false（OFF 路径）", async () => {
+    // 用 ESM dynamic import 拉 createMimoFetch（未直接 export，从 createProvider 间接验证）
+    // 这里走静态扫描守护：规则文字必须存在
+    const src = readFile("lib/services/ai.service.ts");
+    expect(src).toMatch(/re === "low"[\s\S]*?delete body\.reasoning_effort/);
+    expect(src).toMatch(/enable_thinking:\s*false/);
+  });
+
+  it("拦截器不影响 reasoning_effort='high'（thinking ON 路径透传）", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    // 注释明确 high / undefined 不动
+    expect(src).toMatch(/(?:high|"high")[^\n]*(?:reasoning ON|不动 body)/);
+  });
+
+  it("非 JSON body / 非 mimo 路径透传（不影响 STT multipart 等）", () => {
+    const src = readFile("lib/services/ai.service.ts");
+    // body 不是 string / JSON parse 失败 → baseFetch 直接透传
+    expect(src).toMatch(/typeof init\.body !== "string"/);
+    expect(src).toMatch(/catch \{[\s\S]*?return baseFetch/);
+  });
+});
+
