@@ -2,6 +2,62 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
+## 🔍 全项目 Review 完成（2026-05-13 · ~30min · 0 commits · read-only）
+
+**分支**：`claude-fix-mimo-reasoning-param`（继续 da9a505 MiMo 修复之后，未 push 新 commit）
+**team**：`project-review`（已 shutdown，5 reviewer 完工）
+**dev server**：已停止
+**关键修正**：spec 里写的 `/teacher/analytics-v2/dashboard` 是 404，正确路径是 `/teacher/analytics-v2`
+
+### 用户原始诉求
+
+> review 项目所有功能，尤其 AI、自动化、页面依赖、数据准确性、代码质量。除了 code 和逻辑外，对功能要做真实实测（Playwright）。用我理解的语言，我不做技术决策，只关注实际效果。
+
+### 做了什么
+
+5 reviewer 并发：reviewer-ai / -automation / -data / -pages / -quality
+- **Playwright 真浏览器实测**（新装 + Chromium）：登录 + 学生 sim chat + study buddy + 老师 dashboard + 大纲上传 + 题库导入 + 三种任务草稿 + 端到端流程 + 错误页 + 跨账号
+- **直连 Postgres 对账**（teacher1 真值 vs 页面显示）
+- **健康度**：tsc 0 error / lint 3 同型 warning / vitest 868/868 / 0 死代码并存
+
+### 产物（全归档，未改业务代码）
+
+- 5 份子报告：`.harness/reports/review_{ai,automation,data,pages,quality}_r1.md`
+- 1 份用户总览：`.harness/reports/review_summary_r1.md`（30 条结论，11🔴 / 13🟡 / 6🟢）
+- e2e 脚手架（项目原 0 e2e）：`tests/e2e/{chat-bench,review-ai,review-automation,review-data,review-data-final,review-pages}.spec.ts` + `playwright.review.config.ts`
+- 30+ 截图：`.harness/screenshots/review-2026-05-13/{ai,automation,data,pages}/`
+- mock 文件：`/tmp/finsim-test-{syllabus,syllabus-bad,questions}.md`
+- 新依赖：`@playwright/test` + `playwright`（devDependencies，未 commit）
+
+### 5 个最该修的 🔴（按用户体感破坏力排）
+
+1. **学生 AI Chat 每句等 18-26 秒，无流式** — 改 `generateText → streamText`（`ai.service.ts:485`）
+2. **AI Provider 配置面板装样子** — UI 下拉只有 mimo 但 `.env.example` 列了 5 个，代码 `ai.service.ts:151` 强制改写 mimo。二选一处理
+3. **大纲编辑只能 add 不能 update/delete/reorder** — `outline-apply/route.ts:106-145` 改成支持 update 模式
+4. **dashboard 学生数取 max 不取 sum** — `lib/utils/teacher-dashboard-transforms.ts:51-54` 一行
+5. **TaskInstanceAnalytics 表全空 + 全仓 0 producer** — `dashboard.service.ts:29` include 但没人写入；要么补 hook，要么改实时 SELECT
+
+### 给下次会话的下一步选项
+
+1. **用户挑 🔴 哪几条优先修** → 建 builder/qa team，每条一个 PR 原子推
+2. **批量做** → 5 个 🔴 打包一个 PR（≈3 天工作量，但 PR 会很大）
+3. **要 review 别的角度**（比如 sim 角色对话质量、weeklyInsight 真实生成内容、UI 中文化彻底度）→ 复用同套 e2e 脚手架
+4. **先合 PR #1 数据洞察 6 phase 主分支** → 当前 worktree `claude/elastic-davinci-a0ee14` 还有 13 commits 未 merge
+
+### 不需要再做的事
+
+- 5 reviewer 已 shutdown，team 已解散
+- dev server 已停
+- Playwright 已装好，下次启动 chromium 缓存在 `~/Library/Caches/ms-playwright`
+- e2e 脚本已留，下次复跑 `npx playwright test --config=playwright.review.config.ts`
+
+### 关键证据快速链接
+
+- 总览：`.harness/reports/review_summary_r1.md`
+- progress.tsv 末行：`2026-05-13T11:35:00Z review-all r1 PASS ~300k ...`
+
+---
+
 ## 🎉 数据洞察重构 6 Phase 收官（2026-05-03 · ~5h · 7 commits · 231/231 acceptance）
 
 **worktree**: `claude/elastic-davinci-a0ee14`，**7 commits ahead** of main `e311571`，已 push。
