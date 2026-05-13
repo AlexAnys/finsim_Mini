@@ -7,8 +7,14 @@ import {
   Clock,
   TrendingUp,
   Target,
+  Info,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type Tone = "brand" | "info" | "warn" | "success" | "danger";
@@ -32,7 +38,7 @@ const TONE_VALUE: Record<Tone, string> = {
 interface KpiCellProps {
   label: string;
   value: string | number;
-  sub?: string;
+  sub?: React.ReactNode;
   icon: LucideIcon;
   tone: Tone;
   delta?: string | null;
@@ -107,6 +113,36 @@ export function KpiStrip({ data }: { data: KpiStripData }) {
       ? `+${data.submittedDelta}`
       : null;
 
+  // 完成率 sub-text 含口径解释 tooltip。dashboard 与"数据洞察"口径不同，hover
+  // info icon 解释，避免老师跨页时困惑（spec Fix 11）。
+  const completionSub: React.ReactNode =
+    data.completionRate != null ? (
+      <span className="inline-flex items-center gap-1">
+        <span>完成率 {data.completionRate}%</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="完成率口径说明"
+              className="inline-flex size-3.5 items-center justify-center rounded-full text-ink-4 hover:text-ink-3"
+            >
+              <Info className="size-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="bottom"
+            align="start"
+            className="max-w-[280px] whitespace-normal text-left leading-relaxed"
+          >
+            完成率 = 各任务提交总数 ÷ 各任务应交总数（按班级人数 × 任务数累计）。
+            本页与「数据洞察」口径不同：数据洞察按「至少提交一次的学生数 ÷ 应交学生数」。
+          </TooltipContent>
+        </Tooltip>
+      </span>
+    ) : (
+      "暂无提交"
+    );
+
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       <KpiCell
@@ -119,11 +155,7 @@ export function KpiStrip({ data }: { data: KpiStripData }) {
       <KpiCell
         label="本周提交"
         value={data.submittedThisWeek}
-        sub={
-          data.completionRate != null
-            ? `完成率 ${data.completionRate}%`
-            : "暂无提交"
-        }
+        sub={completionSub}
         icon={FileCheck2}
         tone="info"
         delta={deltaLabel}
