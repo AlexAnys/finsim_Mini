@@ -69,6 +69,115 @@ export async function retryAsyncJob(jobId: string, user: { id: string; role: str
   return updated;
 }
 
+// Fix 10 · cron sweeper 阈值
+// queued 超过 60s 还没被 in-process scheduler 接走（典型场景：Node 进程在 enqueue 后崩溃 / 重启），
+// running 超过 10min 还没完成（典型场景：runAsyncJob 在 performAsyncJob 中卡死 / 进程崩溃）。
+const SWEEP_QUEUED_STUCK_THRESHOLD_MS = 60_000;
+const SWEEP_RUNNING_STUCK_THRESHOLD_MS = 10 * 60_000;
+const SWEEP_BATCH_LIMIT = 50;
+
+export interface SweepStuckJobsResult {
+  scannedAt: string;
+  queuedStuck: number;
+  runningStuck: number;
+  requeuedRunning: number;
+  markedFailed: number;
+  triggered: number;
+  succeeded: number;
+  failed: number;
+}
+
+/**
+ * Fix 10 · cron sweeper 主入口（被 /api/cron/sweep-stuck-jobs 调用）。
+ *
+ * 行为：
+ * 1) 找 status=queued 且 createdAt < now - 60s 的 job，直接调 runAsyncJob 触发。
+ *    runAsyncJob 用 `updateMany where:{id, status:"queued"}` 原子认领，
+ *    多个 cron 实例并发不会重复执行（claim count=0 即放弃）。
+ * 2) 找 status=running 且 startedAt < now - 10min 的 job：
+ *    - attempts < maxAttempts → 用 updateMany where status="running" 原子重置回 queued
+ *      （avoid race：worker 正好写完 succeeded/failed 时，此处 count=0 跳过），
+ *      然后调 runAsyncJob 重跑。
+ *    - 已达 maxAttempts → 标 failed + error="STUCK_TIMEOUT_GAVE_UP"。
+ *
+ * 同一 cron 调用内 await Promise.allSettled，便于返回准确统计。
+ * 单次最多扫 50 条 queued + 50 条 running，避免单次扫描爆库。
+ */
+export async function sweepStuckJobs(opts?: { now?: Date }): Promise<SweepStuckJobsResult> {
+  const now = opts?.now ?? new Date();
+  const queuedCutoff = new Date(now.getTime() - SWEEP_QUEUED_STUCK_THRESHOLD_MS);
+  const runningCutoff = new Date(now.getTime() - SWEEP_RUNNING_STUCK_THRESHOLD_MS);
+
+  const [stuckQueued, stuckRunning] = await Promise.all([
+    prisma.asyncJob.findMany({
+      where: { status: "queued", createdAt: { lt: queuedCutoff } },
+      select: { id: true },
+      take: SWEEP_BATCH_LIMIT,
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.asyncJob.findMany({
+      where: { status: "running", startedAt: { lt: runningCutoff } },
+      select: { id: true, attempts: true, maxAttempts: true },
+      take: SWEEP_BATCH_LIMIT,
+      orderBy: { startedAt: "asc" },
+    }),
+  ]);
+
+  let requeuedRunning = 0;
+  let markedFailed = 0;
+  const toTrigger: string[] = stuckQueued.map((j) => j.id);
+
+  for (const job of stuckRunning) {
+    if (job.attempts < job.maxAttempts) {
+      // 原子重置：只在仍是 running 时改回 queued（避免覆盖正常完成的写）
+      const upd = await prisma.asyncJob.updateMany({
+        where: { id: job.id, status: "running" },
+        data: {
+          status: "queued",
+          startedAt: null,
+          progress: 0,
+          error: "STUCK_TIMEOUT_RESET",
+        },
+      });
+      if (upd.count > 0) {
+        requeuedRunning++;
+        toTrigger.push(job.id);
+      }
+    } else {
+      const upd = await prisma.asyncJob.updateMany({
+        where: { id: job.id, status: "running" },
+        data: {
+          status: "failed",
+          error: "STUCK_TIMEOUT_GAVE_UP",
+          completedAt: now,
+        },
+      });
+      if (upd.count > 0) markedFailed++;
+    }
+  }
+
+  // 触发执行 — runAsyncJob 内部的 updateMany 是原子 claim，多 cron 实例并发安全。
+  // 并行 + allSettled，避免单 job 卡死阻塞整批。
+  const results = await Promise.allSettled(toTrigger.map((id) => runAsyncJob(id)));
+  let succeeded = 0;
+  let failed = 0;
+  for (const r of results) {
+    if (r.status === "fulfilled") succeeded++;
+    else failed++;
+  }
+
+  return {
+    scannedAt: now.toISOString(),
+    queuedStuck: stuckQueued.length,
+    runningStuck: stuckRunning.length,
+    requeuedRunning,
+    markedFailed,
+    triggered: toTrigger.length,
+    succeeded,
+    failed,
+  };
+}
+
 export async function runAsyncJob(jobId: string) {
   const claimed = await prisma.asyncJob.updateMany({
     where: { id: jobId, status: "queued" },
