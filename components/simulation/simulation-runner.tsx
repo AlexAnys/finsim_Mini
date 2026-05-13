@@ -101,6 +101,23 @@ function generateId(): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
+/** Fix 3 · 解析单个 SSE 事件块（不含尾部空行）。
+ *  格式约定: 一段连续 `event: <name>\ndata: <json>` 行，遇空行结束。 */
+function parseSseEvent(raw: string): { event: string; data: Record<string, unknown> } | null {
+  let event = "message";
+  let dataStr = "";
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataStr += (dataStr ? "\n" : "") + line.slice(5).trim();
+  }
+  if (!dataStr) return { event, data: {} };
+  try {
+    return { event, data: JSON.parse(dataStr) };
+  } catch {
+    return { event, data: { raw: dataStr } };
+  }
+}
+
 // ---------- Constants ----------
 
 // 8-band mood ramp (PR-7B: AI now returns 8 archetype labels via JSON).
@@ -316,7 +333,7 @@ export function SimulationRunner({
     }
   }
 
-  // Send message
+  // Send message — Fix 3 · SSE 流式渲染
   async function handleSend() {
     const text = inputValue.trim();
     if (!text || isSending) return;
@@ -343,63 +360,151 @@ export function SimulationRunner({
 
     const objectives = scoringCriteria.map((c) => c.label);
 
+    const aiMsgId = generateId();
+    await streamChatTurn({
+      body: {
+        taskId,
+        taskInstanceId,
+        transcript: updatedMessages.map((m) => ({ role: m.role, text: m.text })),
+        scenario,
+        openingLine,
+        systemPrompt,
+        lastHintTurn,
+        objectives,
+      },
+      aiMsgId,
+      onError: (msg) => toast.error(msg || "发送消息失败，请重试"),
+    });
+    setIsSending(false);
+  }
+
+  /**
+   * Fix 3 · 流式 chat 渲染共享逻辑。POST /api/ai/chat 走 SSE，
+   * 收到 chunk 立即往 ai message 上 append；meta 来了再补 mood / hint；
+   * error / 超时 → toast 中文 + 把已 push 的占位消息 prune 掉。
+   */
+  async function streamChatTurn(args: {
+    body: Record<string, unknown>;
+    aiMsgId: string;
+    onError: (msg: string) => void;
+    onMeta?: () => void;
+  }) {
+    const { body, aiMsgId, onError, onMeta } = args;
+
+    // 先 push 一条空的 ai 消息占位，stream chunk 进来再 setState 替换 text
+    const placeholder: TranscriptMessage = {
+      id: aiMsgId,
+      role: "ai",
+      text: "",
+      timestamp: new Date().toISOString(),
+      mood: "NEUTRAL",
+    };
+    setMessages((prev) => [...prev, placeholder]);
+
+    // 30 秒前端兜底超时（服务端也有 30s，但前端额外保险防 SSE 连接挂死）
+    const abortCtl = new AbortController();
+    const abortHandle = window.setTimeout(() => abortCtl.abort(), 35_000);
+
+    let receivedAnyChunk = false;
+    let accumulatedReply = "";
+
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId,
-          taskInstanceId,
-          transcript: updatedMessages.map(m => ({ role: m.role, text: m.text })),
-          scenario,
-          openingLine,
-          systemPrompt,
-          lastHintTurn,
-          objectives,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify(body),
+        signal: abortCtl.signal,
       });
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
+        // 非 200 时仍可能是 SSE 状态码？保守起见尝试当 JSON 解析
         const errData = await res.json().catch(() => null);
         throw new Error(errData?.error?.message || "AI 回复失败");
       }
 
-      const data = await res.json();
-      const payload = data.data || data;
-      const rawReply: string = payload?.reply || "";
-      const aiText = stripLegacyMoodTag(rawReply);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      // PR-7B: prefer structured mood field; fall back to NEUTRAL for legacy responses.
-      const moodObj = payload?.mood as
-        | { score: number; key?: string; label?: string }
-        | undefined;
-      const newMood: MoodType = moodObj
-        ? moodKeyFromLabel(moodObj.label)
-        : "NEUTRAL";
-      const newMoodScore: number | undefined =
-        typeof moodObj?.score === "number" ? moodObj.score : undefined;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const aiHint: string | undefined =
-        typeof payload?.hint === "string" && payload.hint.trim().length > 0
-          ? payload.hint
-          : undefined;
+        // SSE 协议：事件以空行（\n\n）分隔；解析所有完整事件
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) >= 0) {
+          const rawEvent = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          const evt = parseSseEvent(rawEvent);
+          if (!evt) continue;
 
-      const aiMsg: TranscriptMessage = {
-        id: generateId(),
-        role: "ai",
-        text: aiText,
-        timestamp: new Date().toISOString(),
-        mood: newMood,
-        moodScore: newMoodScore,
-        hint: aiHint,
-      };
-
-      setMood(newMood);
-      setMessages((prev) => [...prev, aiMsg]);
+          if (evt.event === "chunk") {
+            const delta = typeof evt.data?.delta === "string" ? evt.data.delta : "";
+            if (delta) {
+              receivedAnyChunk = true;
+              accumulatedReply += delta;
+              const renderText = stripLegacyMoodTag(accumulatedReply);
+              setMessages((prev) =>
+                prev.map((m) => (m.id === aiMsgId ? { ...m, text: renderText } : m)),
+              );
+            }
+          } else if (evt.event === "meta") {
+            const moodObj = evt.data?.mood as
+              | { score: number; key?: string; label?: string }
+              | undefined;
+            const newMood: MoodType = moodObj ? moodKeyFromLabel(moodObj.label) : "NEUTRAL";
+            const newMoodScore =
+              typeof moodObj?.score === "number" ? (moodObj.score as number) : undefined;
+            const aiHint =
+              typeof evt.data?.hint === "string" && evt.data.hint.trim().length > 0
+                ? (evt.data.hint as string)
+                : undefined;
+            const finalReplyText: string =
+              typeof evt.data?.reply === "string" && evt.data.reply.length > 0
+                ? stripLegacyMoodTag(evt.data.reply as string)
+                : stripLegacyMoodTag(accumulatedReply);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId
+                  ? {
+                      ...m,
+                      text: finalReplyText,
+                      mood: newMood,
+                      moodScore: newMoodScore,
+                      hint: aiHint,
+                    }
+                  : m,
+              ),
+            );
+            setMood(newMood);
+            if (onMeta) onMeta();
+          } else if (evt.event === "error") {
+            const msg =
+              typeof evt.data?.message === "string"
+                ? (evt.data.message as string)
+                : "AI 回复失败";
+            // 删占位消息
+            setMessages((prev) => prev.filter((m) => m.id !== aiMsgId));
+            onError(msg);
+            return;
+          } else if (evt.event === "done") {
+            return;
+          }
+        }
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "发送消息失败，请重试");
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      setMessages((prev) => prev.filter((m) => m.id !== aiMsgId && !(m.id === aiMsgId)));
+      if (!receivedAnyChunk) {
+        setMessages((prev) => prev.filter((m) => m.id !== aiMsgId));
+      }
+      onError(isAbort ? "AI 回复超时，请稍后再试" : err instanceof Error ? err.message : "发送消息失败，请重试");
     } finally {
-      setIsSending(false);
+      window.clearTimeout(abortHandle);
     }
   }
 
@@ -424,6 +529,7 @@ export function SimulationRunner({
   // 2. POST /api/ai/chat with messageType=config_submission + allocations 结构化输入
   // 3. 客户回复 push 到 messages（role=ai）+ 更新 mood
   // 4. snapshot 仍 push 到 snapshots[]（PR-7C 持久化兜底，教师 insights 用）
+  // Fix 3 · 走流式 SSE（同 handleSend）
   async function handleSubmitAllocation() {
     if (isSending) return;
     for (const section of allocations) {
@@ -449,76 +555,42 @@ export function SimulationRunner({
 
     setIsSending(true);
     const loadingToastId = toast.loading("客户正在阅读你的配置...");
-    try {
-      const res = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId,
-          taskInstanceId,
-          transcript: messages.map((m) => ({ role: m.role, text: m.text })),
-          scenario,
-          openingLine,
-          systemPrompt,
-          lastHintTurn,
-          objectives,
-          messageType: "config_submission",
-          allocations: allocations.map((s) => ({
-            label: s.label,
-            items: s.items.map((it) => ({ label: it.label, value: it.value })),
-          })),
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => null);
-        throw new Error(errData?.error?.message || "提交失败");
-      }
-
-      const data = await res.json();
-      const payload = data.data || data;
-      const rawReply: string = payload?.reply || "";
-      const aiText = stripLegacyMoodTag(rawReply);
-
-      const moodObj = payload?.mood as
-        | { score: number; key?: string; label?: string }
-        | undefined;
-      const newMood: MoodType = moodObj
-        ? moodKeyFromLabel(moodObj.label)
-        : "NEUTRAL";
-      const newMoodScore: number | undefined =
-        typeof moodObj?.score === "number" ? moodObj.score : undefined;
-
-      const aiHint: string | undefined =
-        typeof payload?.hint === "string" && payload.hint.trim().length > 0
-          ? payload.hint
-          : undefined;
-
-      const aiMsg: TranscriptMessage = {
-        id: generateId(),
-        role: "ai",
-        text: aiText,
-        timestamp: new Date().toISOString(),
-        mood: newMood,
-        moodScore: newMoodScore,
-        hint: aiHint,
-      };
-
-      setMood(newMood);
-      setMessages((prev) => [...prev, aiMsg]);
-      // PR-7C: snapshot 仍持久化（兜底教师 insights / 评估时演变分析）
-      setSnapshots((prev) => [
-        ...prev,
-        { turn, ts: new Date().toISOString(), allocations: flat },
-      ]);
-      toast.dismiss(loadingToastId);
-      toast.success("客户已回应你的配置");
-    } catch (err) {
-      toast.dismiss(loadingToastId);
-      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
-    } finally {
-      setIsSending(false);
-    }
+    let pushedSnapshot = false;
+    const aiMsgId = generateId();
+    await streamChatTurn({
+      body: {
+        taskId,
+        taskInstanceId,
+        transcript: messages.map((m) => ({ role: m.role, text: m.text })),
+        scenario,
+        openingLine,
+        systemPrompt,
+        lastHintTurn,
+        objectives,
+        messageType: "config_submission",
+        allocations: allocations.map((s) => ({
+          label: s.label,
+          items: s.items.map((it) => ({ label: it.label, value: it.value })),
+        })),
+      },
+      aiMsgId,
+      onError: (msg) => {
+        toast.dismiss(loadingToastId);
+        toast.error(msg || "提交失败，请重试");
+      },
+      onMeta: () => {
+        if (pushedSnapshot) return;
+        pushedSnapshot = true;
+        // PR-7C: snapshot 仍持久化（兜底教师 insights / 评估时演变分析）
+        setSnapshots((prev) => [
+          ...prev,
+          { turn, ts: new Date().toISOString(), allocations: flat },
+        ]);
+        toast.dismiss(loadingToastId);
+        toast.success("客户已回应你的配置");
+      },
+    });
+    setIsSending(false);
   }
 
   // Reset allocation to defaults (visual-only convenience; doesn't touch submit count)

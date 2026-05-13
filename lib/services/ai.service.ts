@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 import { z } from "zod";
 import type { AIFeature } from "@/lib/types";
 import { prisma } from "@/lib/db/prisma";
@@ -647,27 +647,34 @@ export interface ChatAllocationSection {
   items: Array<{ label: string; value: number }>;
 }
 
-export async function chatReply(
-  userId: string,
-  data: {
-    /** PR-FIX-2 B1: optional hint 字段允许服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段） */
-    transcript: Array<{ role: string; text: string; hint?: string }>;
-    scenario: string;
-    openingLine?: string;
-    systemPrompt?: string;
-    /** PR-7B: turn index of the most recent hint.
-     *  PR-FIX-2 B1: 服务端会自行推导，客户端值仅用于校验/选最大（防客户端漏报刷 token）。 */
-    lastHintTurn?: number;
-    /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
-    objectives?: string[];
-    /** PR-SIM-3 D3: 默认 user_message（学生发文字）；config_submission 表示
-     *  学生把当前资产配置交给客户征求反馈，触发客户视角对配置具体项的回应。 */
-    messageType?: ChatMessageType;
-    /** PR-SIM-3 D3: 当 messageType=config_submission 时必填，学生提交的资产配置快照。 */
-    allocations?: ChatAllocationSection[];
-  },
-  options: AiCallOptions = {},
-): Promise<ChatReplyResult> {
+/**
+ * Fix 3 (review fixes batch 1) — 共享 chat prompt 构造。
+ * chatReply 与 chatReplyStream 都用同一份 system/user prompt，避免两份漂移。
+ */
+interface ChatRequestData {
+  /** PR-FIX-2 B1: optional hint 字段允许服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段） */
+  transcript: Array<{ role: string; text: string; hint?: string }>;
+  scenario: string;
+  openingLine?: string;
+  systemPrompt?: string;
+  /** PR-7B: turn index of the most recent hint.
+   *  PR-FIX-2 B1: 服务端会自行推导，客户端值仅用于校验/选最大（防客户端漏报刷 token）。 */
+  lastHintTurn?: number;
+  /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
+  objectives?: string[];
+  /** PR-SIM-3 D3: 默认 user_message（学生发文字）；config_submission 表示
+   *  学生把当前资产配置交给客户征求反馈，触发客户视角对配置具体项的回应。 */
+  messageType?: ChatMessageType;
+  /** PR-SIM-3 D3: 当 messageType=config_submission 时必填，学生提交的资产配置快照。 */
+  allocations?: ChatAllocationSection[];
+}
+
+function buildChatPrompts(data: ChatRequestData): {
+  personaPrompt: string;
+  systemPrompt: string;
+  userPrompt: string;
+  currentTurn: number;
+} {
   const messageType: ChatMessageType = data.messageType ?? "user_message";
   const objectivesBlock =
     data.objectives && data.objectives.length > 0
@@ -763,42 +770,27 @@ ${objectivesBlock}${configSubmissionBlock}
       : `对话历史:\n${conversationHistory}\n\n请作为客户继续回复并按上面 JSON 格式输出。`;
 
   const currentTurn = data.transcript.filter((m) => m.role === "student").length;
+  return { personaPrompt, systemPrompt, userPrompt, currentTurn };
+}
 
-  let parsed: z.infer<typeof chatReplySchema>;
-  try {
-    parsed = await aiGenerateJSON(
-      "simulation",
-      userId,
-      systemPrompt,
-      userPrompt,
-      chatReplySchema,
-      2,
-      options,
-    );
-  } catch {
-    const fallbackText = await aiGenerateText(
-      "simulation",
-      userId,
-      personaPrompt,
-      userPrompt,
-      options,
-    );
-    return {
-      reply: stripMoodTagFromText(fallbackText),
-      mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
-      hint: undefined,
-      studentPerf: 0.5,
-      deviatedDimensions: [],
-      hintTriggered: false,
-    };
-  }
-
+/**
+ * Fix 3 — 把已解析 JSON 转成 ChatReplyResult（mood mapping + hint trigger）。
+ * chatReply / chatReplyStream 共享。
+ */
+async function finalizeChatReply(
+  parsed: z.infer<typeof chatReplySchema>,
+  data: ChatRequestData,
+  userId: string,
+  options: AiCallOptions,
+): Promise<ChatReplyResult> {
   const candidateKey = MOOD_LABEL_TO_KEY[parsed.mood_label];
   const moodKey = candidateKey && VALID_MOOD_KEYS.has(candidateKey) ? candidateKey : "NEUTRAL";
   // PR-FIX-2 B2: 当降级到 NEUTRAL 时同步重写 label 为"犹豫"，保持 key/label 一致
   const moodLabel = moodKey === "NEUTRAL" && parsed.mood_label !== "犹豫"
     ? KEY_TO_LABEL[moodKey]
     : parsed.mood_label;
+
+  const currentTurn = data.transcript.filter((m) => m.role === "student").length;
 
   // PR-FIX-2 B1: 服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段）。
   // 走 transcript 找最近一条带 hint 的 ai 消息，并以"截止该 ai 消息为止的 student-turn 计数"作为 lastHintTurn。
@@ -850,6 +842,273 @@ ${objectivesBlock}${configSubmissionBlock}
     hintTriggered: hintTriggered && !!hint,
   };
 }
+
+export async function chatReply(
+  userId: string,
+  data: ChatRequestData,
+  options: AiCallOptions = {},
+): Promise<ChatReplyResult> {
+  const { personaPrompt, systemPrompt, userPrompt } = buildChatPrompts(data);
+
+  let parsed: z.infer<typeof chatReplySchema>;
+  try {
+    parsed = await aiGenerateJSON(
+      "simulation",
+      userId,
+      systemPrompt,
+      userPrompt,
+      chatReplySchema,
+      2,
+      options,
+    );
+  } catch {
+    const fallbackText = await aiGenerateText(
+      "simulation",
+      userId,
+      personaPrompt,
+      userPrompt,
+      options,
+    );
+    return {
+      reply: stripMoodTagFromText(fallbackText),
+      mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
+      hint: undefined,
+      studentPerf: 0.5,
+      deviatedDimensions: [],
+      hintTriggered: false,
+    };
+  }
+
+  return finalizeChatReply(parsed, data, userId, options);
+}
+
+// ============================================
+// 模拟对话 - AI 聊天回复 · 流式输出（Fix 3 · review fixes batch 1）
+// ============================================
+
+/** Fix 3 · 30 秒上限。MiMo p95 单轮 < 15s（即便 thinking ON 也 < 25s），
+ *  超过认为是上游卡顿，前端必须看到中文超时提示而不是无止境的 loading。 */
+export const CHAT_STREAM_TIMEOUT_MS = 30_000;
+
+/** Fix 3 · 流式 chat 返回值。
+ *  - `replyStream`: 逐 chunk 解出来的 reply 文本流（剥离 JSON 包装），前端 SSE 边收边渲染。
+ *  - `meta()`: 等 stream 跑完后返回 mood / hint / studentPerf。失败回退 NEUTRAL/0.5/degraded=true。
+ */
+export interface ChatReplyStreamResult {
+  replyStream: AsyncIterable<string>;
+  meta: () => Promise<{
+    reply: string;
+    mood: { score: number; key: string; label: string };
+    hint?: string;
+    studentPerf: number;
+    deviatedDimensions: string[];
+    hintTriggered: boolean;
+    /** true = JSON 解析失败兜底（与 chatReply 行为一致）。前端 logger 可降权。 */
+    degraded: boolean;
+  }>;
+}
+
+/**
+ * 流式版 chatReply。
+ * - 用 `streamText` 拉 raw text 流，本质是模型输出的 JSON。
+ * - 边读边用 `parsePartialJson` 取 reply 增量，吐给调用方做 SSE 渲染。
+ * - 流结束后用 chatReplySchema 严格校验，校验失败 / 超时 → 走 chatReply 同款 NEUTRAL 兜底。
+ *
+ * 不破坏 chatReply 任何契约：调用方（chat route）若 stream 渠道不可用可继续走 chatReply。
+ */
+export async function chatReplyStream(
+  userId: string,
+  data: ChatRequestData,
+  options: AiCallOptions = {},
+): Promise<ChatReplyStreamResult> {
+  const { systemPrompt, userPrompt } = buildChatPrompts(data);
+
+  if (!checkRateLimit(userId, "simulation")) {
+    throw new Error("RATE_LIMIT_EXCEEDED");
+  }
+
+  const settingsUserId = options.settingsUserId || userId;
+  const setting = await getRuntimeSetting(settingsUserId, "simulation");
+  const { provider, model } = getProviderForFeature("simulation", setting);
+  const openai = createProvider(provider);
+  const temperature = setting?.temperature ?? FEATURE_TEMPERATURES["simulation"];
+  const mergedSystemPrompt = `${mergeSystemPrompt(systemPrompt, setting)}\n\n请严格返回 JSON 格式，不要包含其他文字。`;
+  const startedAt = Date.now();
+  const aiRun = await createAiRun({
+    feature: "simulation",
+    userId,
+    settingsUserId,
+    provider,
+    model,
+    systemPrompt: mergedSystemPrompt,
+    userPrompt,
+    metadata: { ...(options.metadata ?? {}), streaming: true },
+  });
+
+  // Fix 3 · 30s AbortController 上限。模型卡死时主动断流，前端走中文超时分支。
+  const abortController = new AbortController();
+  const timeoutHandle = setTimeout(() => abortController.abort(), CHAT_STREAM_TIMEOUT_MS);
+
+  let result: ReturnType<typeof streamText>;
+  try {
+    result = streamText({
+      model: openai.chat(model),
+      system: mergedSystemPrompt,
+      prompt: userPrompt,
+      temperature,
+      maxOutputTokens: 4096,
+      providerOptions: getProviderOptions(provider, setting, "simulation"),
+      abortSignal: abortController.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutHandle);
+    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err });
+    throw err;
+  }
+
+  // 共享状态：generator 边读 stream 边累积 raw、抽 reply 增量推给前端；
+  // metaPromise 收尾时再把 raw 整体 parse 出 mood/student_perf。
+  let rawAccum = "";
+  let lastReplyEmitted = "";
+  let streamError: unknown = null;
+  let streamFinished = false;
+  const streamDone = (async () => {
+    // 真正消费 textStream 在 generator 里 — 这里只是终态信号。
+  })();
+
+  async function* replyChunks(): AsyncGenerator<string> {
+    try {
+      for await (const chunk of result.textStream) {
+        rawAccum += chunk;
+        // 增量 parse partial JSON，取出 reply 字段的当前值
+        const parsedReply = await tryExtractReplyFromPartial(rawAccum);
+        if (parsedReply !== null && parsedReply.length > lastReplyEmitted.length) {
+          const delta = parsedReply.slice(lastReplyEmitted.length);
+          lastReplyEmitted = parsedReply;
+          if (delta) yield delta;
+        }
+      }
+      streamFinished = true;
+    } catch (err) {
+      streamError = err;
+      streamFinished = true;
+      // 异常上抛到 generator 调用者（SSE writer 会捕获并发降级 chunk）
+      throw err;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }
+
+  async function meta() {
+    // 等 stream 已完整跑完（generator 跑完才能保证 rawAccum 完整）
+    await streamDone;
+    if (!streamFinished) {
+      // generator 没被消费完 → 主动拉一遍剩余 textStream（极端 case：caller 直接调 meta 没拿 replyChunks）
+      try {
+        for await (const chunk of result.textStream) rawAccum += chunk;
+        streamFinished = true;
+      } catch (err) {
+        streamError = err;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    }
+
+    if (streamError) {
+      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: streamError });
+      return degradedFallback(rawAccum);
+    }
+
+    // 严格 parse → 失败兜底
+    try {
+      const jsonStr = extractJSON(rawAccum);
+      const parsedJson = JSON.parse(jsonStr);
+      const parsed = chatReplySchema.parse(parsedJson);
+      await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: rawAccum });
+      const finalized = await finalizeChatReply(parsed, data, userId, options);
+      return { ...finalized, degraded: false };
+    } catch (err) {
+      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err });
+      return degradedFallback(rawAccum);
+    }
+  }
+
+  return { replyStream: replyChunks(), meta };
+}
+
+/** Fix 3 · 严格 JSON 解析失败时的兜底。
+ *  与 chatReply 失败兜底语义一致：reply=尽量从 raw 拼出来 / stripMoodTag，mood=犹豫 NEUTRAL，studentPerf=0.5。
+ */
+function degradedFallback(rawAccum: string) {
+  // 尝试从 raw 抽 reply；抽不到就把整个 raw 当 reply（剥掉 JSON 大括号 / [MOOD:] tag）。
+  let bestReply = "";
+  try {
+    const jsonStr = extractJSON(rawAccum);
+    const obj = JSON.parse(jsonStr);
+    if (obj && typeof obj.reply === "string") bestReply = obj.reply;
+  } catch {
+    // 直接清洗 raw
+    bestReply = stripMoodTagFromText(
+      rawAccum.replace(/^\s*\{[^\}]*"reply"\s*:\s*"/i, "").replace(/"\s*,[\s\S]*$/, "").trim(),
+    );
+  }
+  if (!bestReply) bestReply = stripMoodTagFromText(rawAccum);
+
+  return {
+    reply: bestReply || "客户暂时没有回应，请稍后再试。",
+    mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
+    hint: undefined as string | undefined,
+    studentPerf: 0.5,
+    deviatedDimensions: [] as string[],
+    hintTriggered: false,
+    degraded: true,
+  };
+}
+
+/** Fix 3 · 从 partial JSON 取 reply 字段。
+ *  partial 的 JSON 在流式途中往往不完整（"reply": "客户说..." 还没收尾 `"`）。
+ *  `parsePartialJson` 会在最大可解析处停下，返回部分对象；取它的 reply 字段。
+ */
+async function tryExtractReplyFromPartial(raw: string): Promise<string | null> {
+  // 先快速字符串解析，避免每个 chunk 都走 AI SDK 的 partial parser（最热路径）。
+  // 简单 substring 匹配 `"reply": "...` 取已经收到的 reply 字符。
+  const fastIdx = raw.indexOf('"reply"');
+  if (fastIdx < 0) return null;
+  // 找到 reply 字段之后的第一个 `"`（值开头）
+  const valueOpen = raw.indexOf('"', raw.indexOf(':', fastIdx) + 1);
+  if (valueOpen < 0) return null;
+  // 沿值字符串前进，遇到未转义的 `"` 即终止；否则到 raw 末尾（部分输出）。
+  let i = valueOpen + 1;
+  let buf = "";
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === "\\") {
+      // JSON 转义
+      const next = raw[i + 1];
+      if (next === undefined) break;
+      if (next === '"') buf += '"';
+      else if (next === "\\") buf += "\\";
+      else if (next === "n") buf += "\n";
+      else if (next === "t") buf += "\t";
+      else if (next === "r") buf += "\r";
+      else if (next === "u" && i + 5 < raw.length) {
+        const code = raw.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(code)) {
+          buf += String.fromCharCode(parseInt(code, 16));
+          i += 6;
+          continue;
+        } else buf += next;
+      } else buf += next;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') break; // 值结束
+    buf += ch;
+    i += 1;
+  }
+  return buf || null;
+}
+
 
 function stripMoodTagFromText(text: string): string {
   return text.replace(/\[(?:MOOD:\s*)?\w+\]\s*$/i, "").trim();

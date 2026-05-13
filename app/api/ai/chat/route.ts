@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
-import { chatReply } from "@/lib/services/ai.service";
+import { chatReply, chatReplyStream } from "@/lib/services/ai.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 import { assertTaskInstanceReadable, assertTaskReadable } from "@/lib/auth/resource-access";
@@ -126,18 +126,28 @@ export async function POST(request: NextRequest) {
       taskInstanceId: parsed.data.taskInstanceId,
     });
 
-    const out = await chatReply(result.session.user.id, {
+    const chatInput = {
       ...parsed.data,
       transcript: trimmedTranscript,
       systemPrompt: trustedSystemPrompt,
-    }, {
+    };
+    const callerOptions = {
       settingsUserId,
       metadata: {
         taskId: parsed.data.taskId,
         taskInstanceId: parsed.data.taskInstanceId,
         settingsSource: settingsUserId === result.session.user.id ? "actor" : "teacher",
       },
-    });
+    };
+
+    // Fix 3 · 客户端按 Accept: text/event-stream 走流式 SSE 通道；
+    // 旧 JSON 路径保留为默认（向后兼容 e2e / curl / 任意非浏览器调用）。
+    const wantsStream = request.headers.get("accept")?.includes("text/event-stream") ?? false;
+    if (wantsStream) {
+      return streamChatResponse(result.session.user.id, chatInput, callerOptions);
+    }
+
+    const out = await chatReply(result.session.user.id, chatInput, callerOptions);
     return success({
       reply: out.reply,
       mood: out.mood,
@@ -149,6 +159,74 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     return handleServiceError(err);
   }
+}
+
+/**
+ * Fix 3 · SSE 包装。事件协议（前端 simulation-runner 同步实现）：
+ *   event: chunk      data: {"delta":"..."}          // reply 文本增量
+ *   event: meta       data: {"reply":..,"mood":..}   // 最终 metadata（mood/hint/studentPerf）
+ *   event: error      data: {"code":"...","message":"..."}  // 上游或超时错误
+ *   event: done       data: {}                        // 收尾
+ *
+ * 不直接抛 throw，避免破坏 SSE 协议；任何失败都会从 SSE 通道里写 `error` 事件 + 中文消息。
+ */
+function streamChatResponse(
+  userId: string,
+  data: Parameters<typeof chatReplyStream>[1],
+  options: Parameters<typeof chatReplyStream>[2],
+): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      function send(event: string, payload: unknown) {
+        const body = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+        controller.enqueue(encoder.encode(body));
+      }
+      try {
+        const { replyStream, meta } = await chatReplyStream(userId, data, options);
+        for await (const delta of replyStream) {
+          send("chunk", { delta });
+        }
+        const metadata = await meta();
+        send("meta", {
+          reply: metadata.reply,
+          mood: metadata.mood,
+          hint: metadata.hint,
+          hintTriggered: metadata.hintTriggered,
+          studentPerf: metadata.studentPerf,
+          deviatedDimensions: metadata.deviatedDimensions,
+          degraded: metadata.degraded,
+        });
+        send("done", {});
+      } catch (err) {
+        const aborted =
+          err instanceof Error && (err.name === "AbortError" || /abort/i.test(err.message));
+        if (aborted) {
+          send("error", { code: "AI_TIMEOUT", message: "AI 回复超时，请稍后再试" });
+        } else if (err instanceof Error && err.message === "RATE_LIMIT_EXCEEDED") {
+          send("error", { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" });
+        } else if (err instanceof Error && err.message.startsWith("AI_PROVIDER_NOT_CONFIGURED")) {
+          send("error", { code: "AI_NOT_CONFIGURED", message: "AI 服务未配置" });
+        } else {
+          send("error", {
+            code: "AI_PROVIDER_ERROR",
+            message: "AI 服务暂时不可用，请稍后重试",
+          });
+        }
+        send("done", {});
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no", // nginx 默认 buffer SSE，得显式关掉
+      Connection: "keep-alive",
+    },
+  });
 }
 
 /**
