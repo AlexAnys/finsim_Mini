@@ -142,6 +142,8 @@ export function handleServiceError(err: unknown) {
         return error("AI_PROVIDER_NOT_FOUND", "AI 服务商未配置", 404);
       case "KNOWLEDGE_SOURCE_NOT_FOUND":
         return notFound("课程素材不存在");
+      case "KNOWLEDGE_SOURCE_NOT_RETRYABLE":
+        return error("KNOWLEDGE_SOURCE_NOT_RETRYABLE", "该素材当前状态无法重新解析", 400);
       case "KNOWLEDGE_SOURCE_EMPTY":
         return error("KNOWLEDGE_SOURCE_EMPTY", "无法从课程素材中提取文本内容", 400);
       case "KNOWLEDGE_SOURCE_UNREADABLE":
