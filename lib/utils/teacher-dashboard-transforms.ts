@@ -38,7 +38,6 @@ export function buildKpiSummary(args: {
   lastWeekStart.setDate(lastWeekStart.getDate() - 7);
 
   const classIds = new Set<string>();
-  let studentCount = 0;
   for (const c of args.courses) {
     if (c.class?.id) classIds.add(String(c.class.id));
     const nested = c.classes;
@@ -48,10 +47,19 @@ export function buildKpiSummary(args: {
       }
     }
   }
+  // Sum student counts across distinct classes (User.classId is single-valued,
+  // so each class's _count.students is disjoint and can be summed).
+  const classSizeById = new Map<string, number>();
   for (const ti of args.taskInstances) {
+    const cid = ti.class?.id ? String(ti.class.id) : null;
+    if (!cid) continue;
     const n = Number(ti.class?._count?.students);
-    if (Number.isFinite(n) && n > studentCount) studentCount = n;
+    if (!Number.isFinite(n)) continue;
+    const prev = classSizeById.get(cid);
+    if (prev == null || n > prev) classSizeById.set(cid, n);
   }
+  let studentCount = 0;
+  for (const n of classSizeById.values()) studentCount += n;
 
   const thisWeekSubs = args.recentSubmissions.filter((s) => {
     const ts = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;

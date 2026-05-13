@@ -12,7 +12,8 @@ import {
 
 const updateSchema = z.object({
   toolKey: z.string().min(1),
-  provider: z.enum(["mimo"]).optional().nullable(),
+  // Fix 4 (review fixes batch 1): provider enum 从 ["mimo"] 扩到 5 个；与 ai-tool-settings.service.ts AI_PROVIDER_OPTIONS 保持一致
+  provider: z.enum(["mimo", "qwen", "deepseek", "gemini", "openai"]).optional().nullable(),
   model: z.string().optional().nullable(),
   thinking: z.enum(["disabled", "enabled"]).optional(),
   temperature: z.number().min(0).max(1.5).optional().nullable(),

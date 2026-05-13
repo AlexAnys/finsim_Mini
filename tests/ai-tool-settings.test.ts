@@ -34,7 +34,13 @@ describe("AI tool settings catalog", () => {
     expect(AI_TOOL_DEFINITIONS.every((tool) => tool.basePromptPreview.trim().length > 20)).toBe(true);
   });
 
-  it("only exposes MiMo as a selectable teaching AI provider", () => {
-    expect(AI_PROVIDER_OPTIONS.map((provider) => provider.value)).toEqual(["mimo"]);
+  it("Fix 4 · 老师可选 5 个 provider（mimo 默认 + qwen/deepseek/gemini/openai）", () => {
+    expect(AI_PROVIDER_OPTIONS.map((provider) => provider.value)).toEqual([
+      "mimo",
+      "qwen",
+      "deepseek",
+      "gemini",
+      "openai",
+    ]);
   });
 });

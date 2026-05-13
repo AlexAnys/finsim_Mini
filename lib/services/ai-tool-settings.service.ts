@@ -158,10 +158,17 @@ export const AI_MODEL_OPTIONS = [
 ] as const;
 
 export const AI_PROVIDER_OPTIONS = [
-  { value: "mimo", label: "小米 MiMo", description: "默认 OpenAI-compatible provider" },
+  { value: "mimo", label: "小米 MiMo", description: "默认 OpenAI-compatible provider；高质量 + 低成本" },
+  { value: "qwen", label: "阿里通义千问", description: "DashScope OpenAI 兼容；中文金融语义稳定" },
+  { value: "deepseek", label: "DeepSeek", description: "中文推理强；评分 / 思政挖掘备选" },
+  { value: "gemini", label: "Google Gemini", description: "需 GEMINI_API_KEY；境外网络" },
+  { value: "openai", label: "OpenAI", description: "GPT-4o 系列；境外网络 + 付费" },
 ] as const;
 
-const AI_PROVIDER_VALUES = new Set(AI_PROVIDER_OPTIONS.map((provider) => provider.value));
+// Fix 4 (review fixes batch 1): provider 真实开放给老师选择。曾经 enum 只放 mimo
+// + ai.service 把所有 provider 重写成 mimo（"幽灵设置"），现在恢复真生效。
+// 切换 provider 但 .env 缺 key 时，ai.service 走 fallback 链；仍缺 → AI_PROVIDER_NOT_CONFIGURED。
+const AI_PROVIDER_VALUES = new Set<string>(AI_PROVIDER_OPTIONS.map((provider) => provider.value));
 
 const LEGACY_TOOL_KEY_FALLBACKS: Record<string, string> = {
   simulationChat: "simulation",
@@ -176,10 +183,12 @@ export async function listAiToolSettings(teacherId: string) {
 
   return AI_TOOL_DEFINITIONS.map((definition) => {
     const row = map.get(definition.key) ?? map.get(LEGACY_TOOL_KEY_FALLBACKS[definition.key] ?? "");
-    const model = row?.model?.startsWith("mimo-") ? row.model : definition.defaultModel;
+    // Fix 4: 读 row.provider，缺省 mimo；row.model 不再强制以 mimo- 开头（让 qwen/deepseek/gemini/openai 真模型 id 通过）
+    const provider = row?.provider && AI_PROVIDER_VALUES.has(row.provider) ? row.provider : "mimo";
+    const model = row?.model || definition.defaultModel;
     return {
       ...definition,
-      provider: "mimo",
+      provider,
       model,
       thinking: row?.thinking || "disabled",
       temperature: row?.temperature ?? null,

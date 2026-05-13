@@ -44,18 +44,35 @@ describe("buildKpiSummary", () => {
     expect(kpi.classCount).toBe(3);
   });
 
-  it("studentCount = max students across instances (indicative)", () => {
+  it("studentCount sums distinct classes (10 + 2 = 12, not max)", () => {
     const kpi = buildKpiSummary({
       courses: [],
       taskInstances: [
-        { class: { _count: { students: 40 } } },
-        { class: { _count: { students: 45 } } },
+        // Two instances on the same class (A) — should not double-count
+        { class: { id: "classA", _count: { students: 10 } } },
+        { class: { id: "classA", _count: { students: 10 } } },
+        // Different class (B)
+        { class: { id: "classB", _count: { students: 2 } } },
       ],
       recentSubmissions: [],
       statsPendingCount: 0,
       now: NOW,
     });
-    expect(kpi.studentCount).toBe(45);
+    expect(kpi.studentCount).toBe(12);
+  });
+
+  it("studentCount ignores instances missing class.id", () => {
+    const kpi = buildKpiSummary({
+      courses: [],
+      taskInstances: [
+        { class: { _count: { students: 40 } } }, // missing id → skipped
+        { class: { id: "classA", _count: { students: 5 } } },
+      ],
+      recentSubmissions: [],
+      statsPendingCount: 0,
+      now: NOW,
+    });
+    expect(kpi.studentCount).toBe(5);
   });
 
   it("submittedThisWeek counts submissions in the Mon-start window", () => {

@@ -28,7 +28,11 @@ describe("AI provider selection", () => {
     });
   });
 
-  it("does not silently fallback when a teacher explicitly selects a provider", () => {
+  it("Fix 4 · 老师选 provider 但缺 key → 走 AI_FALLBACK_PROVIDER 真生效（不再 silent 返回 keyless）", () => {
+    // 之前: 选 mimo 但缺 MIMO_API_KEY → silent return keyless-mimo（让 createOpenAI 拿 apiKey:"" 后
+    //       在网络层 401，老师看到的是含糊错误）。
+    // Fix 4: 缺 key 时显式走 fallback 链；fallback 也缺 → throw AI_PROVIDER_NOT_CONFIGURED，
+    //        handleServiceError 映射成中文 "AI 服务未配置"。
     delete process.env.MIMO_API_KEY;
     process.env.QWEN_API_KEY = "qwen-key";
     process.env.AI_FALLBACK_PROVIDER = "qwen";
@@ -38,9 +42,11 @@ describe("AI provider selection", () => {
       model: "mimo-v2.5-pro",
     });
 
-    expect(provider.name).toBe("mimo");
-    expect(provider.apiKey).toBe("");
-    expect(model).toBe("mimo-v2.5-pro");
+    // 应该走 fallback 到 qwen（而不是 silent 给 keyless mimo）
+    expect(provider.name).toBe("qwen");
+    expect(provider.apiKey).toBe("qwen-key");
+    // requestedModel="mimo-v2.5-pro" 与 qwen 不兼容 → 落回 qwen defaultModel
+    expect(model).toBe("qwen3-max");
   });
 
   it("defaults feature calls to MiMo when no provider override is set", () => {
@@ -86,7 +92,7 @@ describe("AI provider selection", () => {
     expect(model).toBe("mimo-v2.5-pro");
   });
 
-  it("normalizes non-MiMo runtime provider overrides back to MiMo", () => {
+  it("Fix 4 · 老师选 qwen + qwen key 存在 → 真用 qwen，不再被强制改写到 mimo", () => {
     process.env.MIMO_API_KEY = "mimo-key";
     process.env.QWEN_API_KEY = "qwen-key";
 
@@ -95,11 +101,51 @@ describe("AI provider selection", () => {
       model: "qwen-max",
     });
 
-    expect(provider.name).toBe("mimo");
-    expect(model).toBe("mimo-v2.5-pro");
+    expect(provider.name).toBe("qwen");
+    expect(model).toBe("qwen-max");
+    expect(provider.apiKey).toBe("qwen-key");
   });
 
-  it("sends MiMo thinking disabled without applying Qwen options", () => {
+  it("Fix 4 · 老师选 deepseek/gemini/openai 也一样真生效（缺 key 时走 fallback 链）", () => {
+    process.env.MIMO_API_KEY = "mimo-key";
+    process.env.DEEPSEEK_API_KEY = "deepseek-key";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.OPENAI_API_KEY = "openai-key";
+
+    expect(
+      getProviderForFeature("evaluation", { provider: "deepseek" }).provider.name,
+    ).toBe("deepseek");
+    expect(
+      getProviderForFeature("evaluation", { provider: "gemini" }).provider.name,
+    ).toBe("gemini");
+    expect(
+      getProviderForFeature("evaluation", { provider: "openai" }).provider.name,
+    ).toBe("openai");
+  });
+
+  it("Fix 4 · 选了 provider 但 .env 缺 key → throw AI_PROVIDER_NOT_CONFIGURED 而不是默默改写到 mimo", () => {
+    // 注意：旧版本是 `requestedProviderName === "mimo" ? ... : "mimo"`（强制改写），
+    // 切到 qwen 又没 qwen key 时不报错；现在让真实 provider 生效，缺 key 必须显式失败。
+    delete process.env.QWEN_API_KEY;
+    delete process.env.MIMO_API_KEY;
+    delete process.env.AI_FALLBACK_PROVIDER;
+    expect(() =>
+      getProviderForFeature("quizDraft", { provider: "qwen" }),
+    ).toThrow(/AI_PROVIDER_NOT_CONFIGURED/);
+  });
+
+  it("Fix 4 · 选了 provider 但缺 key + 配 AI_FALLBACK_PROVIDER=mimo + MIMO_API_KEY 存在 → fallback 到 mimo（不报错，保留 fallback 链）", () => {
+    delete process.env.QWEN_API_KEY;
+    process.env.MIMO_API_KEY = "mimo-key";
+    process.env.AI_FALLBACK_PROVIDER = "mimo";
+    const { provider } = getProviderForFeature("quizDraft", { provider: "qwen" });
+    expect(provider.name).toBe("mimo");
+  });
+
+  it("sends MiMo reasoningEffort=low by default (MiMo API 拒 'none' 后) + Qwen enable_thinking=false", () => {
+    // 历史曾用 `thinking: { type: 'disabled' }`，但 @ai-sdk/openai 白名单不接受
+    // 该字段（SDK 静默吞掉），导致 MiMo 默认开启 reasoning。改用 SDK 白名单内
+    // 的标准 reasoningEffort（序列化为 reasoning_effort 下发）。
     const mimo = {
       name: "mimo" as const,
       apiKey: "test-key",
@@ -114,7 +160,7 @@ describe("AI provider selection", () => {
     };
 
     expect(getProviderOptions(mimo)).toEqual({
-      openai: { thinking: { type: "disabled" } },
+      openai: { reasoningEffort: "low" },
     });
     expect(getProviderOptions(qwen)).toEqual({
       openai: { enable_thinking: false },

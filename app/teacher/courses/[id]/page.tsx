@@ -154,6 +154,7 @@ interface OutlineMergePreview {
 }
 
 interface EditableOutlineSection {
+  sectionId?: string;
   title: string;
   learningGoals: string[];
   knowledgeObjectives: string[];
@@ -162,6 +163,7 @@ interface EditableOutlineSection {
 }
 
 interface EditableOutlineChapter {
+  chapterId?: string;
   title: string;
   learningGoals: string[];
   knowledgeObjectives: string[];
@@ -232,6 +234,8 @@ export default function TeacherCourseDetailPage() {
   const [outlineMergePreviewSourceId, setOutlineMergePreviewSourceId] = useState<string | null>(null);
   const [outlinePreviewingSourceId, setOutlinePreviewingSourceId] = useState<string | null>(null);
   const [outlineApplyingSourceId, setOutlineApplyingSourceId] = useState<string | null>(null);
+  const [outlineSavingSourceId, setOutlineSavingSourceId] = useState<string | null>(null);
+  const [outlineReplacingSourceId, setOutlineReplacingSourceId] = useState<string | null>(null);
   const [savingEditCourse, setSavingEditCourse] = useState(false);
 
   const [courseClasses, setCourseClasses] = useState<
@@ -524,6 +528,71 @@ export default function TeacherCourseDetailPage() {
       toast.error("安全合并失败");
     } finally {
       setOutlineApplyingSourceId(null);
+    }
+  }
+
+  async function handleOutlineSaveDraft(sourceId: string, outlineOverride: EditableOutlineDraft) {
+    setOutlineSavingSourceId(sourceId);
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/outline-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceId, mode: "save-draft", outline: outlineOverride }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "保存草稿失败");
+        return;
+      }
+      setOutlineActiveSourceId(sourceId);
+      setOutlineMergePreview(json.data.preview || null);
+      setOutlineMergePreviewSourceId(sourceId);
+      const normalized = normalizeOutlineDraft(json.data.outline);
+      if (normalized) {
+        setOutlineDraftEditors((prev) => ({ ...prev, [sourceId]: normalized }));
+      }
+      toast.success("草稿已保存");
+      fetchCourseOutlineSources();
+    } catch {
+      toast.error("保存草稿失败");
+    } finally {
+      setOutlineSavingSourceId(null);
+    }
+  }
+
+  async function handleOutlineReplace(sourceId: string, outlineOverride: EditableOutlineDraft) {
+    if (!window.confirm("替换模式会按当前草稿覆盖章节顺序、标题和层级。有任务的章节/小节会被保护。确定继续吗？")) {
+      return;
+    }
+    setOutlineReplacingSourceId(sourceId);
+    try {
+      const res = await fetch(`/api/lms/courses/${courseId}/outline-apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceId, mode: "replace", outline: outlineOverride }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "应用替换失败");
+        return;
+      }
+      setOutlineActiveSourceId(sourceId);
+      setOutlineMergePreview(json.data.applied?.preview || null);
+      setOutlineMergePreviewSourceId(sourceId);
+      const normalized = normalizeOutlineDraft(json.data.outline);
+      if (normalized) {
+        setOutlineDraftEditors((prev) => ({ ...prev, [sourceId]: normalized }));
+      }
+      const created = json.data.applied?.createdChapters?.length || 0;
+      const updated = json.data.applied?.updatedChapters?.length || 0;
+      const deleted = json.data.applied?.deletedChapters?.length || 0;
+      toast.success(`已替换应用：新增 ${created} / 更新 ${updated} / 删除 ${deleted} 章`);
+      fetchCourse();
+      fetchCourseOutlineSources();
+    } catch {
+      toast.error("应用替换失败");
+    } finally {
+      setOutlineReplacingSourceId(null);
     }
   }
 
@@ -1461,9 +1530,13 @@ export default function TeacherCourseDetailPage() {
                               preview={outlineMergePreviewSourceId === source.id ? outlineMergePreview : null}
                               isPreviewing={outlinePreviewingSourceId === source.id}
                               isApplying={outlineApplyingSourceId === source.id}
+                              isSaving={outlineSavingSourceId === source.id}
+                              isReplacing={outlineReplacingSourceId === source.id}
                               onChange={(nextDraft) => updateOutlineEditor(source.id, nextDraft)}
                               onPreview={() => handleOutlineMergePreview(source.id, draft)}
                               onApply={() => handleOutlineSafeMerge(source.id, draft)}
+                              onSaveDraft={() => handleOutlineSaveDraft(source.id, draft)}
+                              onReplace={() => handleOutlineReplace(source.id, draft)}
                             />
                           ) : (
                             <OutlineDraftDetails value={source.structuredData} />
@@ -1588,18 +1661,26 @@ function OutlineEditableDraft({
   preview,
   isPreviewing,
   isApplying,
+  isSaving,
+  isReplacing,
   onChange,
   onPreview,
   onApply,
+  onSaveDraft,
+  onReplace,
 }: {
   draft: EditableOutlineDraft;
   currentChapters: ApiChapter[];
   preview: OutlineMergePreview | null;
   isPreviewing: boolean;
   isApplying: boolean;
+  isSaving: boolean;
+  isReplacing: boolean;
   onChange: (draft: EditableOutlineDraft) => void;
   onPreview: () => void;
   onApply: () => void;
+  onSaveDraft: () => void;
+  onReplace: () => void;
 }) {
   const updateList = (
     field: "courseGoals" | "knowledgeObjectives" | "skillObjectives" | "valueObjectives" | "assessmentRequirements" | "globalKnowledgePoints",
@@ -1692,6 +1773,29 @@ function OutlineEditableDraft({
     });
   };
 
+  const moveChapter = (chapterIndex: number, direction: -1 | 1) => {
+    const target = chapterIndex + direction;
+    if (target < 0 || target >= draft.chapters.length) return;
+    const next = [...draft.chapters];
+    [next[chapterIndex], next[target]] = [next[target], next[chapterIndex]];
+    onChange({ ...draft, chapters: next });
+  };
+
+  const moveSection = (chapterIndex: number, sectionIndex: number, direction: -1 | 1) => {
+    const chapter = draft.chapters[chapterIndex];
+    if (!chapter) return;
+    const target = sectionIndex + direction;
+    if (target < 0 || target >= chapter.sections.length) return;
+    const nextSections = [...chapter.sections];
+    [nextSections[sectionIndex], nextSections[target]] = [nextSections[target], nextSections[sectionIndex]];
+    onChange({
+      ...draft,
+      chapters: draft.chapters.map((c, index) =>
+        index === chapterIndex ? { ...c, sections: nextSections } : c,
+      ),
+    });
+  };
+
   return (
     <div className="space-y-3">
       <details open className="rounded-md border border-line bg-surface px-3 py-2">
@@ -1758,6 +1862,26 @@ function OutlineEditableDraft({
                 />
                 <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={chapterIndex === 0}
+                  onClick={() => moveChapter(chapterIndex, -1)}
+                  aria-label="上移章节"
+                >
+                  上移
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={chapterIndex === draft.chapters.length - 1}
+                  onClick={() => moveChapter(chapterIndex, 1)}
+                  aria-label="下移章节"
+                >
+                  下移
+                </Button>
+                <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => addSection(chapterIndex)}
@@ -1797,6 +1921,26 @@ function OutlineEditableDraft({
                         className="h-8 flex-1 text-xs"
                         placeholder="小节标题"
                       />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={sectionIndex === 0}
+                        onClick={() => moveSection(chapterIndex, sectionIndex, -1)}
+                        aria-label="上移小节"
+                      >
+                        上移
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={sectionIndex === chapter.sections.length - 1}
+                        onClick={() => moveSection(chapterIndex, sectionIndex, 1)}
+                        aria-label="下移小节"
+                      >
+                        下移
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
@@ -1857,13 +2001,21 @@ function OutlineEditableDraft({
       {preview && <OutlineMergePreviewPanel preview={preview} />}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onSaveDraft} disabled={isSaving}>
+          {isSaving ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+          保存编辑
+        </Button>
         <Button type="button" variant="outline" size="sm" onClick={onPreview} disabled={isPreviewing}>
           {isPreviewing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
           按当前草稿预览合并
         </Button>
         <Button type="button" size="sm" onClick={onApply} disabled={isApplying}>
           {isApplying ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
-          应用当前草稿安全合并
+          安全合并
+        </Button>
+        <Button type="button" size="sm" variant="destructive" onClick={onReplace} disabled={isReplacing}>
+          {isReplacing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+          应用到课程结构（替换）
         </Button>
       </div>
     </div>
@@ -2024,7 +2176,7 @@ function outlineObjectiveSummary(value: unknown) {
   return parts.join(" · ");
 }
 
-function normalizeOutlineDraft(value: unknown) {
+function normalizeOutlineDraft(value: unknown): EditableOutlineDraft | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const data = value as {
     courseGoals?: unknown;
@@ -2041,6 +2193,7 @@ function normalizeOutlineDraft(value: unknown) {
         .map((raw) => {
           if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
           const chapter = raw as {
+            chapterId?: unknown;
             title?: unknown;
             learningGoals?: unknown;
             knowledgeObjectives?: unknown;
@@ -2048,36 +2201,42 @@ function normalizeOutlineDraft(value: unknown) {
             knowledgePoints?: unknown;
             sections?: unknown;
           };
-          return {
-            title: typeof chapter.title === "string" ? chapter.title : "",
-            learningGoals: stringArray(chapter.learningGoals),
-            knowledgeObjectives: stringArray(chapter.knowledgeObjectives),
-            skillObjectives: stringArray(chapter.skillObjectives),
-            knowledgePoints: stringArray(chapter.knowledgePoints),
-            sections: Array.isArray(chapter.sections)
-              ? chapter.sections
-                  .map((rawSection) => {
+          const sectionList = Array.isArray(chapter.sections)
+            ? chapter.sections
+                .map((rawSection) => {
                     if (!rawSection || typeof rawSection !== "object" || Array.isArray(rawSection)) return null;
                     const section = rawSection as {
+                      sectionId?: unknown;
                       title?: unknown;
                       learningGoals?: unknown;
                       knowledgeObjectives?: unknown;
                       skillObjectives?: unknown;
                       knowledgePoints?: unknown;
                     };
-                    return {
+                    const next: EditableOutlineSection = {
                       title: typeof section.title === "string" ? section.title : "",
                       learningGoals: stringArray(section.learningGoals),
                       knowledgeObjectives: stringArray(section.knowledgeObjectives),
                       skillObjectives: stringArray(section.skillObjectives),
                       knowledgePoints: stringArray(section.knowledgePoints),
                     };
+                    if (typeof section.sectionId === "string") next.sectionId = section.sectionId;
+                    return next;
                   })
-                  .filter((section): section is EditableOutlineSection => Boolean(section))
-              : [],
+                .filter((section): section is EditableOutlineSection => section !== null)
+            : [];
+          const next: EditableOutlineChapter = {
+            title: typeof chapter.title === "string" ? chapter.title : "",
+            learningGoals: stringArray(chapter.learningGoals),
+            knowledgeObjectives: stringArray(chapter.knowledgeObjectives),
+            skillObjectives: stringArray(chapter.skillObjectives),
+            knowledgePoints: stringArray(chapter.knowledgePoints),
+            sections: sectionList,
           };
+          if (typeof chapter.chapterId === "string") next.chapterId = chapter.chapterId;
+          return next;
         })
-        .filter((chapter): chapter is EditableOutlineChapter => Boolean(chapter))
+        .filter((chapter): chapter is EditableOutlineChapter => chapter !== null)
     : [];
 
   return {

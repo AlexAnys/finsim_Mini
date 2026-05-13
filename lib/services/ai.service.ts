@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 import { z } from "zod";
 import type { AIFeature } from "@/lib/types";
 import { prisma } from "@/lib/db/prisma";
@@ -10,7 +10,7 @@ import { createHash } from "crypto";
 // ============================================
 
 interface ProviderConfig {
-  name: "mimo" | "qwen" | "deepseek" | "openai";
+  name: "mimo" | "qwen" | "deepseek" | "openai" | "gemini";
   apiKey: string;
   baseURL: string;
   defaultModel: string;
@@ -59,6 +59,18 @@ export function getProviderConfig(name: string): ProviderConfig | null {
         apiKey: process.env.OPENAI_API_KEY || "",
         baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
         defaultModel: "gpt-4o-mini",
+      };
+    case "gemini":
+      // Gemini 走 OpenAI-compatible adapter（@ai-sdk/google 与 createOpenAI 不兼容签名；
+      // 改用 Google 自家 generativelanguage.googleapis.com 的 openai 兼容端点）。
+      // GEMINI_PROXY_URL 用于走自建网关/反代，缺省走官方端点。
+      return {
+        name: "gemini",
+        apiKey: process.env.GEMINI_API_KEY || "",
+        baseURL:
+          process.env.GEMINI_PROXY_URL ||
+          "https://generativelanguage.googleapis.com/v1beta/openai/",
+        defaultModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       };
     default:
       return null;
@@ -146,26 +158,28 @@ export function getProviderForFeature(
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
     "mimo";
-  // Teaching AI calls are intentionally locked to MiMo. OCR has a separate
-  // adapter/provider path in document ingestion.
-  const providerName = requestedProviderName === "mimo" ? requestedProviderName : "mimo";
+  // Fix 4 (review fixes batch 1): 不再把所有 provider 强制改写成 mimo。
+  // 历史这里硬 lock 到 MiMo 是因为部署阶段 qwen/deepseek/gemini/openai 配置
+  // 不完整，老师在 UI 选了其它 provider 但实际仍走 mimo（"幽灵设置"，对用户
+  // 撒谎）。现在 ai-tool-settings.service AI_PROVIDER_OPTIONS 扩到 5 个，
+  // .env.example 5 个 key/base_url 都齐备，让 setting 真生效；缺 key 时
+  // 走下面的 fallback 链（仍 throw AI_PROVIDER_NOT_CONFIGURED + provider 名）。
+  const providerName = requestedProviderName;
   const requestedModel = setting?.model || process.env[`${envPrefix}_MODEL`] || "";
 
   const provider = getProviderConfig(providerName);
   if (!provider || !provider.apiKey) {
-    if (setting?.provider && provider) {
-      return {
-        provider,
-        model: resolveModelForProvider(provider, requestedModel),
-      };
-    }
-
-    // 尝试 fallback
+    // Fix 4 (review fixes batch 1): 
+    //  - 老师从 UI 选了某 provider 但 .env 缺 key → 走 fallback 链；fallback 也缺 → throw
+    //  - 历史"silent 返回 keyless provider"被删（PR 之前这条路径会让 createOpenAI 拿到 apiKey:""
+    //    后续在网络层 401，错误信息含糊；现在显式失败，handleServiceError 映射成中文
+    //    "AI 服务未配置"。
     const requestedFallbackName =
       process.env[`${envPrefix}_FALLBACK_PROVIDER`] ||
       process.env.AI_FALLBACK_PROVIDER ||
       "mimo";
-    const fallbackName = requestedFallbackName === "mimo" ? requestedFallbackName : "mimo";
+    // Fix 4: 同样不强制改写 fallback；让 AI_FALLBACK_PROVIDER / AI_<feature>_FALLBACK_PROVIDER 真生效
+    const fallbackName = requestedFallbackName;
     const fallback = getProviderConfig(fallbackName);
     if (!fallback || !fallback.apiKey) {
       throw new Error(`AI_PROVIDER_NOT_CONFIGURED: ${providerName}`);
@@ -194,16 +208,77 @@ function isModelCompatible(provider: ProviderConfig, model: string): boolean {
       return model.startsWith("qwen");
     case "deepseek":
       return model.startsWith("deepseek");
+    case "gemini":
+      return model.startsWith("gemini-");
     case "openai":
+      // OpenAI / Anthropic 兼容客户端用任意 model id（teacher 在 UI 选好即可）
       return true;
   }
 }
 
 function createProvider(config: ProviderConfig) {
+  if (config.name === "mimo") {
+    // Fix 3 r3 (qa-ai r2 反馈): MiMo `reasoning_effort` 系列参数 (none/low/medium/high)
+    // **全部**让 reasoning ON（low 也 ON，只是轻量；上游 14-22s 等 reasoning_content
+    // 完成才出 content 首 chunk）。MiMo 真正"reasoning OFF"开关是顶层 body 字段
+    // `chat_template_kwargs: {enable_thinking: false}`（curl 实测 OFF 后 1.5s 完成）。
+    //
+    // @ai-sdk/openai 的白名单 schema 不允许在 body 注入非标准字段，只能从 fetch
+    // 拦截层加。仅 MiMo branch — 其它 provider 走原生路径。
+    //
+    // 注入规则（与 getProviderOptions 对齐）:
+    //   - body.reasoning_effort === "low"     → 学生/教师 sync 路径，注入 enable_thinking:false + 删 reasoning_effort（OFF）
+    //   - body.reasoning_effort === "high"    → 教师启用 thinking，保留 reasoning_effort（ON）
+    //   - body 缺 reasoning_effort            → 不动（默认 reasoning ON）
+    return createOpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+      fetch: createMimoFetch(),
+    });
+  }
   return createOpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,
   });
+}
+
+/**
+ * Fix 3 r3 · MiMo-only fetch 拦截器。
+ *
+ * 把上游 body 解析 → 若 reasoning_effort === "low"（thinking-off 意图），删掉它并
+ * 注入 chat_template_kwargs: {enable_thinking: false}（MiMo 真正认得的 OFF 开关）。
+ * 其它 reasoning_effort 值（"high"）或没有此字段则透传。
+ *
+ * 副作用纯局限：只改 chat/completions endpoint 的 JSON body；非 JSON / 非 mimo 路径走原 fetch。
+ */
+function createMimoFetch(): typeof fetch {
+  const baseFetch = globalThis.fetch.bind(globalThis);
+  return async function mimoFetch(input, init) {
+    if (!init?.body || typeof init.body !== "string") return baseFetch(input, init);
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(init.body) as Record<string, unknown>;
+    } catch {
+      // body 不是 JSON（multipart/form 等）→ 透传
+      return baseFetch(input, init);
+    }
+    if (typeof body !== "object" || body === null) return baseFetch(input, init);
+
+    const re = body.reasoning_effort;
+    if (re === "low") {
+      delete body.reasoning_effort;
+      const existing = body.chat_template_kwargs;
+      body.chat_template_kwargs =
+        existing && typeof existing === "object"
+          ? { ...(existing as Record<string, unknown>), enable_thinking: false }
+          : { enable_thinking: false };
+    }
+    // re === "high" 或 undefined → 不动 body（reasoning ON）
+
+    const headers = new Headers(init.headers);
+    if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    return baseFetch(input, { ...init, body: JSON.stringify(body), headers });
+  };
 }
 
 // 这些 feature 必须返回严格 JSON。即便 setting/数据库里启了 thinking，也强制
@@ -238,9 +313,28 @@ export function getProviderOptions(
   const baseThinking = setting?.thinking || "disabled";
   const thinking = feature && JSON_FORCE_DISABLE_THINKING.has(feature) ? "disabled" : baseThinking;
   if (provider.name === "mimo") {
+    // Vercel AI SDK @ai-sdk/openai 的 providerOptions.openai 是白名单 schema，
+    // 历史上传的 `thinking: { type: ... }` 不在白名单 → SDK 静默吞掉，从未真正
+    // 下发到 MiMo。结果 MiMo v2.5-pro 默认开启 reasoning，所有 sim chat 一直在
+    // reasoning 模式跑（直接 curl baseline 实测 reasoning_content 156 bytes / 2.18s；
+    // 关掉 reasoning 后 0.24s — 9× 提速）。
+    //
+    // 修复：用 OpenAI 标准 `reasoningEffort`（在 SDK 白名单内，序列化为
+    // `reasoning_effort` 下发到 MiMo）。
+    //
+    // Fix 3 (review fixes batch 1, qa-ai r1 反馈): MiMo API 在 da9a505 之后
+    // 退化了 reasoning_effort 校验 — 'none' 现在返回 400 "Input should be
+    // 'low', 'medium' or 'high'"，整条 chat 链路死。直 curl 验证：
+    //   * 不传 reasoning_effort → 200 + reasoning ON（默认行为）
+    //   * 'low' + stream:true → 200 + SSE 流式输出 + reasoning_tokens ≈ 29
+    //   * 'none' → 400
+    // 改用 'low' 作为 thinking=disabled 默认：
+    //   1) MiMo token-plan 计费按 completion_tokens 不区分 reasoning_tokens；
+    //   2) 'low' 下 first chunk 与 'none' 持平（< 0.5s）；
+    //   3) 不会回到 reasoning_content 吃光 token 的旧问题。
     return {
       openai: {
-        thinking: { type: thinking },
+        reasoningEffort: thinking === "enabled" ? "high" : "low",
       },
     };
   }
@@ -638,27 +732,34 @@ export interface ChatAllocationSection {
   items: Array<{ label: string; value: number }>;
 }
 
-export async function chatReply(
-  userId: string,
-  data: {
-    /** PR-FIX-2 B1: optional hint 字段允许服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段） */
-    transcript: Array<{ role: string; text: string; hint?: string }>;
-    scenario: string;
-    openingLine?: string;
-    systemPrompt?: string;
-    /** PR-7B: turn index of the most recent hint.
-     *  PR-FIX-2 B1: 服务端会自行推导，客户端值仅用于校验/选最大（防客户端漏报刷 token）。 */
-    lastHintTurn?: number;
-    /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
-    objectives?: string[];
-    /** PR-SIM-3 D3: 默认 user_message（学生发文字）；config_submission 表示
-     *  学生把当前资产配置交给客户征求反馈，触发客户视角对配置具体项的回应。 */
-    messageType?: ChatMessageType;
-    /** PR-SIM-3 D3: 当 messageType=config_submission 时必填，学生提交的资产配置快照。 */
-    allocations?: ChatAllocationSection[];
-  },
-  options: AiCallOptions = {},
-): Promise<ChatReplyResult> {
+/**
+ * Fix 3 (review fixes batch 1) — 共享 chat prompt 构造。
+ * chatReply 与 chatReplyStream 都用同一份 system/user prompt，避免两份漂移。
+ */
+interface ChatRequestData {
+  /** PR-FIX-2 B1: optional hint 字段允许服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段） */
+  transcript: Array<{ role: string; text: string; hint?: string }>;
+  scenario: string;
+  openingLine?: string;
+  systemPrompt?: string;
+  /** PR-7B: turn index of the most recent hint.
+   *  PR-FIX-2 B1: 服务端会自行推导，客户端值仅用于校验/选最大（防客户端漏报刷 token）。 */
+  lastHintTurn?: number;
+  /** PR-7B: dialog goal hints used for student_perf grading (rubric criteria names) */
+  objectives?: string[];
+  /** PR-SIM-3 D3: 默认 user_message（学生发文字）；config_submission 表示
+   *  学生把当前资产配置交给客户征求反馈，触发客户视角对配置具体项的回应。 */
+  messageType?: ChatMessageType;
+  /** PR-SIM-3 D3: 当 messageType=config_submission 时必填，学生提交的资产配置快照。 */
+  allocations?: ChatAllocationSection[];
+}
+
+function buildChatPrompts(data: ChatRequestData): {
+  personaPrompt: string;
+  systemPrompt: string;
+  userPrompt: string;
+  currentTurn: number;
+} {
   const messageType: ChatMessageType = data.messageType ?? "user_message";
   const objectivesBlock =
     data.objectives && data.objectives.length > 0
@@ -754,42 +855,27 @@ ${objectivesBlock}${configSubmissionBlock}
       : `对话历史:\n${conversationHistory}\n\n请作为客户继续回复并按上面 JSON 格式输出。`;
 
   const currentTurn = data.transcript.filter((m) => m.role === "student").length;
+  return { personaPrompt, systemPrompt, userPrompt, currentTurn };
+}
 
-  let parsed: z.infer<typeof chatReplySchema>;
-  try {
-    parsed = await aiGenerateJSON(
-      "simulation",
-      userId,
-      systemPrompt,
-      userPrompt,
-      chatReplySchema,
-      2,
-      options,
-    );
-  } catch {
-    const fallbackText = await aiGenerateText(
-      "simulation",
-      userId,
-      personaPrompt,
-      userPrompt,
-      options,
-    );
-    return {
-      reply: stripMoodTagFromText(fallbackText),
-      mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
-      hint: undefined,
-      studentPerf: 0.5,
-      deviatedDimensions: [],
-      hintTriggered: false,
-    };
-  }
-
+/**
+ * Fix 3 — 把已解析 JSON 转成 ChatReplyResult（mood mapping + hint trigger）。
+ * chatReply / chatReplyStream 共享。
+ */
+async function finalizeChatReply(
+  parsed: z.infer<typeof chatReplySchema>,
+  data: ChatRequestData,
+  userId: string,
+  options: AiCallOptions,
+): Promise<ChatReplyResult> {
   const candidateKey = MOOD_LABEL_TO_KEY[parsed.mood_label];
   const moodKey = candidateKey && VALID_MOOD_KEYS.has(candidateKey) ? candidateKey : "NEUTRAL";
   // PR-FIX-2 B2: 当降级到 NEUTRAL 时同步重写 label 为"犹豫"，保持 key/label 一致
   const moodLabel = moodKey === "NEUTRAL" && parsed.mood_label !== "犹豫"
     ? KEY_TO_LABEL[moodKey]
     : parsed.mood_label;
+
+  const currentTurn = data.transcript.filter((m) => m.role === "student").length;
 
   // PR-FIX-2 B1: 服务端从 transcript 自行推导 lastHintTurn（不信任客户端 optional 字段）。
   // 走 transcript 找最近一条带 hint 的 ai 消息，并以"截止该 ai 消息为止的 student-turn 计数"作为 lastHintTurn。
@@ -841,6 +927,282 @@ ${objectivesBlock}${configSubmissionBlock}
     hintTriggered: hintTriggered && !!hint,
   };
 }
+
+export async function chatReply(
+  userId: string,
+  data: ChatRequestData,
+  options: AiCallOptions = {},
+): Promise<ChatReplyResult> {
+  const { personaPrompt, systemPrompt, userPrompt } = buildChatPrompts(data);
+
+  let parsed: z.infer<typeof chatReplySchema>;
+  try {
+    parsed = await aiGenerateJSON(
+      "simulation",
+      userId,
+      systemPrompt,
+      userPrompt,
+      chatReplySchema,
+      2,
+      options,
+    );
+  } catch {
+    const fallbackText = await aiGenerateText(
+      "simulation",
+      userId,
+      personaPrompt,
+      userPrompt,
+      options,
+    );
+    return {
+      reply: stripMoodTagFromText(fallbackText),
+      mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
+      hint: undefined,
+      studentPerf: 0.5,
+      deviatedDimensions: [],
+      hintTriggered: false,
+    };
+  }
+
+  return finalizeChatReply(parsed, data, userId, options);
+}
+
+// ============================================
+// 模拟对话 - AI 聊天回复 · 流式输出（Fix 3 · review fixes batch 1）
+// ============================================
+
+/** Fix 3 · 30 秒上限。MiMo p95 单轮 < 15s（即便 thinking ON 也 < 25s），
+ *  超过认为是上游卡顿，前端必须看到中文超时提示而不是无止境的 loading。 */
+export const CHAT_STREAM_TIMEOUT_MS = 30_000;
+
+/** Fix 3 · 流式 chat 返回值。
+ *  - `replyStream`: 逐 chunk 解出来的 reply 文本流（剥离 JSON 包装），前端 SSE 边收边渲染。
+ *  - `meta()`: 等 stream 跑完后返回 mood / hint / studentPerf。失败回退 NEUTRAL/0.5/degraded=true。
+ */
+export interface ChatReplyStreamResult {
+  replyStream: AsyncIterable<string>;
+  meta: () => Promise<{
+    reply: string;
+    mood: { score: number; key: string; label: string };
+    hint?: string;
+    studentPerf: number;
+    deviatedDimensions: string[];
+    hintTriggered: boolean;
+    /** true = JSON 解析失败兜底（与 chatReply 行为一致）。前端 logger 可降权。 */
+    degraded: boolean;
+  }>;
+}
+
+/**
+ * 流式版 chatReply。
+ * - 用 `streamText` 拉 raw text 流，本质是模型输出的 JSON。
+ * - 边读边用 `parsePartialJson` 取 reply 增量，吐给调用方做 SSE 渲染。
+ * - 流结束后用 chatReplySchema 严格校验，校验失败 / 超时 → 走 chatReply 同款 NEUTRAL 兜底。
+ *
+ * 不破坏 chatReply 任何契约：调用方（chat route）若 stream 渠道不可用可继续走 chatReply。
+ */
+export async function chatReplyStream(
+  userId: string,
+  data: ChatRequestData,
+  options: AiCallOptions = {},
+): Promise<ChatReplyStreamResult> {
+  const { systemPrompt, userPrompt } = buildChatPrompts(data);
+
+  if (!checkRateLimit(userId, "simulation")) {
+    throw new Error("RATE_LIMIT_EXCEEDED");
+  }
+
+  const settingsUserId = options.settingsUserId || userId;
+  const setting = await getRuntimeSetting(settingsUserId, "simulation");
+  const { provider, model } = getProviderForFeature("simulation", setting);
+  const openai = createProvider(provider);
+  const temperature = setting?.temperature ?? FEATURE_TEMPERATURES["simulation"];
+  const mergedSystemPrompt = `${mergeSystemPrompt(systemPrompt, setting)}\n\n请严格返回 JSON 格式，不要包含其他文字。`;
+  const startedAt = Date.now();
+  const aiRun = await createAiRun({
+    feature: "simulation",
+    userId,
+    settingsUserId,
+    provider,
+    model,
+    systemPrompt: mergedSystemPrompt,
+    userPrompt,
+    metadata: { ...(options.metadata ?? {}), streaming: true },
+  });
+
+  // Fix 3 · 30s AbortController 上限。模型卡死时主动断流，前端走中文超时分支。
+  const abortController = new AbortController();
+  const timeoutHandle = setTimeout(() => abortController.abort(), CHAT_STREAM_TIMEOUT_MS);
+
+  let result: ReturnType<typeof streamText>;
+  try {
+    result = streamText({
+      model: openai.chat(model),
+      system: mergedSystemPrompt,
+      prompt: userPrompt,
+      temperature,
+      maxOutputTokens: 4096,
+      providerOptions: getProviderOptions(provider, setting, "simulation"),
+      abortSignal: abortController.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutHandle);
+    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err });
+    throw err;
+  }
+
+  // 共享状态：generator 边读 stream 边累积 raw、抽 reply 增量推给前端；
+  // meta() 收尾时再把 raw 整体 parse 出 mood/student_perf。
+  //
+  // Fix 3 r2 (qa-ai 反馈): 历史用空 IIFE 的 streamDone 等于立即 resolve，
+  // 起不到"等 generator 跑完"作用。改成 deferred Promise，由 generator finally 里
+  // resolve。当前实际 SSE 路径里 route 先 `for await replyStream` 后再调 meta()，
+  // 行为没问题；但代码契约必须按字面意思工作，否则后人改顺序会踩坑。
+  let rawAccum = "";
+  let lastReplyEmitted = "";
+  let streamError: unknown = null;
+  let streamFinished = false;
+  let resolveStreamDone: () => void = () => {};
+  const streamDone: Promise<void> = new Promise((resolve) => {
+    resolveStreamDone = resolve;
+  });
+
+  async function* replyChunks(): AsyncGenerator<string> {
+    try {
+      for await (const chunk of result.textStream) {
+        rawAccum += chunk;
+        // 增量 parse partial JSON，取出 reply 字段的当前值
+        const parsedReply = await tryExtractReplyFromPartial(rawAccum);
+        if (parsedReply !== null && parsedReply.length > lastReplyEmitted.length) {
+          const delta = parsedReply.slice(lastReplyEmitted.length);
+          lastReplyEmitted = parsedReply;
+          if (delta) yield delta;
+        }
+      }
+      streamFinished = true;
+    } catch (err) {
+      streamError = err;
+      streamFinished = true;
+      // 异常上抛到 generator 调用者（SSE writer 会捕获并发降级 chunk）
+      throw err;
+    } finally {
+      clearTimeout(timeoutHandle);
+      resolveStreamDone();
+    }
+  }
+
+  async function meta() {
+    if (!streamFinished) {
+      // generator 没被消费完 → 主动拉一遍剩余 textStream（极端 case：caller 直接调 meta 没拿 replyChunks）
+      try {
+        for await (const chunk of result.textStream) rawAccum += chunk;
+        streamFinished = true;
+      } catch (err) {
+        streamError = err;
+      } finally {
+        clearTimeout(timeoutHandle);
+        resolveStreamDone();
+      }
+    }
+    // 等 generator 真正跑完（finally 里 resolveStreamDone() 已触发；为了"先调 meta"
+    // 的极端用法 await 一下保证 rawAccum 不被并发竞争）
+    await streamDone;
+
+    if (streamError) {
+      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: streamError });
+      return degradedFallback(rawAccum);
+    }
+
+    // 严格 parse → 失败兜底
+    try {
+      const jsonStr = extractJSON(rawAccum);
+      const parsedJson = JSON.parse(jsonStr);
+      const parsed = chatReplySchema.parse(parsedJson);
+      await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: rawAccum });
+      const finalized = await finalizeChatReply(parsed, data, userId, options);
+      return { ...finalized, degraded: false };
+    } catch (err) {
+      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err });
+      return degradedFallback(rawAccum);
+    }
+  }
+
+  return { replyStream: replyChunks(), meta };
+}
+
+/** Fix 3 · 严格 JSON 解析失败时的兜底。
+ *  与 chatReply 失败兜底语义一致：reply=尽量从 raw 拼出来 / stripMoodTag，mood=犹豫 NEUTRAL，studentPerf=0.5。
+ */
+function degradedFallback(rawAccum: string) {
+  // 尝试从 raw 抽 reply；抽不到就把整个 raw 当 reply（剥掉 JSON 大括号 / [MOOD:] tag）。
+  let bestReply = "";
+  try {
+    const jsonStr = extractJSON(rawAccum);
+    const obj = JSON.parse(jsonStr);
+    if (obj && typeof obj.reply === "string") bestReply = obj.reply;
+  } catch {
+    // 直接清洗 raw
+    bestReply = stripMoodTagFromText(
+      rawAccum.replace(/^\s*\{[^\}]*"reply"\s*:\s*"/i, "").replace(/"\s*,[\s\S]*$/, "").trim(),
+    );
+  }
+  if (!bestReply) bestReply = stripMoodTagFromText(rawAccum);
+
+  return {
+    reply: bestReply || "客户暂时没有回应，请稍后再试。",
+    mood: { score: 0.3, key: "NEUTRAL", label: "犹豫" },
+    hint: undefined as string | undefined,
+    studentPerf: 0.5,
+    deviatedDimensions: [] as string[],
+    hintTriggered: false,
+    degraded: true,
+  };
+}
+
+/** Fix 3 · 从 partial JSON 取 reply 字段。
+ *  partial 的 JSON 在流式途中往往不完整（"reply": "客户说..." 还没收尾 `"`）。
+ *  `parsePartialJson` 会在最大可解析处停下，返回部分对象；取它的 reply 字段。
+ */
+async function tryExtractReplyFromPartial(raw: string): Promise<string | null> {
+  // 先快速字符串解析，避免每个 chunk 都走 AI SDK 的 partial parser（最热路径）。
+  // 简单 substring 匹配 `"reply": "...` 取已经收到的 reply 字符。
+  const fastIdx = raw.indexOf('"reply"');
+  if (fastIdx < 0) return null;
+  // 找到 reply 字段之后的第一个 `"`（值开头）
+  const valueOpen = raw.indexOf('"', raw.indexOf(':', fastIdx) + 1);
+  if (valueOpen < 0) return null;
+  // 沿值字符串前进，遇到未转义的 `"` 即终止；否则到 raw 末尾（部分输出）。
+  let i = valueOpen + 1;
+  let buf = "";
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === "\\") {
+      // JSON 转义
+      const next = raw[i + 1];
+      if (next === undefined) break;
+      if (next === '"') buf += '"';
+      else if (next === "\\") buf += "\\";
+      else if (next === "n") buf += "\n";
+      else if (next === "t") buf += "\t";
+      else if (next === "r") buf += "\r";
+      else if (next === "u" && i + 5 < raw.length) {
+        const code = raw.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(code)) {
+          buf += String.fromCharCode(parseInt(code, 16));
+          i += 6;
+          continue;
+        } else buf += next;
+      } else buf += next;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') break; // 值结束
+    buf += ch;
+    i += 1;
+  }
+  return buf || null;
+}
+
 
 function stripMoodTagFromText(text: string): string {
   return text.replace(/\[(?:MOOD:\s*)?\w+\]\s*$/i, "").trim();

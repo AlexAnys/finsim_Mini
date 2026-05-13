@@ -110,24 +110,29 @@ describe("PR-SIM-3 D3 · simulation-runner.tsx UI 改造", () => {
 
   it("AI 客户回复后 push 到 messages[]（role=ai）+ mood/snapshot 双更新", () => {
     const src = readFile("components/simulation/simulation-runner.tsx");
-    // setMessages 调用客户消息
-    expect(src).toMatch(/setMessages\(\(prev\) => \[\.\.\.prev, aiMsg\]\)/);
+    // Fix 3 · 流式 SSE 改造后，初始占位通过 streamChatTurn 内 push（role=ai placeholder），
+    // 由 chunk 增量填 text。仍能在源文件里读到 push 客户消息 + setSnapshots + setMood 三件套。
+    expect(src).toMatch(/setMessages\(\(prev\) => \[\.\.\.prev, placeholder\]\)/);
     // setSnapshots 仍 push（PR-7C 兜底）
     expect(src).toMatch(/setSnapshots\(\(prev\) => \[/);
     // setMood 更新
     expect(src).toContain("setMood(newMood)");
   });
 
-  it("handleSubmitAllocation 复用 stripLegacyMoodTag + moodKeyFromLabel（与 handleSend 一致）", () => {
+  it("handleSubmitAllocation 复用 stripLegacyMoodTag + moodKeyFromLabel（与 handleSend 一致 · 共享 streamChatTurn）", () => {
     const src = readFile("components/simulation/simulation-runner.tsx");
-    // handleSubmitAllocation 函数体内复用 PR-7B 的 mood 解析逻辑
-    const startIdx = src.indexOf("async function handleSubmitAllocation()");
-    const endIdx = src.indexOf("function handleResetAllocation");
+    // Fix 3 · 两个 handler 都走 streamChatTurn；mood 解析逻辑统一在 streamChatTurn 内复用。
+    expect(src).toContain("async function streamChatTurn(");
+    // streamChatTurn 内仍调用 PR-7B 的 mood 解析（stripLegacyMoodTag + moodKeyFromLabel）
+    const startIdx = src.indexOf("async function streamChatTurn(");
+    const endIdx = src.indexOf("function handleAllocationChange");
     expect(startIdx).toBeGreaterThan(0);
     expect(endIdx).toBeGreaterThan(startIdx);
     const fnBody = src.slice(startIdx, endIdx);
-    expect(fnBody).toContain("stripLegacyMoodTag(rawReply)");
+    expect(fnBody).toContain("stripLegacyMoodTag");
     expect(fnBody).toContain("moodKeyFromLabel(moodObj.label)");
+    // handleSubmitAllocation 委派给 streamChatTurn
+    expect(src).toMatch(/async function handleSubmitAllocation\(\)[\s\S]+?await streamChatTurn\(\{/);
   });
 
   it("PR-7C snapshots 持久化逻辑仍保留（assets.snapshots 上报路径不动）", () => {

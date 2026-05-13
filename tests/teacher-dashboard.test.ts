@@ -50,4 +50,56 @@ describe("getTeacherDashboard", () => {
     expect(dashboard.stats.draftCount).toBe(1);
     expect(dashboard.stats.publishedCount).toBe(2);
   });
+
+  it("does not include the dead TaskInstanceAnalytics relation in the findMany include", async () => {
+    await getTeacherDashboard("teacher-1");
+    const call = (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.include?.analytics).toBeUndefined();
+  });
+
+  it("attaches live analytics (avgScore + submissionCount) computed from graded submissions", async () => {
+    (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "ti-A", status: "published", courseId: "c1" },
+      { id: "ti-B", status: "published", courseId: "c1" },
+      { id: "ti-C", status: "published", courseId: "c1" }, // no graded subs
+    ]);
+    // Two graded subs on ti-A (80%, 60% -> avg 70), one on ti-B (50%).
+    (prisma.submission.findMany as ReturnType<typeof vi.fn>).mockImplementation(
+      (args: { where?: { status?: string } }) => {
+        if (args?.where?.status === "graded") {
+          return Promise.resolve([
+            { taskInstanceId: "ti-A", score: 80, maxScore: 100 },
+            { taskInstanceId: "ti-A", score: 60, maxScore: 100 },
+            { taskInstanceId: "ti-B", score: 5, maxScore: 10 },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    );
+
+    const dashboard = await getTeacherDashboard("teacher-1");
+    const byId = Object.fromEntries(
+      dashboard.taskInstances.map((ti) => [ti.id, ti.analytics]),
+    );
+    expect(byId["ti-A"]).toEqual({ avgScore: 70, submissionCount: 2 });
+    expect(byId["ti-B"]).toEqual({ avgScore: 50, submissionCount: 1 });
+    expect(byId["ti-C"]).toBeNull();
+  });
+
+  it("scopes live analytics query to the returned instance ids only", async () => {
+    (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "ti-1", status: "published", courseId: "c1" },
+      { id: "ti-2", status: "published", courseId: "c1" },
+    ]);
+
+    await getTeacherDashboard("teacher-1");
+
+    const findManyCalls = (prisma.submission.findMany as ReturnType<typeof vi.fn>).mock.calls;
+    const liveCall = findManyCalls.find(
+      ([args]) => args?.where?.taskInstanceId?.in,
+    );
+    expect(liveCall).toBeDefined();
+    expect(liveCall![0].where.taskInstanceId.in).toEqual(["ti-1", "ti-2"]);
+    expect(liveCall![0].where.status).toBe("graded");
+  });
 });
