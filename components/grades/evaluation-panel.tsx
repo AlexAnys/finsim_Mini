@@ -5,7 +5,7 @@
 // - Body：AI 评语（暖赭软底 + 左 3px accent 条）+ Rubric 明细 / Quiz 明细
 // - D1 防作弊：未公布（!isReleased）只显示 chip + 文案，不展示分数/feedback/rubric
 
-import { Check, Clock3, FileText, HelpCircle, MessageSquare, X } from "lucide-react";
+import { AlertCircle, Check, Clock3, FileText, HelpCircle, MessageSquare, X } from "lucide-react";
 import type { GradeRow, GradesTaskType } from "@/lib/utils/grades-transforms";
 import { computePercent, scoreTone } from "@/lib/utils/grades-transforms";
 
@@ -156,6 +156,17 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
                 <span>{formatGradedAt(row.gradedAt)}</span>
               </div>
             </div>
+          </div>
+        ) : row.status === "failed" ? (
+          /* Fix 6: AI 批改失败，向学生展示中文兜底提示 + 兜底来自 evaluation.feedback（stripSubmissionForStudent 已保留该字段）。 */
+          <div className="mt-3.5 flex flex-col gap-2 rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-3 text-[12.5px] text-danger">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertCircle className="size-3.5" aria-hidden="true" />
+              <span>AI 批改未完成</span>
+            </div>
+            <p className="leading-relaxed">
+              {(row.evaluation as { feedback?: string } | null)?.feedback || "AI 批改暂未完成，请联系老师手动批改。"}
+            </p>
           </div>
         ) : row.analysisStatus === "analyzed_unreleased" ? (
           <div className="mt-3.5 flex items-center gap-2 rounded-lg border border-ochre/20 bg-ochre-soft px-3.5 py-3 text-[12.5px] text-ochre">
