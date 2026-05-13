@@ -298,6 +298,52 @@ export async function createAndProcessCourseKnowledgeSource(input: {
   return { ...source, asyncJob };
 }
 
+export async function retryCourseKnowledgeSource(input: {
+  id: string;
+  userId: string;
+  role: string;
+}) {
+  const source = await prisma.courseKnowledgeSource.findUnique({
+    where: { id: input.id },
+    select: {
+      id: true,
+      courseId: true,
+      filePath: true,
+      teacherId: true,
+      status: true,
+    },
+  });
+  if (!source) throw new Error("KNOWLEDGE_SOURCE_NOT_FOUND");
+
+  await assertCourseAccess(source.courseId, input.userId, input.role);
+
+  if (!source.filePath) throw new Error("KNOWLEDGE_SOURCE_NOT_RETRYABLE");
+
+  const RETRYABLE_STATUSES = new Set([
+    "ai_summary_failed",
+    "failed",
+    "ocr_required",
+  ]);
+  if (!RETRYABLE_STATUSES.has(source.status)) {
+    throw new Error("KNOWLEDGE_SOURCE_NOT_RETRYABLE");
+  }
+
+  const updated = await prisma.courseKnowledgeSource.update({
+    where: { id: source.id },
+    data: { status: "uploaded", error: null },
+  });
+
+  const asyncJob = await enqueueAsyncJob({
+    type: "knowledge_source_ingest",
+    entityType: "CourseKnowledgeSource",
+    entityId: source.id,
+    input: { sourceId: source.id },
+    createdBy: input.userId,
+  });
+
+  return { ...updated, asyncJob };
+}
+
 export async function processCourseKnowledgeSource(sourceId: string, userId: string) {
   await prisma.courseKnowledgeSource.update({
     where: { id: sourceId },
