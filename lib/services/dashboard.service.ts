@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter } from "@/lib/services/course.service";
+import { normalizeScore } from "@/lib/services/analytics-v2.service";
 
 // ============================================
 // 教师仪表盘
@@ -13,6 +14,8 @@ export async function getTeacherDashboard(teacherId: string) {
       orderBy: { createdAt: "desc" },
     }),
     // 任务实例统计（含 standalone 实例，即 courseId=null 的实例）
+    // 注：TaskInstanceAnalytics 表是死表（全仓 0 producer），analytics 字段由下方
+    // computeLiveAnalytics 从实际 Submission 表聚合生成，覆盖 avgScore + submissionCount。
     prisma.taskInstance.findMany({
       where: {
         OR: [
@@ -26,7 +29,6 @@ export async function getTeacherDashboard(teacherId: string) {
         course: { select: { id: true, courseTitle: true } },
         chapter: { select: { id: true, title: true } },
         section: { select: { id: true, title: true } },
-        analytics: { select: { avgScore: true, submissionCount: true } },
         _count: { select: { submissions: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -96,9 +98,20 @@ export async function getTeacherDashboard(teacherId: string) {
   const draftCount = taskInstances.filter((ti) => ti.status === "draft").length;
   const publishedCount = publishedInstances.length;
 
+  // 实时计算 analytics（avgScore + submissionCount）— TaskInstanceAnalytics 表全仓无 producer，
+  // 旧 include 永远拿到 null，导致 dashboard"薄弱任务""班级表现""KPI 均分"全失效。
+  // 改成扫这批 instance 的 graded submissions，按 instanceId 分组算归一化均分（0-100）。
+  const liveAnalytics = await computeLiveAnalytics(
+    taskInstances.map((ti) => ti.id),
+  );
+  const taskInstancesWithAnalytics = taskInstances.map((ti) => ({
+    ...ti,
+    analytics: liveAnalytics.get(ti.id) ?? null,
+  }));
+
   return {
     courses,
-    taskInstances,
+    taskInstances: taskInstancesWithAnalytics,
     recentSubmissions,
     announcements,
     scheduleSlots,
@@ -110,6 +123,55 @@ export async function getTeacherDashboard(teacherId: string) {
       publishedCount,
     },
   };
+}
+
+// ============================================
+// Live analytics 聚合（替代 TaskInstanceAnalytics 死表）
+// ============================================
+export interface LiveInstanceAnalytics {
+  avgScore: number | null;
+  submissionCount: number;
+}
+
+/**
+ * 按 taskInstanceId 分组，计算 graded submission 的归一化均分（0-100）+ 已批改数。
+ * 与 insights.service.ts / analytics-v2.service.ts 的 normalizeScore 同口径：
+ *   (score / maxScore) * 100，逐条算后取平均。
+ * 不写回 TaskInstanceAnalytics（避免 producer 半生不熟；该表此修复后将被弃用）。
+ */
+async function computeLiveAnalytics(
+  instanceIds: string[],
+): Promise<Map<string, LiveInstanceAnalytics>> {
+  const result = new Map<string, LiveInstanceAnalytics>();
+  if (instanceIds.length === 0) return result;
+
+  const graded = await prisma.submission.findMany({
+    where: {
+      taskInstanceId: { in: instanceIds },
+      status: "graded",
+      score: { not: null },
+      maxScore: { not: null },
+    },
+    select: { taskInstanceId: true, score: true, maxScore: true },
+  });
+
+  const bucket = new Map<string, number[]>();
+  for (const s of graded) {
+    if (!s.taskInstanceId) continue;
+    const pct = normalizeScore(s.score, s.maxScore);
+    if (pct === null) continue;
+    const arr = bucket.get(s.taskInstanceId) ?? [];
+    arr.push(pct);
+    bucket.set(s.taskInstanceId, arr);
+  }
+  for (const [id, scores] of bucket) {
+    const sum = scores.reduce((a, b) => a + b, 0);
+    result.set(id, {
+      avgScore: Math.round((sum / scores.length) * 100) / 100,
+      submissionCount: scores.length,
+    });
+  }
+  return result;
 }
 
 // ============================================
