@@ -105,7 +105,7 @@ describe("Fix 4 · ai.service 不再强制改写 provider", () => {
 
   it("不破坏 da9a505 mimo reasoning fix（getProviderOptions 仍 reasoningEffort 路径）", () => {
     const src = readFile("lib/services/ai.service.ts");
-    expect(src).toMatch(/reasoningEffort:\s*thinking\s*===\s*"enabled"\s*\?\s*"high"\s*:\s*"none"/);
+    expect(src).toMatch(/reasoningEffort:\s*thinking\s*===\s*"enabled"\s*\?\s*"high"\s*:\s*"low"/);
   });
 });
 

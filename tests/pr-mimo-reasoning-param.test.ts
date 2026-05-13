@@ -12,16 +12,20 @@ import { getProviderOptions, getProviderConfig } from "@/lib/services/ai.service
  *
  * 修复：改用 OpenAI 标准 reasoningEffort（SDK 白名单内字段，序列化成
  * reasoning_effort 下发到 MiMo）。
+ *
+ * Fix 3 r2 (qa-ai 反馈 · 2026-05-13): MiMo API 退化，'none' 现返回 400
+ * "Input should be 'low', 'medium' or 'high'"。改用 'low'，等价快、计费不区分。
+ * 断言从 'none' → 'low'。
  */
 
 const ORIGINAL_ENV = { ...process.env };
 
 describe("MiMo reasoning param fix · getProviderOptions", () => {
-  it("thinking='disabled' → openai.reasoningEffort='none'（真正关掉 MiMo reasoning）", () => {
+  it("thinking='disabled' → openai.reasoningEffort='low'（MiMo API 不再接受 'none'，'low' 等价快）", () => {
     process.env.MIMO_API_KEY = "test-key";
     const provider = getProviderConfig("mimo")!;
     const opts = getProviderOptions(provider, { thinking: "disabled" }, "simulation");
-    expect(opts).toEqual({ openai: { reasoningEffort: "none" } });
+    expect(opts).toEqual({ openai: { reasoningEffort: "low" } });
   });
 
   it("thinking='enabled' → openai.reasoningEffort='high'（启用 reasoning）", () => {
@@ -32,19 +36,19 @@ describe("MiMo reasoning param fix · getProviderOptions", () => {
     expect(opts).toEqual({ openai: { reasoningEffort: "high" } });
   });
 
-  it("force-disable feature 始终 reasoningEffort='none' 即便 setting 启了 thinking", () => {
+  it("force-disable feature 始终 reasoningEffort='low' 即便 setting 启了 thinking", () => {
     process.env.MIMO_API_KEY = "test-key";
     const provider = getProviderConfig("mimo")!;
     // simulation 在 force-disable 集合
     const opts = getProviderOptions(provider, { thinking: "enabled" }, "simulation");
-    expect(opts).toEqual({ openai: { reasoningEffort: "none" } });
+    expect(opts).toEqual({ openai: { reasoningEffort: "low" } });
   });
 
-  it("没有 setting 默认 disabled → reasoningEffort='none'", () => {
+  it("没有 setting 默认 disabled → reasoningEffort='low'", () => {
     process.env.MIMO_API_KEY = "test-key";
     const provider = getProviderConfig("mimo")!;
     const opts = getProviderOptions(provider, null, "evaluation");
-    expect(opts).toEqual({ openai: { reasoningEffort: "none" } });
+    expect(opts).toEqual({ openai: { reasoningEffort: "low" } });
   });
 
   it("不再发送旧的 thinking 字段（防止后人重新引入）", () => {

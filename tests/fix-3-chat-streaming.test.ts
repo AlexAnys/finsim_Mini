@@ -66,7 +66,7 @@ describe("Fix 3 · ai.service 流式 API", () => {
 
   it("不破坏 mimo reasoning fix（da9a505）— reasoningEffort 仍是 SDK 白名单路径", () => {
     const src = readFile("lib/services/ai.service.ts");
-    expect(src).toMatch(/reasoningEffort:\s*thinking\s*===\s*"enabled"\s*\?\s*"high"\s*:\s*"none"/);
+    expect(src).toMatch(/reasoningEffort:\s*thinking\s*===\s*"enabled"\s*\?\s*"high"\s*:\s*"low"/);
   });
 });
 

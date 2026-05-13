@@ -142,7 +142,7 @@ describe("AI provider selection", () => {
     expect(provider.name).toBe("mimo");
   });
 
-  it("sends MiMo reasoningEffort=none by default + Qwen enable_thinking=false", () => {
+  it("sends MiMo reasoningEffort=low by default (MiMo API 拒 'none' 后) + Qwen enable_thinking=false", () => {
     // 历史曾用 `thinking: { type: 'disabled' }`，但 @ai-sdk/openai 白名单不接受
     // 该字段（SDK 静默吞掉），导致 MiMo 默认开启 reasoning。改用 SDK 白名单内
     // 的标准 reasoningEffort（序列化为 reasoning_effort 下发）。
@@ -160,7 +160,7 @@ describe("AI provider selection", () => {
     };
 
     expect(getProviderOptions(mimo)).toEqual({
-      openai: { reasoningEffort: "none" },
+      openai: { reasoningEffort: "low" },
     });
     expect(getProviderOptions(qwen)).toEqual({
       openai: { enable_thinking: false },

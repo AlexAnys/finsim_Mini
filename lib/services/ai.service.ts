@@ -262,11 +262,21 @@ export function getProviderOptions(
     // 关掉 reasoning 后 0.24s — 9× 提速）。
     //
     // 修复：用 OpenAI 标准 `reasoningEffort`（在 SDK 白名单内，序列化为
-    // `reasoning_effort` 下发到 MiMo）。MiMo 把 'none' 当 reasoning OFF；
-    // 'low'/'medium'/'high' 都当 reasoning ON。
+    // `reasoning_effort` 下发到 MiMo）。
+    //
+    // Fix 3 (review fixes batch 1, qa-ai r1 反馈): MiMo API 在 da9a505 之后
+    // 退化了 reasoning_effort 校验 — 'none' 现在返回 400 "Input should be
+    // 'low', 'medium' or 'high'"，整条 chat 链路死。直 curl 验证：
+    //   * 不传 reasoning_effort → 200 + reasoning ON（默认行为）
+    //   * 'low' + stream:true → 200 + SSE 流式输出 + reasoning_tokens ≈ 29
+    //   * 'none' → 400
+    // 改用 'low' 作为 thinking=disabled 默认：
+    //   1) MiMo token-plan 计费按 completion_tokens 不区分 reasoning_tokens；
+    //   2) 'low' 下 first chunk 与 'none' 持平（< 0.5s）；
+    //   3) 不会回到 reasoning_content 吃光 token 的旧问题。
     return {
       openai: {
-        reasoningEffort: thinking === "enabled" ? "high" : "none",
+        reasoningEffort: thinking === "enabled" ? "high" : "low",
       },
     };
   }
@@ -984,14 +994,20 @@ export async function chatReplyStream(
   }
 
   // 共享状态：generator 边读 stream 边累积 raw、抽 reply 增量推给前端；
-  // metaPromise 收尾时再把 raw 整体 parse 出 mood/student_perf。
+  // meta() 收尾时再把 raw 整体 parse 出 mood/student_perf。
+  //
+  // Fix 3 r2 (qa-ai 反馈): 历史用空 IIFE 的 streamDone 等于立即 resolve，
+  // 起不到"等 generator 跑完"作用。改成 deferred Promise，由 generator finally 里
+  // resolve。当前实际 SSE 路径里 route 先 `for await replyStream` 后再调 meta()，
+  // 行为没问题；但代码契约必须按字面意思工作，否则后人改顺序会踩坑。
   let rawAccum = "";
   let lastReplyEmitted = "";
   let streamError: unknown = null;
   let streamFinished = false;
-  const streamDone = (async () => {
-    // 真正消费 textStream 在 generator 里 — 这里只是终态信号。
-  })();
+  let resolveStreamDone: () => void = () => {};
+  const streamDone: Promise<void> = new Promise((resolve) => {
+    resolveStreamDone = resolve;
+  });
 
   async function* replyChunks(): AsyncGenerator<string> {
     try {
@@ -1013,12 +1029,11 @@ export async function chatReplyStream(
       throw err;
     } finally {
       clearTimeout(timeoutHandle);
+      resolveStreamDone();
     }
   }
 
   async function meta() {
-    // 等 stream 已完整跑完（generator 跑完才能保证 rawAccum 完整）
-    await streamDone;
     if (!streamFinished) {
       // generator 没被消费完 → 主动拉一遍剩余 textStream（极端 case：caller 直接调 meta 没拿 replyChunks）
       try {
@@ -1028,8 +1043,12 @@ export async function chatReplyStream(
         streamError = err;
       } finally {
         clearTimeout(timeoutHandle);
+        resolveStreamDone();
       }
     }
+    // 等 generator 真正跑完（finally 里 resolveStreamDone() 已触发；为了"先调 meta"
+    // 的极端用法 await 一下保证 rawAccum 不被并发竞争）
+    await streamDone;
 
     if (streamError) {
       await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: streamError });
