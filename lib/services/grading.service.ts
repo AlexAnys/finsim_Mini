@@ -122,7 +122,6 @@ async function writeGradingFailureFeedback(
       maxScore: c.maxPoints,
       comment: "批改失败",
     }));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const maxScore = (submission.task?.scoringCriteria || []).reduce(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (sum: number, c: any) => sum + c.maxPoints,
