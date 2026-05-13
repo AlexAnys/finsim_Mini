@@ -89,6 +89,10 @@ export function handleServiceError(err: unknown) {
         return error("TASK_CONFIG_INCOMPLETE", "任务配置未完成，无法发布", 400);
       case "TASK_SCOPE_MISMATCH":
         return error("TASK_SCOPE_MISMATCH", "任务不属于当前课程范围", 400);
+      case "TASK_BUILD_DRAFT_NOT_FOUND":
+        return notFound("任务草稿不存在");
+      case "TASK_BUILD_DRAFT_SCOPE_MISMATCH":
+        return error("TASK_BUILD_DRAFT_SCOPE_MISMATCH", "任务草稿不属于当前课程", 400);
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
       case "FILE_NOT_FOUND":
@@ -103,6 +107,12 @@ export function handleServiceError(err: unknown) {
         return error("SUBMISSION_NOT_GRADED", "提交尚未完成评估，无法公布", 400);
       case "SUBMISSION_RETRY_NOT_ALLOWED":
         return error("SUBMISSION_RETRY_NOT_ALLOWED", "只有未出分或批改失败的提交可以重新批改", 400);
+      case "MISSING_SIMULATION_DATA":
+        return error("MISSING_SIMULATION_DATA", "无法批改：缺少模拟对话数据，请联系老师", 400);
+      case "MISSING_QUIZ_DATA":
+        return error("MISSING_QUIZ_DATA", "无法批改：缺少测验作答数据，请联系老师", 400);
+      case "MISSING_SUBJECTIVE_DATA":
+        return error("MISSING_SUBJECTIVE_DATA", "无法批改：缺少主观题作答数据，请联系老师", 400);
       case "JOB_NOT_FOUND":
         return notFound("导入任务不存在");
       case "ASYNC_JOB_NOT_FOUND":
@@ -128,6 +138,8 @@ export function handleServiceError(err: unknown) {
         );
       case "AI_PROVIDER_NOT_CONFIGURED":
         return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
+      case "AI_PROVIDER_NOT_FOUND":
+        return error("AI_PROVIDER_NOT_FOUND", "AI 服务商未配置", 404);
       case "KNOWLEDGE_SOURCE_NOT_FOUND":
         return notFound("课程素材不存在");
       case "KNOWLEDGE_SOURCE_EMPTY":
@@ -143,6 +155,10 @@ export function handleServiceError(err: unknown) {
         return error("NO_GRADED_SUBMISSIONS", "暂无已批改的提交，无法生成洞察", 400);
       case "NO_CONCEPT_TAGS":
         return error("NO_CONCEPT_TAGS", "已批改的提交均未生成概念标签，请等待新批改完成", 400);
+      case "NO_POSTS_TO_SUMMARIZE":
+        return error("NO_POSTS_TO_SUMMARIZE", "暂无可总结的讨论帖，先发布一些再试", 400);
+      case "WORK_ASSISTANT_EMPTY_INPUT":
+        return error("WORK_ASSISTANT_EMPTY_INPUT", "请输入需要 AI 协助的内容", 400);
       case "CLASS_COURSE_MISMATCH":
         return error("CLASS_COURSE_MISMATCH", "班级不属于该课程", 400);
       case "CHAPTER_COURSE_MISMATCH":
