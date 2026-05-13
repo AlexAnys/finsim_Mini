@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Save, SlidersHorizontal } from "lucide-react";
+import { CheckCircle2, Loader2, Plug, Save, SlidersHorizontal, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,10 @@ export default function AiSettingsPage() {
   const [searchConfigured, setSearchConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  // Fix 4 · 测试连接 per-tool 状态
+  const [testingKey, setTestingKey] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, { ok: boolean; message: string; latencyMs?: number }>>({});
+
 
   useEffect(() => {
     load();
@@ -100,6 +104,38 @@ export default function AiSettingsPage() {
       toast.success(`${tool.label} 设置已保存`);
     } finally {
       setSavingKey(null);
+    }
+  }
+
+  /** Fix 4 · 测试连接：单次 ping aiGenerateText 验证 provider/key/baseURL 真生效。 */
+  async function testConnection(tool: ToolSetting) {
+    setTestingKey(tool.key);
+    setTestResult((prev) => ({ ...prev, [tool.key]: { ok: false, message: "测试中..." } }));
+    try {
+      const res = await fetch("/api/ai/tool-settings/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: tool.provider, model: tool.model }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        const msg = json.error?.message || "测试失败";
+        setTestResult((prev) => ({ ...prev, [tool.key]: { ok: false, message: msg } }));
+        toast.error(`${tool.label} 测试失败：${msg}`);
+        return;
+      }
+      const latencyMs = json.data?.latencyMs;
+      setTestResult((prev) => ({
+        ...prev,
+        [tool.key]: { ok: true, message: `连通正常（${latencyMs ?? "?"} ms）`, latencyMs },
+      }));
+      toast.success(`${tool.label} 连通正常（${latencyMs ?? "?"} ms）`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "测试失败";
+      setTestResult((prev) => ({ ...prev, [tool.key]: { ok: false, message: msg } }));
+      toast.error(`${tool.label} 测试失败：${msg}`);
+    } finally {
+      setTestingKey(null);
     }
   }
 
@@ -238,10 +274,41 @@ export default function AiSettingsPage() {
                     />
                   </div>
 
-                  <Button onClick={() => save(tool)} disabled={savingKey === tool.key}>
-                    {savingKey === tool.key ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
-                    保存
-                  </Button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button onClick={() => save(tool)} disabled={savingKey === tool.key}>
+                      {savingKey === tool.key ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
+                      保存
+                    </Button>
+                    {/* Fix 4 · 测试连接按钮 */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => testConnection(tool)}
+                      disabled={testingKey === tool.key}
+                      title="一次性 ping 验证当前 provider/model 真生效"
+                    >
+                      {testingKey === tool.key ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Plug className="mr-2 size-4" />
+                      )}
+                      测试连接
+                    </Button>
+                    {testResult[tool.key] ? (
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs ${
+                          testResult[tool.key].ok ? "text-success" : "text-danger"
+                        }`}
+                      >
+                        {testResult[tool.key].ok ? (
+                          <CheckCircle2 className="size-3.5" />
+                        ) : (
+                          <XCircle className="size-3.5" />
+                        )}
+                        {testResult[tool.key].message}
+                      </span>
+                    ) : null}
+                  </div>
                 </CardContent>
               </Card>
             ))}

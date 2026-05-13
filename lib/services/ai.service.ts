@@ -10,7 +10,7 @@ import { createHash } from "crypto";
 // ============================================
 
 interface ProviderConfig {
-  name: "mimo" | "qwen" | "deepseek" | "openai";
+  name: "mimo" | "qwen" | "deepseek" | "openai" | "gemini";
   apiKey: string;
   baseURL: string;
   defaultModel: string;
@@ -59,6 +59,18 @@ export function getProviderConfig(name: string): ProviderConfig | null {
         apiKey: process.env.OPENAI_API_KEY || "",
         baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
         defaultModel: "gpt-4o-mini",
+      };
+    case "gemini":
+      // Gemini 走 OpenAI-compatible adapter（@ai-sdk/google 与 createOpenAI 不兼容签名；
+      // 改用 Google 自家 generativelanguage.googleapis.com 的 openai 兼容端点）。
+      // GEMINI_PROXY_URL 用于走自建网关/反代，缺省走官方端点。
+      return {
+        name: "gemini",
+        apiKey: process.env.GEMINI_API_KEY || "",
+        baseURL:
+          process.env.GEMINI_PROXY_URL ||
+          "https://generativelanguage.googleapis.com/v1beta/openai/",
+        defaultModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       };
     default:
       return null;
@@ -146,26 +158,28 @@ export function getProviderForFeature(
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
     "mimo";
-  // Teaching AI calls are intentionally locked to MiMo. OCR has a separate
-  // adapter/provider path in document ingestion.
-  const providerName = requestedProviderName === "mimo" ? requestedProviderName : "mimo";
+  // Fix 4 (review fixes batch 1): 不再把所有 provider 强制改写成 mimo。
+  // 历史这里硬 lock 到 MiMo 是因为部署阶段 qwen/deepseek/gemini/openai 配置
+  // 不完整，老师在 UI 选了其它 provider 但实际仍走 mimo（"幽灵设置"，对用户
+  // 撒谎）。现在 ai-tool-settings.service AI_PROVIDER_OPTIONS 扩到 5 个，
+  // .env.example 5 个 key/base_url 都齐备，让 setting 真生效；缺 key 时
+  // 走下面的 fallback 链（仍 throw AI_PROVIDER_NOT_CONFIGURED + provider 名）。
+  const providerName = requestedProviderName;
   const requestedModel = setting?.model || process.env[`${envPrefix}_MODEL`] || "";
 
   const provider = getProviderConfig(providerName);
   if (!provider || !provider.apiKey) {
-    if (setting?.provider && provider) {
-      return {
-        provider,
-        model: resolveModelForProvider(provider, requestedModel),
-      };
-    }
-
-    // 尝试 fallback
+    // Fix 4 (review fixes batch 1): 
+    //  - 老师从 UI 选了某 provider 但 .env 缺 key → 走 fallback 链；fallback 也缺 → throw
+    //  - 历史"silent 返回 keyless provider"被删（PR 之前这条路径会让 createOpenAI 拿到 apiKey:""
+    //    后续在网络层 401，错误信息含糊；现在显式失败，handleServiceError 映射成中文
+    //    "AI 服务未配置"。
     const requestedFallbackName =
       process.env[`${envPrefix}_FALLBACK_PROVIDER`] ||
       process.env.AI_FALLBACK_PROVIDER ||
       "mimo";
-    const fallbackName = requestedFallbackName === "mimo" ? requestedFallbackName : "mimo";
+    // Fix 4: 同样不强制改写 fallback；让 AI_FALLBACK_PROVIDER / AI_<feature>_FALLBACK_PROVIDER 真生效
+    const fallbackName = requestedFallbackName;
     const fallback = getProviderConfig(fallbackName);
     if (!fallback || !fallback.apiKey) {
       throw new Error(`AI_PROVIDER_NOT_CONFIGURED: ${providerName}`);
@@ -194,7 +208,10 @@ function isModelCompatible(provider: ProviderConfig, model: string): boolean {
       return model.startsWith("qwen");
     case "deepseek":
       return model.startsWith("deepseek");
+    case "gemini":
+      return model.startsWith("gemini-");
     case "openai":
+      // OpenAI / Anthropic 兼容客户端用任意 model id（teacher 在 UI 选好即可）
       return true;
   }
 }
