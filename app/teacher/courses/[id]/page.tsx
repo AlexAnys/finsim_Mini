@@ -1102,7 +1102,11 @@ export default function TeacherCourseDetailPage() {
         onAddChapter={() => setChapterDialogOpen(true)}
         onAddTeacher={() => setTeacherDialogOpen(true)}
         onEditCourse={openEditCourseDialog}
-        onUploadSyllabus={() => setOutlineDialogOpen(true)}
+        onUploadSyllabus={() => {
+          setOutlineDialogSourceType("syllabus");
+          setOutlineTags("课程大纲,课程结构");
+          setOutlineDialogOpen(true);
+        }}
         onAddClass={() => {
           setAddClassDialogOpen(true);
           fetchAvailableClasses();
