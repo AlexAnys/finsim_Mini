@@ -83,6 +83,7 @@ import {
 import {
   isKnowledgeSourceProcessing,
   isKnowledgeSourceRetryable,
+  knowledgeSourceRetryLabel,
   knowledgeSourceStatusLabel,
   knowledgeSourceProgressPercent,
 } from "@/lib/utils/knowledge-source-status";
@@ -942,7 +943,10 @@ export default function TeacherCourseDetailPage() {
     }
   }
 
-  async function handleRetryKnowledgeSource(sourceId: string) {
+  async function handleRetryKnowledgeSource(sourceId: string, currentStatus: string) {
+    if (currentStatus === "ready") {
+      if (!window.confirm("重新解析将重新跑 AI，是否继续？")) return;
+    }
     setRetryingSourceId(sourceId);
     try {
       const res = await fetch(
@@ -1598,14 +1602,14 @@ export default function TeacherCourseDetailPage() {
                               variant="outline"
                               size="sm"
                               disabled={retryingSourceId === source.id}
-                              onClick={() => handleRetryKnowledgeSource(source.id)}
+                              onClick={() => handleRetryKnowledgeSource(source.id, source.status)}
                             >
                               {retryingSourceId === source.id ? (
                                 <Loader2 className="mr-1.5 size-3 animate-spin" />
                               ) : (
                                 <RotateCw className="mr-1.5 size-3" />
                               )}
-                              重新 AI 解析
+                              {knowledgeSourceRetryLabel(source.status)}
                             </Button>
                           )}
                           <Button

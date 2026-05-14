@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { isKnowledgeSourceRetryable } from "@/lib/utils/knowledge-source-status";
+import { isKnowledgeSourceRetryable, knowledgeSourceRetryLabel } from "@/lib/utils/knowledge-source-status";
 
 interface ContextTaskInstance {
   id: string;
@@ -240,6 +240,9 @@ export function CourseContextSourcesTab({
   }
 
   async function handleRetry(source: KnowledgeSourceItem) {
+    if (source.status === "ready") {
+      if (!window.confirm("重新解析将重新跑 AI，是否继续？")) return;
+    }
     setRetryingSourceId(source.id);
     try {
       const res = await fetch(
@@ -519,7 +522,7 @@ export function CourseContextSourcesTab({
                             ) : (
                               <RotateCw className="mr-1 size-3" />
                             )}
-                            重新 AI 解析
+                            {knowledgeSourceRetryLabel(source.status)}
                           </Button>
                         )}
                         <Button

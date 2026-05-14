@@ -323,6 +323,7 @@ export async function retryCourseKnowledgeSource(input: {
     "ai_summary_failed",
     "failed",
     "ocr_required",
+    "ready",
   ]);
   if (!RETRYABLE_STATUSES.has(source.status)) {
     throw new Error("KNOWLEDGE_SOURCE_NOT_RETRYABLE");
