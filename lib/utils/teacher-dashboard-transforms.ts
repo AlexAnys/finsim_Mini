@@ -661,13 +661,34 @@ export function buildUpcomingSchedule(
   // 主键含 slot.id + 日期；视觉键含 (courseTitle, className, timeLabel, date)。
   const seen = new Set<string>();
   const deduped: TeacherUpcomingSlot[] = [];
+  const merged: Array<{ keptSlotId: string; date: string; droppedSlotIds: string[] }> = [];
+  const visualToKept = new Map<string, { keptSlotId: string; date: string }>();
   for (const slot of candidates) {
     const primaryKey = `${slot.id}|${slot.date}`;
     const visualKey = `${slot.courseTitle}|${slot.className ?? ""}|${slot.timeLabel}|${slot.date}`;
-    if (seen.has(primaryKey) || seen.has(visualKey)) continue;
+    if (seen.has(primaryKey) || seen.has(visualKey)) {
+      // 记录被合并掉的源 slotId（仅日志，不写库 — 数据层不动）
+      const kept = visualToKept.get(visualKey);
+      if (kept && kept.keptSlotId !== slot.id) {
+        let entry = merged.find(
+          (m) => m.keptSlotId === kept.keptSlotId && m.date === kept.date,
+        );
+        if (!entry) {
+          entry = { keptSlotId: kept.keptSlotId, date: kept.date, droppedSlotIds: [] };
+          merged.push(entry);
+        }
+        entry.droppedSlotIds.push(slot.id);
+      }
+      continue;
+    }
     seen.add(primaryKey);
     seen.add(visualKey);
+    visualToKept.set(visualKey, { keptSlotId: slot.id, date: slot.date });
     deduped.push(slot);
+  }
+
+  if (merged.length > 0 && typeof console !== "undefined") {
+    console.debug("[buildUpcomingSchedule] merged visually-equivalent slots", merged);
   }
 
   return deduped.slice(0, count);
