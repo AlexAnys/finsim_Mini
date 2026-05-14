@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, Users, CalendarDays, BookOpen, Pencil, Upload } from "lucide-react";
+import { Plus, Users, CalendarDays, BookOpen, Pencil, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CourseSummaryCounts } from "@/lib/utils/course-editor-transforms";
 
@@ -36,6 +36,8 @@ interface EditorHeroProps {
   onRemoveClass: (classId: string) => void;
   onRemoveTeacher: (teacherId: string) => void;
   semesterBadge: React.ReactNode;
+  // Unit 5a: 仅 owner 传入此 callback 才显示「删除课程」按钮（owner-only）
+  onDeleteCourse?: () => void;
 }
 
 export function EditorHero({
@@ -55,6 +57,7 @@ export function EditorHero({
   onRemoveClass,
   onRemoveTeacher,
   semesterBadge,
+  onDeleteCourse,
 }: EditorHeroProps) {
   return (
     <div
@@ -220,6 +223,17 @@ export function EditorHero({
               <Pencil className="size-[12px]" />
               编辑课程
             </Button>
+            {onDeleteCourse && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-200/30 bg-red-500/10 text-red-100 hover:bg-red-500/20 hover:text-white"
+                onClick={onDeleteCourse}
+              >
+                <Trash2 className="size-[12px]" />
+                删除课程
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"

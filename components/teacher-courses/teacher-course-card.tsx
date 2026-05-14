@@ -1,8 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Users } from "lucide-react";
+import { ArrowRight, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { courseColorForId, tagColors } from "@/lib/design/tokens";
 import {
@@ -25,10 +30,15 @@ export interface TeacherCourseCardData {
     pendingCount: number;
   };
   semesterStartIso: string | null;
+  // Unit 5a: 删除能力（仅 owner 可见可点；有内容时 disabled + tooltip）
+  isOwner?: boolean;
+  chapterCount?: number;
+  taskInstanceCount?: number;
 }
 
 interface TeacherCourseCardProps {
   data: TeacherCourseCardData;
+  onDelete?: (id: string, title: string) => void;
 }
 
 const AVATAR_TOKENS = ["tagA", "tagB", "tagC", "tagD", "tagE", "tagF"] as const;
@@ -40,8 +50,9 @@ function avatarColor(id: string) {
   return tagColors[key];
 }
 
-export function TeacherCourseCard({ data: c }: TeacherCourseCardProps) {
+export function TeacherCourseCard({ data: c, onDelete }: TeacherCourseCardProps) {
   const tc = tagColors[courseColorForId(c.id)];
+  const hasContent = (c.chapterCount ?? 0) > 0 || (c.taskInstanceCount ?? 0) > 0;
 
   const visibleTeachers = c.teachers.slice(0, 3);
   const overflow = Math.max(0, c.teachers.length - 3);
@@ -173,6 +184,39 @@ export function TeacherCourseCard({ data: c }: TeacherCourseCardProps) {
             </div>
           )}
         </div>
+        {c.isOwner && onDelete && (
+          hasContent ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled
+                    className="text-destructive opacity-50"
+                  >
+                    <Trash2 className="size-[12px]" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {(c.chapterCount ?? 0) > 0
+                  ? `课程有 ${c.chapterCount} 个章节，无法删除`
+                  : `课程下有 ${c.taskInstanceCount} 个任务实例，无法删除`}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onDelete(c.id, c.courseTitle)}
+              className="text-destructive hover:text-destructive"
+              aria-label="删除课程"
+            >
+              <Trash2 className="size-[12px]" />
+            </Button>
+          )
+        )}
         <Button size="sm" asChild>
           <Link href={`/teacher/courses/${c.id}`}>
             进入

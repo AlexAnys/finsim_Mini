@@ -143,6 +143,24 @@ export function handleServiceError(err: unknown) {
         return error("TASK_INSTANCE_DRAFT_NOT_VISIBLE", "任务尚未开放", 403);
       case "TASK_INSTANCE_CLOSED_NO_SUBMISSION":
         return error("TASK_INSTANCE_CLOSED_NO_SUBMISSION", "任务已结束，且未提交过作答", 403);
+      case "TASK_HAS_INSTANCES":
+        return error(
+          "TASK_HAS_INSTANCES",
+          "该任务已发布过实例，无法删除。请先到「任务实例」中删除所有实例后再试。",
+          400,
+        );
+      case "COURSE_HAS_INSTANCES":
+        return error(
+          "COURSE_HAS_INSTANCES",
+          "该课程下仍有任务实例，无法删除。请先关闭并删除所有实例后再试。",
+          400,
+        );
+      case "COURSE_HAS_CHAPTERS":
+        return error(
+          "COURSE_HAS_CHAPTERS",
+          "该课程下仍有章节内容，无法删除。请先清空所有章节后再试。",
+          400,
+        );
       case "TASK_HAS_GRADED_SUBMISSIONS":
         return error(
           "TASK_HAS_GRADED_SUBMISSIONS",

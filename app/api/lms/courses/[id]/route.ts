@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseReadable } from "@/lib/auth/course-access";
-import { getCourseWithStructure } from "@/lib/services/course.service";
+import { deleteCourse, getCourseWithStructure } from "@/lib/services/course.service";
 import { logAuditForced } from "@/lib/services/audit.service";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
@@ -68,3 +68,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return handleServiceError(err);
   }
 }
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const result = await requireRole(["teacher", "admin"]);
+  if (result.error) return result.error;
+
+  try {
+    const { id } = await params;
+    await deleteCourse(id, result.session.user.id);
+    return success({ deleted: true });
+  } catch (err) {
+    return handleServiceError(err);
+  }
+}
+

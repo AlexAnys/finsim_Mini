@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { BookOpen, Loader2, AlertCircle, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,6 +24,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   CourseSummaryStrip,
   type SummaryStripItem,
@@ -61,6 +73,8 @@ interface ClassItem {
 }
 
 export default function TeacherCoursesPage() {
+  const { data: session } = useSession();
+  const myUserId = session?.user?.id;
   const [courses, setCourses] = useState<CourseApiItem[] | null>(null);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [classes, setClasses] = useState<ClassItem[]>([]);
@@ -75,6 +89,9 @@ export default function TeacherCoursesPage() {
   const [courseCode, setCourseCode] = useState("");
   const [description, setDescription] = useState("");
   const [classId, setClassId] = useState("");
+  // Unit 5a: 删除 confirm dialog
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function fetchData() {
     try {
@@ -120,8 +137,12 @@ export default function TeacherCoursesPage() {
       teachers: buildTeacherList(c),
       metrics: buildCourseMetrics(c, tis, subs),
       semesterStartIso: c.semesterStartDate ?? null,
+      // Unit 5a: owner-only 删除显示
+      isOwner: !!myUserId && c.creator?.id === myUserId,
+      chapterCount: c._count?.chapters ?? 0,
+      taskInstanceCount: c._count?.taskInstances ?? 0,
     }));
-  }, [courses, dashboard]);
+  }, [courses, dashboard, myUserId]);
 
   const summaryItems = useMemo<SummaryStripItem[]>(() => {
     if (!courses || courses.length === 0) return [];
@@ -204,6 +225,29 @@ export default function TeacherCoursesPage() {
     }
   }
 
+  async function handleConfirmedDelete() {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/lms/courses/${confirmDelete.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("课程已删除");
+      setConfirmDelete(null);
+      setLoading(true);
+      fetchData();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -277,10 +321,45 @@ export default function TeacherCoursesPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {cards.map((c) => (
-            <TeacherCourseCard key={c.id} data={c} />
+            <TeacherCourseCard
+              key={c.id}
+              data={c}
+              onDelete={(id, title) => setConfirmDelete({ id, title })}
+            />
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={confirmDelete !== null}
+        onOpenChange={(open) => !open && !deleting && setConfirmDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除课程</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认删除「{confirmDelete?.title}」？此操作不可恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmedDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

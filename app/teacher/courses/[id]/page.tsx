@@ -25,7 +25,8 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   BookOpen,
   Loader2,
@@ -52,6 +53,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -203,10 +214,18 @@ interface CourseDetail {
   semesterStartDate: string | null;
   class: { id: string; name: string };
   chapters: ApiChapter[];
+  // Unit 5a: owner-only 删除判断
+  createdBy: string;
 }
 
 export default function TeacherCourseDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { data: session } = useSession();
+  const myUserId = session?.user?.id;
+  // Unit 5a: 删除课程 dialog state
+  const [deleteCourseOpen, setDeleteCourseOpen] = useState(false);
+  const [deletingCourse, setDeletingCourse] = useState(false);
   const courseId = params.id as string;
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
@@ -1084,6 +1103,26 @@ export default function TeacherCourseDetailPage() {
     );
   }
 
+  async function handleConfirmedDeleteCourse() {
+    if (!course) return;
+    setDeletingCourse(true);
+    try {
+      const res = await fetch(`/api/lms/courses/${course.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("课程已删除");
+      router.push("/teacher/courses");
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setDeletingCourse(false);
+      setDeleteCourseOpen(false);
+    }
+  }
+
   if (!course) return null;
 
   // ---------- Render ----------
@@ -1107,6 +1146,11 @@ export default function TeacherCourseDetailPage() {
         onAddChapter={() => setChapterDialogOpen(true)}
         onAddTeacher={() => setTeacherDialogOpen(true)}
         onEditCourse={openEditCourseDialog}
+        onDeleteCourse={
+          myUserId && course.createdBy === myUserId
+            ? () => setDeleteCourseOpen(true)
+            : undefined
+        }
         onUploadSyllabus={() => {
           setOutlineDialogSourceType("syllabus");
           setOutlineTags("课程大纲,课程结构");
@@ -1794,6 +1838,38 @@ export default function TeacherCourseDetailPage() {
         }}
         onSuccess={fetchCourse}
       />
+
+      {/* Unit 5a: 删除课程 confirm dialog */}
+      <AlertDialog
+        open={deleteCourseOpen}
+        onOpenChange={(open) => !open && !deletingCourse && setDeleteCourseOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除课程</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认删除「{course.courseTitle}」？此操作不可恢复。如果课程下有章节或任务实例，将被服务端拒绝并提示原因。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingCourse}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmedDeleteCourse}
+              disabled={deletingCourse}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingCourse ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

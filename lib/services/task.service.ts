@@ -349,9 +349,27 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
 }
 
 export async function deleteTask(taskId: string, creatorId: string) {
-  const existing = await prisma.task.findUnique({ where: { id: taskId } });
-  if (!existing || existing.creatorId !== creatorId) {
-    throw new Error("FORBIDDEN");
+  const existing = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { id: true, creatorId: true, taskName: true },
+  });
+  if (!existing) throw new Error("TASK_NOT_FOUND");
+  if (existing.creatorId !== creatorId) throw new Error("FORBIDDEN");
+
+  // Unit 5a: 拒删有 instance 的 task（实例已派给班级，删了会破坏学生作答）
+  const instanceCount = await prisma.taskInstance.count({ where: { taskId } });
+  if (instanceCount > 0) {
+    const err = new Error("TASK_HAS_INSTANCES") as Error & { instanceCount?: number };
+    err.instanceCount = instanceCount;
+    throw err;
   }
-  return prisma.task.delete({ where: { id: taskId } });
+
+  await prisma.task.delete({ where: { id: taskId } });
+  await logAuditForced({
+    action: "task.delete",
+    actorId: creatorId,
+    targetId: taskId,
+    targetType: "Task",
+    metadata: { taskName: existing.taskName },
+  });
 }

@@ -16,6 +16,7 @@ import {
   FileText,
   ExternalLink,
   Upload,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -172,6 +173,9 @@ export default function TaskDetailPage() {
   const [highRiskGradedCount, setHighRiskGradedCount] = useState(0);
   const [pendingPatchBody, setPendingPatchBody] = useState<Record<string, unknown> | null>(null);
   const [copying, setCopying] = useState(false);
+  // Unit 5a: 删除任务 confirm dialog
+  const [deleteTaskOpen, setDeleteTaskOpen] = useState(false);
+  const [deletingTask, setDeletingTask] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(searchParams.get("edit") === "true");
@@ -512,6 +516,25 @@ export default function TaskDetailPage() {
     }
   }
 
+  async function handleConfirmedDeleteTask() {
+    setDeletingTask(true);
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("任务已删除");
+      router.push("/teacher/tasks");
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setDeletingTask(false);
+      setDeleteTaskOpen(false);
+    }
+  }
+
   async function handleImportPDF(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -665,10 +688,22 @@ export default function TaskDetailPage() {
               </Button>
             </>
           ) : (
-            <Button variant="outline" onClick={() => setEditing(true)}>
-              <Pencil className="size-4 mr-1" />
-              编辑
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setEditing(true)}>
+                <Pencil className="size-4 mr-1" />
+                编辑
+              </Button>
+              {task.taskInstances.length === 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteTaskOpen(true)}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="size-4 mr-1" />
+                  删除任务
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1513,6 +1548,38 @@ export default function TaskDetailPage() {
         onComplete={handleImportComplete}
         onRetry={handleImportRetry}
       />
+
+      {/* Unit 5a: 删除任务 confirm dialog */}
+      <AlertDialog
+        open={deleteTaskOpen}
+        onOpenChange={(open) => !open && !deletingTask && setDeleteTaskOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除任务模板</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认删除「{task.taskName}」？此操作不可恢复。如果任务已发布过实例，将被服务端拒绝。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingTask}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmedDeleteTask}
+              disabled={deletingTask}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingTask ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Unit 4: 高危改动拦截 dialog */}
       <AlertDialog
