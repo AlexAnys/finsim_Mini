@@ -212,3 +212,34 @@ test.describe.serial("Unit 5a: 课程删除 + 任务删除（拒删 + audit）",
     expect(json.error?.code).toBe("TASK_HAS_INSTANCES");
   });
 });
+
+test.describe.serial("Unit 5a r2: 任务详情页 disabled+Tooltip UI 一致性", () => {
+  test("I: 任务详情页有 instance 时 删除按钮 disabled + Tooltip 显示原因", async ({
+    page,
+  }) => {
+    await loginMolly(page);
+    // 个人理财基础概念测验 有 instance
+    const TASK_WITH_INSTANCE = "3e26c6d2-fdf2-42d4-81d4-6f399b1b2dd9";
+    await page.goto(`${BASE}/teacher/tasks/${TASK_WITH_INSTANCE}`);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
+    await page.screenshot({
+      path: `${SS}/03-task-with-instance.png`,
+      fullPage: true,
+    });
+
+    // 按钮应可见但 disabled
+    const deleteBtn = page.getByRole("button", { name: /删除任务/ });
+    await expect(deleteBtn).toBeVisible();
+    await expect(deleteBtn).toBeDisabled();
+
+    // hover wrapper span 触发 tooltip
+    const tipTrigger = page
+      .locator('[data-slot="tooltip-trigger"]')
+      .filter({ has: page.getByRole("button", { name: /删除任务/ }) });
+    await tipTrigger.first().hover();
+    await page.waitForTimeout(500);
+    const tip = page.getByText(/请先删除实例再删任务/);
+    await expect(tip).toBeVisible();
+  });
+});

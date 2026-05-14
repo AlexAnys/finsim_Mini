@@ -41,6 +41,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -693,7 +698,7 @@ export default function TaskDetailPage() {
                 <Pencil className="size-4 mr-1" />
                 编辑
               </Button>
-              {task.taskInstances.length === 0 && (
+              {task.taskInstances.length === 0 ? (
                 <Button
                   variant="outline"
                   onClick={() => setDeleteTaskOpen(true)}
@@ -702,6 +707,24 @@ export default function TaskDetailPage() {
                   <Trash2 className="size-4 mr-1" />
                   删除任务
                 </Button>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        variant="outline"
+                        disabled
+                        className="text-destructive opacity-50"
+                      >
+                        <Trash2 className="size-4 mr-1" />
+                        删除任务
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    该任务已发布 {task.taskInstances.length} 个实例，请先删除实例再删任务
+                  </TooltipContent>
+                </Tooltip>
               )}
             </>
           )}
