@@ -350,7 +350,7 @@ export function getProviderOptions(
   return undefined;
 }
 
-async function getRuntimeSetting(userId: string, feature: AIFeature): Promise<AiRuntimeSetting | null> {
+export async function getRuntimeSetting(userId: string, feature: AIFeature): Promise<AiRuntimeSetting | null> {
   try {
     const select = {
       provider: true,

@@ -30,6 +30,8 @@ vi.mock("@/lib/db/prisma", () => ({
 
 vi.mock("@/lib/services/ai.service", () => ({
   aiGenerateJSON: vi.fn(),
+  getProviderForFeature: vi.fn(() => ({ provider: { name: "qwen" }, model: "qwen-plus" })),
+  getRuntimeSetting: vi.fn(() => null),
 }));
 
 import { prisma } from "@/lib/db/prisma";
@@ -254,6 +256,37 @@ describe("generateWeeklyInsight cache + force", () => {
     expect(userPrompt).toContain("A班");
     expect(userPrompt).toContain("理财");
     expect(userPrompt).toContain("学生在复利环节理解不够深入");
+  });
+
+  it("returns modelUsed + durationMs on AI success (Unit 7 meta footer)", async () => {
+    setupHappyPathMocks();
+    const r = await generateWeeklyInsight("teacher-meta-1");
+    expect(r.modelUsed).toBe("qwen:qwen-plus");
+    expect(r.durationMs).not.toBeNull();
+    expect(r.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("returns durationMs even when AI fails (modelUsed null)", async () => {
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+    mk(prisma.scheduleSlot.findMany).mockResolvedValue([]);
+    mk(aiGenerateJSON).mockRejectedValue(new Error("AI_PROVIDER_NOT_CONFIGURED: qwen"));
+
+    const r = await generateWeeklyInsight("teacher-meta-2");
+    expect(r.modelUsed).toBeNull();
+    expect(r.durationMs).not.toBeNull();
+    expect(r.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("cached result preserves modelUsed + durationMs from original generation", async () => {
+    setupHappyPathMocks();
+    const r1 = await generateWeeklyInsight("teacher-meta-3");
+    expect(r1.cached).toBe(false);
+    expect(r1.modelUsed).toBe("qwen:qwen-plus");
+
+    const r2 = await generateWeeklyInsight("teacher-meta-3");
+    expect(r2.cached).toBe(true);
+    expect(r2.modelUsed).toBe("qwen:qwen-plus");
+    expect(r2.durationMs).toBe(r1.durationMs);
   });
 });
 

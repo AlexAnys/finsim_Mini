@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
-import { aiGenerateJSON } from "./ai.service";
+import { aiGenerateJSON, getProviderForFeature, getRuntimeSetting } from "./ai.service";
 import { teacherCourseFilter } from "@/lib/services/course.service";
 
 /**
@@ -71,6 +71,10 @@ export interface WeeklyInsightResult {
   submissionCount: number;
   /** cache 命中标记，便于前端展示"已缓存"状态 */
   cached: boolean;
+  /** 模型标识 "provider:model"，AI 失败或老条目可为 null */
+  modelUsed: string | null;
+  /** AI 调用耗时（毫秒），便于 modal 显示 "耗时 N.Ns" */
+  durationMs: number | null;
 }
 
 // ============================================
@@ -368,12 +372,19 @@ export async function generateWeeklyInsight(
     upcomingSlots,
   };
 
-  // 5) 调 AI
+  // 5) 调 AI（包计时 + 读 provider/model 写入 meta，供 modal footer 展示）
   const { systemPrompt, userPrompt } = buildWeeklyInsightPrompt(promptInput);
 
   let payload: WeeklyInsightPayload;
   let aiSucceeded = true;
+  let modelUsed: string | null = null;
+  let durationMs: number | null = null;
+  const aiStartedAt = Date.now();
   try {
+    // ai.service 在 aiGenerateJSON 内同样会查 setting；这里提前读 provider 主要为了
+    // 写入 result.modelUsed（modal footer 显示），与下方 AI 调用本质等价（同一 feature/userId）。
+    const setting = await getRuntimeSetting(teacherId, "weeklyInsight");
+    const { provider, model } = getProviderForFeature("weeklyInsight", setting);
     const ai = await aiGenerateJSON(
       "weeklyInsight",
       teacherId,
@@ -381,6 +392,8 @@ export async function generateWeeklyInsight(
       userPrompt,
       aiSchema,
     );
+    modelUsed = `${provider.name}:${model}`;
+    durationMs = Date.now() - aiStartedAt;
     payload = {
       weakConceptsByCourse: ai.weakConceptsByCourse,
       classDifferences: ai.classDifferences,
@@ -390,6 +403,7 @@ export async function generateWeeklyInsight(
     };
   } catch (err) {
     aiSucceeded = false;
+    durationMs = Date.now() - aiStartedAt;
     console.error("[weekly-insight] AI 聚合失败，降级返回空 payload：", err);
     payload = {
       weakConceptsByCourse: [],
@@ -410,6 +424,8 @@ export async function generateWeeklyInsight(
     windowEnd,
     submissionCount: promptInput.submissions.length,
     cached: false,
+    modelUsed,
+    durationMs,
   };
 
   // 仅成功结果或"无可聚合数据"才写长缓存；AI 失败用短缓存避免锁死 7 天。

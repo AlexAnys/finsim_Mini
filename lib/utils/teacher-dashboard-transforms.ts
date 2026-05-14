@@ -655,7 +655,22 @@ export function buildUpcomingSchedule(
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return a.startTime.localeCompare(b.startTime);
   });
-  return candidates.slice(0, count);
+
+  // 去重：当 DB 中存在视觉上等价的 slot 行（同一课程或同一标题/班级/时间/日期），
+  // 仪表盘只显示一条以避免"10:00 个人理财规划"重复出现 3 行的体验问题。
+  // 主键含 slot.id + 日期；视觉键含 (courseTitle, className, timeLabel, date)。
+  const seen = new Set<string>();
+  const deduped: TeacherUpcomingSlot[] = [];
+  for (const slot of candidates) {
+    const primaryKey = `${slot.id}|${slot.date}`;
+    const visualKey = `${slot.courseTitle}|${slot.className ?? ""}|${slot.timeLabel}|${slot.date}`;
+    if (seen.has(primaryKey) || seen.has(visualKey)) continue;
+    seen.add(primaryKey);
+    seen.add(visualKey);
+    deduped.push(slot);
+  }
+
+  return deduped.slice(0, count);
 }
 
 function parseStartTime(timeLabel: unknown): number | null {

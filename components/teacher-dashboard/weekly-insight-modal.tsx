@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Sparkles, AlertCircle } from "lucide-react";
 import {
   Dialog,
@@ -48,6 +49,8 @@ export interface WeeklyInsightUiResult {
   windowEnd: string | Date;
   submissionCount: number;
   cached: boolean;
+  modelUsed?: string | null;
+  durationMs?: number | null;
 }
 
 interface WeeklyInsightModalProps {
@@ -70,6 +73,28 @@ function fmtPercent(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
+function fmtRelativeTime(value: string | Date, now: number): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  const ts = d.getTime();
+  if (Number.isNaN(ts)) return "-";
+  const diff = Math.max(0, now - ts);
+  if (diff < 60_000) return "刚刚";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  return `${days} 天前`;
+}
+
+function fmtModel(modelUsed: string | null | undefined): string | null {
+  if (!modelUsed) return null;
+  const parts = modelUsed.split(":");
+  return parts.length > 1 ? parts.slice(1).join(":") : modelUsed;
+}
+
+const COOLDOWN_MS = 60_000;
+
 export function WeeklyInsightModal({
   open,
   onOpenChange,
@@ -78,6 +103,24 @@ export function WeeklyInsightModal({
   error,
   onRegenerate,
 }: WeeklyInsightModalProps) {
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [open]);
+
+  const generatedAt = data?.generatedAt ?? null;
+  const cooldownRemaining = useMemo(() => {
+    if (!generatedAt) return 0;
+    const generatedTs = new Date(generatedAt).getTime();
+    if (Number.isNaN(generatedTs)) return 0;
+    const remainingMs = generatedTs + COOLDOWN_MS - nowMs;
+    return Math.max(0, Math.ceil(remainingMs / 1000));
+  }, [generatedAt, nowMs]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -114,7 +157,7 @@ export function WeeklyInsightModal({
         ) : data ? (
           <div className="space-y-6">
             {/* 元数据条 */}
-            <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-4">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
               <span>
                 时间窗口 {fmtDate(data.windowStart)} ~ {fmtDate(data.windowEnd)}
               </span>
@@ -124,6 +167,25 @@ export function WeeklyInsightModal({
                 <Badge variant="secondary" className="text-[11px]">
                   缓存（7天）
                 </Badge>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-5">
+              {data.cached ? (
+                <span>已缓存（{fmtDate(data.generatedAt)} 生成）</span>
+              ) : (
+                <>
+                  {fmtModel(data.modelUsed) && (
+                    <span>由 {fmtModel(data.modelUsed)} 生成</span>
+                  )}
+                  {data.durationMs != null && (
+                    <>
+                      <span className="text-ink-5">·</span>
+                      <span>耗时 {(data.durationMs / 1000).toFixed(1)}s</span>
+                    </>
+                  )}
+                  <span className="text-ink-5">·</span>
+                  <span>生成于 {fmtRelativeTime(data.generatedAt, nowMs)}</span>
+                </>
               )}
             </div>
 
@@ -292,11 +354,16 @@ export function WeeklyInsightModal({
             variant="outline"
             size="sm"
             onClick={onRegenerate}
-            disabled={loading}
+            disabled={loading || cooldownRemaining > 0}
             className="gap-1.5"
+            title={
+              cooldownRemaining > 0
+                ? `请等待 ${cooldownRemaining}s 后再重新生成（避免频繁请求 AI）`
+                : undefined
+            }
           >
             <RefreshCw className="size-[12px]" aria-hidden />
-            重新生成
+            {cooldownRemaining > 0 ? `重新生成（${cooldownRemaining}s）` : "重新生成"}
           </Button>
           <Button
             variant="default"

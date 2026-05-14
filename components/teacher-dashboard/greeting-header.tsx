@@ -28,7 +28,13 @@ export function TeacherGreetingHeader({
           教学工作台
         </h1>
         <p className="mt-1 text-sm text-ink-3">
-          今日 <b className="text-brand">{todayClassCount} 节课</b>
+          {todayClassCount > 0 ? (
+            <>
+              今日 <b className="text-brand">{todayClassCount} 节课</b>
+            </>
+          ) : (
+            <span className="text-ink-3">今日无排课</span>
+          )}
           <span className="mx-1.5 text-ink-5">·</span>
           待批 <b className="text-warn">{pendingGradeCount} 份</b>
           <span className="mx-1.5 text-ink-5">·</span>
