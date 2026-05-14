@@ -14,6 +14,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
   InstanceHeader,
@@ -124,6 +134,9 @@ export default function InstanceDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [tab, setTab] = useState<InstanceTabKey>("overview");
+  const [confirmDialog, setConfirmDialog] = useState<
+    null | "close" | "delete"
+  >(null);
 
   // PR-SIM-1b · D1 公布相关 UI state
   const [releaseConfigSaving, setReleaseConfigSaving] = useState(false);
@@ -355,6 +368,68 @@ export default function InstanceDetailPage() {
     },
     [instanceId]
   );
+
+  const handleCloseConfirmed = useCallback(async () => {
+    setConfirmDialog(null);
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/lms/task-instances/${instanceId}/close`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "关闭失败");
+        return;
+      }
+      toast.success("已关闭");
+      setInstance((prev) => (prev ? { ...prev, status: "closed" } : prev));
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [instanceId]);
+
+  const handleReopen = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/lms/task-instances/${instanceId}/reopen`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "重新开放失败");
+        return;
+      }
+      toast.success("已重新开放");
+      setInstance((prev) => (prev ? { ...prev, status: "published" } : prev));
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [instanceId]);
+
+  const handleDeleteConfirmed = useCallback(async () => {
+    setConfirmDialog(null);
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/lms/task-instances/${instanceId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("已删除");
+      router.push("/teacher/instances");
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [instanceId, router]);
 
   const normalizedRows = useMemo<NormalizedSubmission[]>(() => {
     if (!submissions?.items) return [];
@@ -622,8 +697,11 @@ export default function InstanceDetailPage() {
       <InstanceHeader
         instance={headerData}
         actionLoading={actionLoading}
+        submissionCount={instance._count?.submissions ?? 0}
         onPublish={() => handleStatusChange("published")}
-        onClose={() => handleStatusChange("closed")}
+        onClose={() => setConfirmDialog("close")}
+        onReopen={handleReopen}
+        onDelete={() => setConfirmDialog("delete")}
         onExport={exportGrades}
         onRemind={handleRemind}
         onStartGrading={handleStartGrading}
@@ -889,6 +967,68 @@ export default function InstanceDetailPage() {
           <AnalyticsTab rows={normalizedRows} taskType={instance.task.taskType} />
         )}
       </div>
+
+      <AlertDialog
+        open={confirmDialog === "close"}
+        onOpenChange={(open) => !open && setConfirmDialog(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>关闭任务实例</AlertDialogTitle>
+            <AlertDialogDescription>
+              关闭后学生无法继续答题，已提交的答卷仍可在「成绩」中回看。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCloseConfirmed}
+              disabled={actionLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {actionLoading ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  关闭中...
+                </>
+              ) : (
+                "确认关闭"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmDialog === "delete"}
+        onOpenChange={(open) => !open && setConfirmDialog(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除任务实例</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后无法恢复，且该实例下若有讨论 / 报告等数据将一并清除。确认删除？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirmed}
+              disabled={actionLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {actionLoading ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <GradingDrawer
         open={drawerOpen}

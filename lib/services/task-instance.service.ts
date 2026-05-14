@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter } from "@/lib/services/course.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { clampTake } from "@/lib/pagination";
 import { createTaskInTransaction } from "@/lib/services/task.service";
 import type {
@@ -233,9 +234,87 @@ export async function updateTaskInstance(
 }
 
 export async function deleteTaskInstance(instanceId: string, createdBy: string) {
-  const existing = await prisma.taskInstance.findUnique({ where: { id: instanceId } });
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, status: true, createdBy: true, courseId: true, title: true },
+  });
   if (!existing || !(await isAuthorizedForInstance(existing, createdBy))) {
     throw new Error("FORBIDDEN");
   }
-  return prisma.taskInstance.delete({ where: { id: instanceId } });
+  if (existing.status !== "draft" && existing.status !== "closed") {
+    throw new Error("TASK_INSTANCE_NOT_DELETABLE");
+  }
+  const submissionCount = await prisma.submission.count({
+    where: { taskInstanceId: instanceId },
+  });
+  if (submissionCount > 0) {
+    throw new Error("INSTANCE_HAS_SUBMISSIONS");
+  }
+  const deleted = await prisma.taskInstance.delete({ where: { id: instanceId } });
+  await logAuditForced({
+    action: "task_instance.delete",
+    actorId: createdBy,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { title: existing.title, previousStatus: existing.status },
+  });
+  return deleted;
+}
+
+/**
+ * Reopen a closed task instance. Status closed -> published. 写 audit。
+ * 用于"误关后挽回"场景，是任务实例状态机第三态。
+ */
+export async function reopenTaskInstance(instanceId: string, actorId: string) {
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, status: true, createdBy: true, courseId: true, title: true },
+  });
+  if (!existing || !(await isAuthorizedForInstance(existing, actorId))) {
+    throw new Error("FORBIDDEN");
+  }
+  if (existing.status !== "closed") {
+    throw new Error("TASK_INSTANCE_NOT_REOPENABLE");
+  }
+  const updated = await prisma.taskInstance.update({
+    where: { id: instanceId },
+    data: { status: "published" },
+  });
+  await logAuditForced({
+    action: "task_instance.reopen",
+    actorId,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { title: existing.title, previousStatus: "closed" },
+  });
+  return updated;
+}
+
+/**
+ * Close a published task instance. Status published -> closed. 写 audit。
+ * 关闭后学生 assertTaskInstanceReadable 会拒绝读取（403），已提交的 submission 仍可通过 /grades 查看。
+ */
+export async function closeTaskInstance(instanceId: string, actorId: string) {
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, status: true, createdBy: true, courseId: true, title: true },
+  });
+  if (!existing || !(await isAuthorizedForInstance(existing, actorId))) {
+    throw new Error("FORBIDDEN");
+  }
+  if (existing.status !== "published") {
+    throw new Error("TASK_INSTANCE_NOT_CLOSEABLE");
+  }
+  const updated = await prisma.taskInstance.update({
+    where: { id: instanceId },
+    data: { status: "closed" },
+  });
+  await logAuditForced({
+    action: "task_instance.close",
+    actorId,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { title: existing.title, previousStatus: "published" },
+  });
+  return updated;
 }

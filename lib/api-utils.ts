@@ -131,6 +131,14 @@ export function handleServiceError(err: unknown) {
         return error("MAX_ATTEMPTS_REACHED", "已达到最大提交次数", 400);
       case "INVALID_STATUS":
         return error("INVALID_STATUS", "任务状态不正确", 400);
+      case "TASK_INSTANCE_NOT_DELETABLE":
+        return error("TASK_INSTANCE_NOT_DELETABLE", "只有草稿或已关闭的实例可以删除，请先关闭实例", 400);
+      case "TASK_INSTANCE_NOT_REOPENABLE":
+        return error("TASK_INSTANCE_NOT_REOPENABLE", "只有已关闭的实例可以重新开放", 400);
+      case "TASK_INSTANCE_NOT_CLOSEABLE":
+        return error("TASK_INSTANCE_NOT_CLOSEABLE", "只有已发布的实例可以关闭", 400);
+      case "INSTANCE_HAS_SUBMISSIONS":
+        return error("INSTANCE_HAS_SUBMISSIONS", "该实例已有学生提交，无法删除", 400);
       case "RATE_LIMIT_EXCEEDED":
         return NextResponse.json(
           { success: false, error: { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" } },
