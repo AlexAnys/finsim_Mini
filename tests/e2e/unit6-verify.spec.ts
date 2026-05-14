@@ -46,7 +46,7 @@ test.setTimeout(180_000);
 
 const MOLLY_COURSE_NO_INSTANCES = "8f7f653c-9177-44f6-b764-80f7f779b2ef"; // molly own course
 const MOLLY_TASK = "e07a8ba8-6ee1-4d57-836b-a4847296f376"; // molly task (no instances)
-const TEACHER1_COURSE = "e6fc049c-756f-4442-86da-35a6cdbadd6e"; // molly is collab
+// const TEACHER1_COURSE — removed in r2 as no e2e currently uses it directly
 
 test.describe("Unit 6 A: Study Buddy 自由问 + excerpt", () => {
   test("A1: alex POST 自由问无 taskId → 201（schema 已 optional）", async ({
@@ -276,6 +276,72 @@ test.describe("Unit 6 C: UI 集成", () => {
       await expect(generalBtn).toHaveAttribute("aria-pressed", "true");
       await page.close();
     } finally {
+      await alex.context.close();
+    }
+  });
+});
+
+test.describe("Unit 6 r2: free-form post 创建后再进列表不崩 (regression)", () => {
+  test("D1: alex POST free-form post (taskId=null + courseId=null) → 再进 /study-buddy 200 + DOM 渲染正常", async ({
+    browser,
+  }) => {
+    const alex = await makeAuthedContext(browser, "alex@qq.com", "11");
+    let createdPostId: string | null = null;
+    try {
+      // Step 1: 创建 free-form post (无 taskId, 无 courseId)
+      const createRes = await alex.request.post(`${BASE}/api/study-buddy/posts`, {
+        data: {
+          title: `QA-Unit6-r2-D1-${Date.now()}`,
+          question: "复利公式是什么？",
+          mode: "direct",
+          anonymous: false,
+        },
+      });
+      const createJson = await createRes.json();
+      expect(createJson.success).toBe(true);
+      expect(createJson.data.taskId).toBeNull();
+      expect(createJson.data.courseId).toBeNull();
+      createdPostId = createJson.data.id;
+
+      // Step 2: 再进 list 页 — r1 此处崩
+      const page = await alex.context.newPage();
+      const consoleErrors: string[] = [];
+      page.on("pageerror", (e) => consoleErrors.push(e.message));
+      page.on("console", (msg) => {
+        if (msg.type() === "error") consoleErrors.push(msg.text());
+      });
+      const response = await page.goto(`${BASE}/study-buddy`);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(2500);
+      await page.screenshot({
+        path: `${SS}/03-r2-after-free-post.png`,
+        fullPage: true,
+      });
+
+      // 关键 acceptance — 页面 200 + 无 "Cannot read properties of null" 错
+      expect(response?.status()).toBe(200);
+      const body = await page.locator("body").innerText();
+      console.log("study-buddy body snippet:", body.slice(0, 200));
+      // 应渲染 list（有该 post 的 title）
+      expect(body).toContain("QA-Unit6-r2-D1");
+      // 不应崩到 500/error boundary
+      expect(body).not.toContain("服务器开小差");
+      expect(body).not.toContain("Cannot read properties");
+      // page errors 不含 null deref
+      const nullDerefs = consoleErrors.filter((e) =>
+        /Cannot read properties of null.*length/i.test(e),
+      );
+      console.log("null deref page errors:", nullDerefs.length);
+      expect(nullDerefs.length).toBe(0);
+
+      await page.close();
+    } finally {
+      // cleanup
+      if (createdPostId) {
+        await alex.request.delete(
+          `${BASE}/api/study-buddy/posts/${createdPostId}`,
+        );
+      }
       await alex.context.close();
     }
   });
