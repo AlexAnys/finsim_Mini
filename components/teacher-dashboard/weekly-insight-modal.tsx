@@ -51,6 +51,9 @@ export interface WeeklyInsightUiResult {
   cached: boolean;
   modelUsed?: string | null;
   durationMs?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  costEstUSD?: number | null;
 }
 
 interface WeeklyInsightModalProps {
@@ -181,6 +184,14 @@ export function WeeklyInsightModal({
                     <>
                       <span className="text-ink-5">·</span>
                       <span>耗时 {(data.durationMs / 1000).toFixed(1)}s</span>
+                    </>
+                  )}
+                  {(data.inputTokens != null || data.outputTokens != null) && (
+                    <>
+                      <span className="text-ink-5">·</span>
+                      <span>
+                        in {data.inputTokens ?? "—"} / out {data.outputTokens ?? "—"} tokens
+                      </span>
                     </>
                   )}
                   <span className="text-ink-5">·</span>

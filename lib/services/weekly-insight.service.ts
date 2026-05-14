@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import { aiGenerateJSON, getProviderForFeature, getRuntimeSetting } from "./ai.service";
+import { assertAiFeatureCooldown } from "./ai-throttle.service";
 import { teacherCourseFilter } from "@/lib/services/course.service";
 
 /**
@@ -75,6 +76,12 @@ export interface WeeklyInsightResult {
   modelUsed: string | null;
   /** AI 调用耗时（毫秒），便于 modal 显示 "耗时 N.Ns" */
   durationMs: number | null;
+  /** AI 输入 token 数（来自 Vercel SDK usage），老条目或失败可为 null */
+  inputTokens: number | null;
+  /** AI 输出 token 数 */
+  outputTokens: number | null;
+  /** 本次 AI 调用估算成本（USD），不在 cost 表中的模型为 null */
+  costEstUSD: number | null;
 }
 
 // ============================================
@@ -270,6 +277,10 @@ export async function generateWeeklyInsight(
 ): Promise<WeeklyInsightResult> {
   const now = options.now ?? new Date();
 
+  if (options.force) {
+    assertAiFeatureCooldown(teacherId, "weeklyInsight");
+  }
+
   if (!options.force) {
     const cached = cache.get(teacherId);
     if (cached && cached.expiresAt > now.getTime()) {
@@ -379,6 +390,9 @@ export async function generateWeeklyInsight(
   let aiSucceeded = true;
   let modelUsed: string | null = null;
   let durationMs: number | null = null;
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
+  let costEstUSD: number | null = null;
   const aiStartedAt = Date.now();
   try {
     // ai.service 在 aiGenerateJSON 内同样会查 setting；这里提前读 provider 主要为了
@@ -394,6 +408,26 @@ export async function generateWeeklyInsight(
     );
     modelUsed = `${provider.name}:${model}`;
     durationMs = Date.now() - aiStartedAt;
+    // 查最新成功的 AiRun（同 feature + userId，30s 内）拿 token 数据写入 result。
+    try {
+      const latestRun = await prisma.aiRun.findFirst({
+        where: {
+          userId: teacherId,
+          feature: "weeklyInsight",
+          status: "succeeded",
+          createdAt: { gte: new Date(aiStartedAt - 5000) },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { inputTokens: true, outputTokens: true, costEstUSD: true },
+      });
+      if (latestRun) {
+        inputTokens = latestRun.inputTokens ?? null;
+        outputTokens = latestRun.outputTokens ?? null;
+        costEstUSD = latestRun.costEstUSD != null ? Number(latestRun.costEstUSD) : null;
+      }
+    } catch {
+      // AiRun 查询失败不阻塞主流程。
+    }
     payload = {
       weakConceptsByCourse: ai.weakConceptsByCourse,
       classDifferences: ai.classDifferences,
@@ -426,6 +460,9 @@ export async function generateWeeklyInsight(
     cached: false,
     modelUsed,
     durationMs,
+    inputTokens,
+    outputTokens,
+    costEstUSD,
   };
 
   // 仅成功结果或"无可聚合数据"才写长缓存；AI 失败用短缓存避免锁死 7 天。

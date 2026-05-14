@@ -182,6 +182,8 @@ export function handleServiceError(err: unknown) {
           { success: false, error: { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" } },
           { status: 429 }
         );
+      case "AI_FEATURE_COOLDOWN":
+        return error("AI_FEATURE_COOLDOWN", "请稍后再试（60 秒内仅可重新生成 1 次）", 429);
       case "AI_PROVIDER_NOT_CONFIGURED":
         return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
       case "AI_PROVIDER_NOT_FOUND":

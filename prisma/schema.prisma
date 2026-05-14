@@ -985,6 +985,10 @@ model AiRun {
   promptHash    String?     @db.VarChar(120)
   inputSize     Int?
   outputSize    Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  costEstUSD    Decimal?    @db.Decimal(10, 6)
+  summary       String?     @db.VarChar(200)
   latencyMs     Int?
   error         String?     @db.Text
   metadata      Json?

@@ -417,6 +417,8 @@ async function createAiRun(input: {
         promptVersion: "v1",
         promptHash,
         inputSize: input.systemPrompt.length + input.userPrompt.length,
+        // AI 留痕（Unit 11）：summary 用 userPrompt 前 200 字（明文，方便老师审计而非对哈希）。
+        summary: input.userPrompt.slice(0, 200),
         metadata: {
           ...(input.metadata ?? {}),
           effectiveProvider: input.provider.name,
@@ -430,12 +432,63 @@ async function createAiRun(input: {
   }
 }
 
+/**
+ * Cost estimation per 1k tokens (USD).
+ * Source: 主流 provider 公开价目（2026-05 抓取）；缺失模型回退到 null（"未知成本"），
+ * 避免把"未估算"误读成"免费"。新模型上线需手工补到本表。
+ */
+const COST_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
+  "qwen-plus": { input: 0.0008, output: 0.002 },
+  "qwen-plus-2025-09-11": { input: 0.0008, output: 0.002 },
+  "qwen-turbo": { input: 0.0003, output: 0.0006 },
+  "qwen-max": { input: 0.0028, output: 0.0084 },
+  "deepseek-chat": { input: 0.0003, output: 0.0014 },
+  "deepseek-reasoner": { input: 0.00055, output: 0.0022 },
+  "gpt-4o-mini": { input: 0.00015, output: 0.0006 },
+  "gpt-4o": { input: 0.0025, output: 0.01 },
+  "gemini-2.0-flash": { input: 0, output: 0 },
+  "gemini-1.5-flash": { input: 0, output: 0 },
+  "gemini-1.5-pro": { input: 0.00125, output: 0.005 },
+};
+
+function estimateCostUSD(
+  model: string,
+  inputTokens: number | undefined,
+  outputTokens: number | undefined,
+): number | null {
+  const table = COST_PER_1K_TOKENS[model];
+  if (!table) return null;
+  const it = inputTokens ?? 0;
+  const ot = outputTokens ?? 0;
+  return (it * table.input + ot * table.output) / 1000;
+}
+
 async function finishAiRun(
   runId: string | null | undefined,
-  data: { status: "succeeded" | "failed"; startedAt: number; output?: string; error?: unknown },
+  data: {
+    status: "succeeded" | "failed";
+    startedAt: number;
+    output?: string;
+    error?: unknown;
+    /** Vercel AI SDK 的 usage.inputTokens / outputTokens；缺失视为 null */
+    usage?: { inputTokens?: number; outputTokens?: number } | null;
+    /** AiRun.summary 用：原始 userPrompt 前 200 字（明文，方便审计）*/
+    userPromptForSummary?: string;
+    /** AiRun.model — 估算成本用 */
+    model?: string;
+  },
 ) {
   if (!runId) return;
   try {
+    const inputTokens = data.usage?.inputTokens ?? null;
+    const outputTokens = data.usage?.outputTokens ?? null;
+    const costEstUSD =
+      data.model != null && (inputTokens != null || outputTokens != null)
+        ? estimateCostUSD(data.model, inputTokens ?? 0, outputTokens ?? 0)
+        : null;
+    const summary = data.userPromptForSummary
+      ? data.userPromptForSummary.slice(0, 200)
+      : undefined;
     await prisma.aiRun.update({
       where: { id: runId },
       data: {
@@ -443,6 +496,10 @@ async function finishAiRun(
         latencyMs: Date.now() - data.startedAt,
         outputSize: data.output?.length,
         error: data.error ? errorMessage(data.error).slice(0, 2000) : null,
+        inputTokens,
+        outputTokens,
+        costEstUSD,
+        ...(summary !== undefined ? { summary } : {}),
       },
     });
   } catch {
@@ -731,7 +788,7 @@ export async function aiGenerateText(
   });
 
   try {
-    const { text } = await generateText({
+    const { text, usage } = await generateText({
       model: openai.chat(model),
       system: mergedSystemPrompt,
       prompt: userPrompt,
@@ -740,10 +797,16 @@ export async function aiGenerateText(
       providerOptions: getProviderOptions(provider, setting, feature),
     });
 
-    await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: text });
+    await finishAiRun(aiRun?.id, {
+      status: "succeeded",
+      startedAt,
+      output: text,
+      usage,
+      model,
+    });
     return text;
   } catch (error) {
-    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error });
+    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error, model });
     console.error(`[AI ${feature}] provider=${provider.name} model=${model} error:`, error);
     throw error;
   }
@@ -781,6 +844,7 @@ export async function aiGenerateJSON<T>(
   });
 
   let lastError: Error | null = null;
+  let lastUsage: { inputTokens?: number; outputTokens?: number } | undefined;
 
   // M1 (PR #11) · 调用方可覆盖默认 8192：outline / 长 schema 在 8192 易截断 → 16384。
   const maxOutputTokens = options.maxOutputTokens ?? 8192;
@@ -792,7 +856,7 @@ export async function aiGenerateJSON<T>(
         attempt > 0 && lastError && isJsonShapeError(lastError)
           ? "\n\n上一次返回的 JSON 不完整或包含多余内容，请只输出严格 JSON 对象，不要 Markdown 代码块、不要多余文字。"
           : "";
-      const { text } = await generateText({
+      const { text, usage: attemptUsage } = await generateText({
         model: openai.chat(model),
         system: mergedSystemPrompt,
         prompt: userPrompt + repairHint,
@@ -801,6 +865,7 @@ export async function aiGenerateJSON<T>(
         maxOutputTokens,
         providerOptions: getProviderOptions(provider, setting, feature),
       });
+      lastUsage = attemptUsage;
 
       const jsonStr = extractJSON(text);
       // M1 · JSON resilient parse：先尝试严格 parse；SyntaxError 时走截断修复再 parse。
@@ -814,7 +879,13 @@ export async function aiGenerateJSON<T>(
         parsed = JSON.parse(repaired);
       }
       const data = schema.parse(parsed);
-      await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: text });
+      await finishAiRun(aiRun?.id, {
+        status: "succeeded",
+        startedAt,
+        output: text,
+        usage: lastUsage,
+        model,
+      });
       return data;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -822,7 +893,13 @@ export async function aiGenerateJSON<T>(
     }
   }
 
-  await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: lastError });
+  await finishAiRun(aiRun?.id, {
+    status: "failed",
+    startedAt,
+    error: lastError,
+    usage: lastUsage,
+    model,
+  });
   throw lastError || new Error("AI_GENERATE_FAILED");
 }
 
@@ -1214,7 +1291,7 @@ export async function chatReplyStream(
     });
   } catch (err) {
     clearTimeout(timeoutHandle);
-    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err });
+    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err, model });
     throw err;
   }
 
@@ -1275,8 +1352,23 @@ export async function chatReplyStream(
     // 的极端用法 await 一下保证 rawAccum 不被并发竞争）
     await streamDone;
 
+    // Stream 已结束：从 result.totalUsage 拉 token usage（Vercel AI SDK 在 onFinish 后 resolve）。
+    let streamUsage: { inputTokens?: number; outputTokens?: number } | undefined;
+    try {
+      const u = await result.totalUsage;
+      streamUsage = { inputTokens: u.inputTokens, outputTokens: u.outputTokens };
+    } catch {
+      // usage 拉不到不阻塞主流程（AiRun 留 null tokens）。
+    }
+
     if (streamError) {
-      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: streamError });
+      await finishAiRun(aiRun?.id, {
+        status: "failed",
+        startedAt,
+        error: streamError,
+        usage: streamUsage,
+        model,
+      });
       return degradedFallback(rawAccum);
     }
 
@@ -1285,11 +1377,23 @@ export async function chatReplyStream(
       const jsonStr = extractJSON(rawAccum);
       const parsedJson = JSON.parse(jsonStr);
       const parsed = chatReplySchema.parse(parsedJson);
-      await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: rawAccum });
+      await finishAiRun(aiRun?.id, {
+        status: "succeeded",
+        startedAt,
+        output: rawAccum,
+        usage: streamUsage,
+        model,
+      });
       const finalized = await finalizeChatReply(parsed, data, userId, options);
       return { ...finalized, degraded: false };
     } catch (err) {
-      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err });
+      await finishAiRun(aiRun?.id, {
+        status: "failed",
+        startedAt,
+        error: err,
+        usage: streamUsage,
+        model,
+      });
       return degradedFallback(rawAccum);
     }
   }

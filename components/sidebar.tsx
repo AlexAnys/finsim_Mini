@@ -17,6 +17,8 @@ import {
   Users,
   Search,
   Settings2,
+  Activity,
+  ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -53,11 +55,17 @@ const teacherNav: NavItem[] = [
   { label: "课表管理", href: "/teacher/schedule", icon: CalendarDays },
   { label: "班级管理", href: "/teacher/groups", icon: Users },
   { label: "AI 助手", href: "/teacher/ai-assistant", icon: Bot },
+  { label: "AI 用量", href: "/teacher/ai-usage", icon: Activity },
   { label: "AI 设置", href: "/teacher/ai-settings", icon: Settings2 },
 ];
 
+const adminExtraNav: NavItem[] = [
+  { label: "审计中心", href: "/admin/audit", icon: ShieldAlert },
+];
+
 function getNavItems(role: UserRole | undefined): NavItem[] {
-  if (role === "teacher" || role === "admin") return teacherNav;
+  if (role === "admin") return [...teacherNav, ...adminExtraNav];
+  if (role === "teacher") return teacherNav;
   return studentNav;
 }
 

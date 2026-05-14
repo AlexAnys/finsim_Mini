@@ -25,6 +25,7 @@ vi.mock("@/lib/db/prisma", () => ({
   prisma: {
     submission: { findMany: vi.fn() },
     scheduleSlot: { findMany: vi.fn() },
+    aiRun: { findFirst: vi.fn() },
   },
 }));
 
@@ -357,7 +358,9 @@ describe("GET /api/lms/weekly-insight", () => {
     expect(json.data.submissionCount).toBe(0);
   });
 
-  it("force=true bypasses cache when teacher hits twice", async () => {
+  it("first force=true bypasses cache and calls AI; 2nd force=true within 60s returns 429 (Unit 11 throttle)", async () => {
+    const { __clearAiThrottleState } = await import("@/lib/services/ai-throttle.service");
+    __clearAiThrottleState();
     mk(requireRole).mockResolvedValue({
       session: { user: { id: "teacher-1", role: "teacher" } },
       error: null,
@@ -372,12 +375,19 @@ describe("GET /api/lms/weekly-insight", () => {
       highlightSummary: "x",
     });
 
-    const req1 = new Request("http://localhost/api/lms/weekly-insight");
-    await weeklyInsightGET(req1 as unknown as Parameters<typeof weeklyInsightGET>[0]);
-    const req2 = new Request("http://localhost/api/lms/weekly-insight?force=true");
-    await weeklyInsightGET(req2 as unknown as Parameters<typeof weeklyInsightGET>[0]);
+    // First force=true call: should bypass cache and call AI
+    const req1 = new Request("http://localhost/api/lms/weekly-insight?force=true");
+    const res1 = await weeklyInsightGET(req1 as unknown as Parameters<typeof weeklyInsightGET>[0]);
+    expect(res1.status).toBe(200);
+    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(1);
 
-    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(2);
+    // 2nd force=true within 60s → 429 throttle
+    const req2 = new Request("http://localhost/api/lms/weekly-insight?force=true");
+    const res2 = await weeklyInsightGET(req2 as unknown as Parameters<typeof weeklyInsightGET>[0]);
+    expect(res2.status).toBe(429);
+    const body2 = await res2.json();
+    expect(body2.error?.code).toBe("AI_FEATURE_COOLDOWN");
+    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(1);
   });
 });
 

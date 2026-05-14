@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import type { Prisma, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { assertAiFeatureCooldown } from "./ai-throttle.service";
 import { aiGenerateJSON } from "./ai.service";
 import { isRiskChapter } from "./analytics-v2.service";
 
@@ -146,6 +147,10 @@ export async function getScopeSimulationInsights(
   const scopeHash = computeScopeHash(scope);
   const now = new Date();
   const cacheCutoff = new Date(now.getTime() - CACHE_TTL_MS);
+
+  if (options?.forceFresh && options.teacherId) {
+    assertAiFeatureCooldown(options.teacherId, "scopeInsights");
+  }
 
   if (!options?.forceFresh) {
     const cached = await prisma.analysisReport.findFirst({
@@ -825,6 +830,10 @@ export async function getScopeTeachingAdvice(
   const scopeHash = computeScopeHash(scope);
   const now = new Date();
   const cacheCutoff = new Date(now.getTime() - CACHE_TTL_MS);
+
+  if (options?.forceFresh && options.teacherId) {
+    assertAiFeatureCooldown(options.teacherId, "scopeTeachingAdvice");
+  }
 
   if (!options?.forceFresh) {
     const cached = await prisma.analysisReport.findFirst({
