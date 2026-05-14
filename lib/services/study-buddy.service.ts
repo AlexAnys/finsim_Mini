@@ -5,6 +5,7 @@ import {
   assertTaskInstanceReadable,
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { getKnowledgeSourcesForStudyBuddy } from "@/lib/services/course-knowledge-source.service";
 
 type UserLike = { id: string; role: string; classId?: string | null };
@@ -224,6 +225,8 @@ export async function listStudyBuddyPosts(
       ...(filters.taskId && { taskId: filters.taskId }),
       ...(filters.taskInstanceId && { taskInstanceId: filters.taskInstanceId }),
       isPreview: Boolean(filters.preview),
+      // Unit 5b: 默认过滤隐藏的 post（hidePost 软删）
+      hiddenAt: null,
       ...(user.role === "student" && { studentId: user.id, isPreview: false }),
       ...(user.role !== "student" && filters.preview && { studentId: user.id }),
     },
@@ -232,6 +235,49 @@ export async function listStudyBuddyPosts(
     },
     orderBy: { createdAt: "desc" },
     take,
+  });
+}
+
+/**
+ * Unit 5b: 软删 Study Buddy post（隐藏）
+ * - 学生：仅能 hide 自己的 post
+ * - 老师：仅能 hide 自己创建的 task 下的 post（Unit 5c 协作上扬不含 SB hide）
+ * - admin：任意
+ * 已 hidden 的 post 重复调用是 idempotent（不写第二条 audit）
+ */
+export async function hideStudyBuddyPost(postId: string, user: UserLike) {
+  const post = await prisma.studyBuddyPost.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      studentId: true,
+      taskId: true,
+      hiddenAt: true,
+      task: { select: { creatorId: true } },
+    },
+  });
+  if (!post) throw new Error("STUDY_BUDDY_POST_NOT_FOUND");
+  if (post.hiddenAt) return; // idempotent
+
+  if (user.role === "student") {
+    if (post.studentId !== user.id) throw new Error("FORBIDDEN");
+  } else if (user.role === "teacher") {
+    if (post.task.creatorId !== user.id) throw new Error("FORBIDDEN");
+  } // admin: pass through
+
+  await prisma.studyBuddyPost.update({
+    where: { id: postId },
+    data: { hiddenAt: new Date(), hiddenBy: user.id },
+  });
+  await logAuditForced({
+    action: "study_buddy_post.hide",
+    actorId: user.id,
+    targetId: postId,
+    targetType: "StudyBuddyPost",
+    metadata: {
+      studentId: post.studentId,
+      byOwner: user.id === post.studentId,
+    },
   });
 }
 

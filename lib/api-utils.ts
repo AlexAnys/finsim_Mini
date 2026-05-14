@@ -161,6 +161,10 @@ export function handleServiceError(err: unknown) {
           "该课程下仍有章节内容，无法删除。请先清空所有章节后再试。",
           400,
         );
+      case "SUBMISSION_NOT_GRADED_YET":
+        return error("SUBMISSION_NOT_GRADED_YET", "该提交尚未批改，无法撤销", 400);
+      case "STUDY_BUDDY_POST_NOT_FOUND":
+        return notFound("Study Buddy 帖子不存在");
       case "TASK_HAS_GRADED_SUBMISSIONS":
         return error(
           "TASK_HAS_GRADED_SUBMISSIONS",

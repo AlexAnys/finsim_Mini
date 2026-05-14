@@ -661,6 +661,9 @@ model StudyBuddyPost {
   aiReply          String?          @db.Text
   replyGeneratedAt DateTime?
   messages         Json?
+  // Unit 5b: 软删字段 — hidePost 设置 hiddenAt / hiddenBy；list 默认过滤 hiddenAt: null
+  hiddenAt         DateTime?
+  hiddenBy         String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -672,6 +675,7 @@ model StudyBuddyPost {
   @@index([taskId])
   @@index([taskInstanceId])
   @@index([isPreview])
+  @@index([hiddenAt])
 }
 
 // ============================================

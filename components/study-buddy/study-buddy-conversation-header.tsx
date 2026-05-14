@@ -4,11 +4,15 @@
 // - 顶行：课程 tag（mono 软底）+ 任务名 + 模式 chip + 匿名 chip
 // - 标题：18px 加粗（mockup）
 
+import { Trash2 } from "lucide-react";
 import type { StudyBuddyPostRow } from "@/lib/utils/study-buddy-transforms";
 import { courseColorForId } from "@/lib/design/tokens";
 
 interface StudyBuddyConversationHeaderProps {
   post: StudyBuddyPostRow;
+  // Unit 5b: 软删 — 学生删自己 / 老师删自己 task 下的（本组件用于学生场景）
+  onDelete?: (id: string, title: string) => void;
+  deleting?: boolean;
 }
 
 const TAG_CLASS_MAP: Record<string, string> = {
@@ -22,6 +26,8 @@ const TAG_CLASS_MAP: Record<string, string> = {
 
 export function StudyBuddyConversationHeader({
   post,
+  onDelete,
+  deleting = false,
 }: StudyBuddyConversationHeaderProps) {
   const courseSeed = post.courseId ?? post.taskId;
   const tagKey = courseColorForId(courseSeed);
@@ -59,9 +65,23 @@ export function StudyBuddyConversationHeader({
           </span>
         )}
       </div>
-      <h2 className="text-[18px] font-bold leading-snug tracking-[-0.005em] text-ink">
-        {post.title}
-      </h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-[18px] font-bold leading-snug tracking-[-0.005em] text-ink">
+          {post.title}
+        </h2>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete(post.id, post.title)}
+            disabled={deleting}
+            className="shrink-0 rounded-md p-1.5 text-ink-5 hover:bg-paper-alt hover:text-destructive disabled:opacity-50"
+            aria-label="删除问题"
+            title="删除问题（不可恢复）"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        )}
+      </div>
     </header>
   );
 }

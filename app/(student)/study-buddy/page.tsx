@@ -14,6 +14,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { StudyBuddyList } from "@/components/study-buddy/study-buddy-list";
 import { StudyBuddyConversation } from "@/components/study-buddy/study-buddy-conversation";
@@ -48,6 +58,9 @@ export default function StudyBuddyPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Unit 5b: 删除（隐藏）post confirm
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
   // Composer state
   const [followUpInput, setFollowUpInput] = useState("");
@@ -317,6 +330,31 @@ export default function StudyBuddyPage() {
 
   // 整页用全宽容器破出 layout 的 p-6，撑满可用区域
   // 视高公式：viewport - topbar(56px) - layout p-6 上下 (24+24=48px) = 100vh - 6.5rem
+  async function handleConfirmedDeletePost() {
+    if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    setDeletingPostId(targetId);
+    try {
+      const res = await fetch(`/api/study-buddy/posts/${targetId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("已删除");
+      // 从本地 raw 列表过滤掉
+      setRawPosts((prev) => prev.filter((p) => p.id !== targetId));
+      if (selectedId === targetId) setSelectedId(null);
+      setDeleteTarget(null);
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setDeletingPostId(null);
+    }
+  }
+
   // 留 0.5rem 余量，最终 calc(100vh - 7rem)；mobile 走 stack 流式（无固定高度）
   return (
     <div className="-mx-6 -my-6 flex flex-col bg-paper lg:h-[calc(100vh-3rem)] lg:flex-row lg:overflow-hidden">
@@ -334,6 +372,8 @@ export default function StudyBuddyPage() {
         onSendFollowUp={handleSendFollowUp}
         isSendingFollowUp={isSending}
         onCreateNew={() => setShowNewDialog(true)}
+        onDelete={(id, title) => setDeleteTarget({ id, title })}
+        deletingPostId={deletingPostId}
       />
       <StudyBuddyNewPostDialog
         open={showNewDialog}
@@ -352,6 +392,40 @@ export default function StudyBuddyPage() {
         onSelectedTaskInstanceIdChange={setNewTaskInstanceId}
         onSubmit={handleCreatePost}
       />
+
+      {/* Unit 5b: 删除问题 confirm dialog */}
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingPostId) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除问题</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认删除「{deleteTarget?.title}」？删除后将无法在你的提问列表中看到，但老师管理界面仍可查询。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingPostId}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmedDeletePost}
+              disabled={!!deletingPostId}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingPostId ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

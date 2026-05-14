@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
 import { assertSubmissionReadable } from "@/lib/auth/resource-access";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { clampPage, clampTake } from "@/lib/pagination";
 
 type UserLike = { id: string; role: string; classId?: string | null };
@@ -325,6 +326,47 @@ export async function resetSubmissionForRetry(submissionId: string) {
     }
 
     return submission;
+  });
+}
+
+/**
+ * Unit 5b: 撤销批改（graded -> submitted）
+ * - 仅 graded submission 可被撤销，否则 SUBMISSION_NOT_GRADED_YET
+ * - 清 score / maxScore / gradedAt / releasedAt
+ * - **保留** evaluation + conceptTags（与 resetSubmissionForRetry 不同 — 老师参考价值）
+ * - audit log submission.ungrade
+ */
+export async function ungradeSubmission(submissionId: string, actorId: string) {
+  const existing = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    select: { id: true, status: true, taskId: true, taskInstanceId: true, studentId: true },
+  });
+  if (!existing) throw new Error("SUBMISSION_NOT_FOUND");
+  if (existing.status !== "graded") {
+    throw new Error("SUBMISSION_NOT_GRADED_YET");
+  }
+
+  await prisma.submission.update({
+    where: { id: submissionId },
+    data: {
+      status: "submitted",
+      score: null,
+      maxScore: null,
+      gradedAt: null,
+      releasedAt: null,
+    },
+  });
+
+  await logAuditForced({
+    action: "submission.ungrade",
+    actorId,
+    targetId: submissionId,
+    targetType: "Submission",
+    metadata: {
+      studentId: existing.studentId,
+      taskInstanceId: existing.taskInstanceId,
+      previousStatus: "graded",
+    },
   });
 }
 
