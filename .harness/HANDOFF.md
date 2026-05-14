@@ -2,6 +2,72 @@
 
 > 会话结束前由 coordinator 更新本文件。新会话启动时 SessionStart hook 自动显示。
 
+## 🚢 Batch 2 完工 — PR #9 已开（2026-05-13 · ~30min · 9 commits · 0 r3）
+
+**分支**：`claude-fix-batch2-all` @ `f6ad3a2`（在 `claude-fix-batch2-all` worktree = 主 worktree），base **临时 `claude-fix-batch1-all`** ← 等 PR #8 merge 后切 main
+**team**：`project-review`（6 batch 2 agent 全 shutdown）
+**Worktree**：3 个 batch 2 worktree 已 remove，分支保留在 git origin
+
+### 总览（两个 PR 流水）
+
+| 阶段 | PR | 分支 | Commits | 时间 |
+|---|---|---|---|---|
+| Review | — | `claude-fix-mimo-reasoning-param` (read-only) | — | ~30 min |
+| Batch 1（5 🔴） | **#8** https://github.com/AlexAnys/finsim_Mini/pull/8 | `claude-fix-batch1-all` | 8 commits | ~60 min |
+| Batch 2（6 🟡） | **#9** https://github.com/AlexAnys/finsim_Mini/pull/9 | `claude-fix-batch2-all` | 9 commits | ~40 min |
+| **总计** | 2 PR | | 17 commits | ~2h 10min |
+
+### Batch 2 6 fix 收尾（user 视角）
+
+| Fix | 用户感受变化 | Commit |
+|---|---|---|
+| 6 评分失败学生提示 | sim/subjective AI 失败不再默默 0 分，显示中文「AI 批改暂未完成」+ 失败原因 banner | `07a390b` + `1ce6bec` (r1 FAIL → r2 PASS) |
+| 7 错误页 CTA | 学生贴错 task / sim 链接显示中文返回按钮；(simulation) layout 加 server-side auth guard | `7502896` |
+| 8 大纲/题库拆 + 进度 + 重试 | 「上传题库」独立按钮、syllabus 处理显示阶段文字、AI 失败显示「重新解析」按钮 | `dbcfe67` + `6f57ae0` |
+| 9 8 错误码补中文 | MISSING_SIMULATION_DATA / NO_POSTS_TO_SUMMARIZE / 等 8 个错误码不再显示「服务器内部错误」 | `e526d1c` |
+| 10 cron sweeper | Node 重启后 stuck async-job 自动捡起，row-level lock 防并发重复 | `56c08f8` |
+| 11 完成率 tooltip | dashboard vs analytics-v2 完成率口径 hover tooltip 说明（数字不改） | `f87bb30` |
+
+### 集成 QA
+
+- tsc 0 error / vitest **966/966**（batch 1 922 + batch 2 44 new cases）
+- batch 2 改动文件 lint **0 error / 0 warning**
+- Anti-regression 全过：batch 1 5 fix + MiMo reasoning(da9a505) 全保留
+
+### Worktree 时序
+
+- **Z error-data-polish**: 7502896 → e526d1c → f87bb30（Fix 7 + 9 + 11，r1 三连 PASS）
+- **Y outline-input**: dbcfe67 → 6f57ae0（Fix 8 主 + state reset follow-up，r1 PASS）
+- **X grading-async**: 07a390b → 56c08f8 → 1ce6bec（Fix 6 r1 → Fix 10 r1 PASS → Fix 6 r2 PASS）
+
+### Dynamic exit 复盘
+
+- Batch 1: Fix 3 r1 FAIL（QA 误报 2 条 + MiMo API regression 1 条）→ r2 PASS-W-ESC（性能未达）→ r3 PASS（fetch interceptor）；其余 4 fix r1 直接 PASS
+- Batch 2: Fix 6 r1 FAIL（grades-transforms 读错字段）→ r2 PASS；其余 5 fix r1 直接 PASS
+- 共 11 fix，仅 2 个走到 r2/r3，平均 r1 PASS 率 = 9/11 = 82%
+
+### 唯一 known issue（不在 PR 范围）
+
+Pre-existing pdfjs-dist webpack ESM bundling bug — dev mode only，生产 Docker build 不受影响。建议未来独立 PR：升级 `pdf-parse` 或加 `serverExternalPackages: ["pdf-parse","pdfjs-dist"]`。
+
+### 给下次会话的下一步选项
+
+1. **用户 merge PR #8 + PR #9** → 我把 batch1-all/batch2-all 分支 git push origin --delete 清理 + 主 worktree 切回 main + 切回 `claude-fix-mimo-reasoning-param` 或 `main` 完成会话
+2. **用户希望 squash 某 PR commits**（如 Fix 6 r1+r2 合一）→ 我 rebase -i squash 后 force-push
+3. **用户要单独修某个 fix**（PR review 反馈）→ 起对应 builder/qa 单 fix worktree
+4. **启动其他 review 角度**（如 sim 角色对话质量、weeklyInsight 真实生成内容、UI 中文化彻底度、performance profile）→ 复用现有 Playwright 脚手架
+
+### 资源现状
+
+- 3 worktree（batch1 + batch2）已 remove，分支 claude-fix-batch{1,2}-* + claude-fix-batch{1,2}-all 保留 git
+- Dev server 已停
+- Playwright + chromium 装好（缓存 ~/Library/Caches/ms-playwright）
+- Tests/e2e/ 脚手架 + playwright.review.config.ts + playwright.qa-fix-3.config.ts 留主 worktree 工作目录（不 commit）
+- 30+ review screenshots 留 `.harness/screenshots/review-2026-05-13/`
+- agent_docs/ 2 个 untracked docs（跟 batch 不相关）
+
+---
+
 ## 🔍 全项目 Review 完成（2026-05-13 · ~30min · 0 commits · read-only）
 
 **分支**：`claude-fix-mimo-reasoning-param`（继续 da9a505 MiMo 修复之后，未 push 新 commit）
