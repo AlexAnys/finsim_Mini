@@ -428,17 +428,19 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
 
     if (source.sourceType === "syllabus") {
       // M1 (PR #11) · Molly 案例：outline AI 调用因 JSON 截断（默认 8192 token）失败。
-      // 策略：先 16384 token + 完整 schema 尝试一次（带 1 次内部 retry）；若仍失败，
-      // 切到 compact prompt（更短素材 + 精简 schema 描述）再试一次。
-      try {
-        structuredData = await aiGenerateJSON(
+      // 策略：先 16384 token + 完整 schema 尝试一次（带 1 次内部 retry）；若仍失败 / 解
+      // 出空目录（chapters.length === 0），切到 compact prompt（更短素材 + 精简 schema）
+      // 再试一次。两次都拿不到非空 outline → 写 aiError → 标 ai_summary_failed，避免
+      // "ready 但目录为空"的中间状态欺骗老师。
+      const runOutlineAi = (compact: boolean, parserTag: string) =>
+        aiGenerateJSON(
           "taskDraft",
           userId,
           "你是一位中高职课程负责人。请只生成可供教师审核的课程目录草稿，不要直接写入系统。",
           buildOutlinePrompt({
             fileName: source.fileName,
             extractedText,
-            compact: false,
+            compact,
           }),
           outlineDraftSchema,
           1,
@@ -449,35 +451,50 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
               sourceId,
               sourceType: source.sourceType,
               courseId: source.courseId,
-              parser: "syllabus-outline",
+              parser: parserTag,
             },
           },
         );
+
+      let firstError: unknown = null;
+      let firstOutline: z.infer<typeof outlineDraftSchema> | null = null;
+      try {
+        firstOutline = await runOutlineAi(false, "syllabus-outline");
       } catch (err) {
-        // M1 · 结构化重试：用更短素材 + 精简 prompt 再发一次。仍失败再写 aiError。
+        firstError = err;
+      }
+
+      // M1 r2 · ready+empty edge case：partial parse 后 schema.parse 把缺字段填成
+      // `.default([])`，结果 chapters.length===0 但 aiGenerateJSON 不会 throw。老师
+      // 会拿到一个 ready 的空目录。这里显式当作失败，触发 compact retry。
+      const firstChapterCount =
+        firstOutline && Array.isArray(firstOutline.chapters)
+          ? firstOutline.chapters.length
+          : 0;
+
+      if (firstOutline && firstChapterCount > 0) {
+        structuredData = firstOutline;
+      } else {
         try {
-          structuredData = await aiGenerateJSON(
-            "taskDraft",
-            userId,
-            "你是一位中高职课程负责人。请只生成可供教师审核的课程目录草稿，不要直接写入系统。",
-            buildOutlinePrompt({
-              fileName: source.fileName,
-              extractedText,
-              compact: true,
-            }),
-            outlineDraftSchema,
-            1,
-            {
-              settingsUserId: userId,
-              maxOutputTokens: 16384,
-              metadata: {
-                sourceId,
-                sourceType: source.sourceType,
-                courseId: source.courseId,
-                parser: "syllabus-outline-compact-retry",
-              },
-            },
-          );
+          const retried = await runOutlineAi(true, "syllabus-outline-compact-retry");
+          const retriedChapterCount = Array.isArray(retried?.chapters)
+            ? retried.chapters.length
+            : 0;
+          if (retriedChapterCount > 0) {
+            structuredData = retried;
+          } else {
+            // compact retry 也回来空目录 → 这条素材 LLM 当前能力下解析不出结构，
+            // 标 ai_summary_failed 让老师走「重新 AI 解析」或换素材，不要把空目录
+            // 当成功 commit 到 DB。
+            aiError = [
+              aiError,
+              firstError
+                ? `课程大纲解析暂不可用：${errorMessage(firstError)}`
+                : "课程大纲解析暂不可用：AI 未能从素材中提取出章节结构，请检查素材内容或重试。",
+            ]
+              .filter(Boolean)
+              .join("；");
+          }
         } catch (retryErr) {
           aiError = [aiError, `课程大纲解析暂不可用：${errorMessage(retryErr)}`]
             .filter(Boolean)

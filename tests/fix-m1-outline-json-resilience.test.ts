@@ -281,7 +281,16 @@ describe("M1 · processCourseKnowledgeSource (syllabus) — JSON resilience", ()
         skillObjectives: [],
         valueObjectives: [],
         assessmentRequirements: [],
-        chapters: [],
+        chapters: [
+          {
+            title: "第一章",
+            order: 0,
+            learningGoals: [],
+            knowledgeObjectives: [],
+            skillObjectives: [],
+            sections: [],
+          },
+        ],
         globalKnowledgePoints: [],
         notes: "",
       });
@@ -293,5 +302,114 @@ describe("M1 · processCourseKnowledgeSource (syllabus) — JSON resilience", ()
     const options = outlineCall[6];
     expect(options.maxOutputTokens).toBe(16384);
     expect(options.metadata.parser).toBe("syllabus-outline");
+  });
+
+  // ============================================
+  // M1 r2 · ready+empty edge case guard
+  // ============================================
+
+  it("M1 r2 · 第一次 outline 解出 chapters=[] → 不直接 ready，走 compact retry", async () => {
+    const summaryResult = { summary: "", conceptTags: [] };
+    const emptyOutline = {
+      courseGoals: [],
+      knowledgeObjectives: [],
+      skillObjectives: [],
+      valueObjectives: [],
+      assessmentRequirements: [],
+      chapters: [], // ← partial parse 修复后字段 default 空数组的危险路径
+      globalKnowledgePoints: [],
+      notes: "",
+    };
+    const validRetryOutline = {
+      courseGoals: ["精简目标"],
+      knowledgeObjectives: [],
+      skillObjectives: [],
+      valueObjectives: [],
+      assessmentRequirements: [],
+      chapters: [
+        {
+          title: "第一章",
+          order: 0,
+          learningGoals: [],
+          knowledgeObjectives: [],
+          skillObjectives: [],
+          sections: [],
+        },
+      ],
+      globalKnowledgePoints: [],
+      notes: "",
+    };
+
+    mk(aiGenerateJSON)
+      .mockResolvedValueOnce(summaryResult)
+      .mockResolvedValueOnce(emptyOutline) // 第一次 ok 但 chapters 空
+      .mockResolvedValueOnce(validRetryOutline); // compact retry 才补上
+
+    await processCourseKnowledgeSource("src-1", "user-1");
+
+    // 必须走 compact retry，不能直接信任空目录
+    expect(aiGenerateJSON).toHaveBeenCalledTimes(3);
+    const retryCall = mk(aiGenerateJSON).mock.calls[2];
+    expect(retryCall[6].metadata.parser).toBe("syllabus-outline-compact-retry");
+
+    const updateCalls = mk(prisma.courseKnowledgeSource.update).mock.calls;
+    const finalUpdate = updateCalls[updateCalls.length - 1][0];
+    expect(finalUpdate.data.status).toBe("ready");
+    // 落盘 structuredData 一定是 retry 的非空版本
+    expect(finalUpdate.data.structuredData).toBe(validRetryOutline);
+  });
+
+  it("M1 r2 · 两次都解出 chapters=[] → ai_summary_failed + 中文 error（不让老师看到空目录的 ready）", async () => {
+    const emptyOutline = {
+      courseGoals: [],
+      knowledgeObjectives: [],
+      skillObjectives: [],
+      valueObjectives: [],
+      assessmentRequirements: [],
+      chapters: [],
+      globalKnowledgePoints: [],
+      notes: "",
+    };
+
+    mk(aiGenerateJSON)
+      .mockResolvedValueOnce({ summary: "", conceptTags: [] })
+      .mockResolvedValueOnce(emptyOutline)
+      .mockResolvedValueOnce(emptyOutline); // compact retry 也空
+
+    await processCourseKnowledgeSource("src-1", "user-1");
+
+    const updateCalls = mk(prisma.courseKnowledgeSource.update).mock.calls;
+    const finalUpdate = updateCalls[updateCalls.length - 1][0];
+    expect(finalUpdate.data.status).toBe("ai_summary_failed");
+    expect(finalUpdate.data.error).toContain("课程大纲解析暂不可用");
+    // 中文兜底文案：当第一次没 throw 而是空数组时，error 用静态文案
+    expect(finalUpdate.data.error).toContain("AI 未能");
+  });
+
+  it("M1 r2 · 第一次 throw + compact retry 解出空 → ai_summary_failed", async () => {
+    const emptyOutline = {
+      courseGoals: [],
+      knowledgeObjectives: [],
+      skillObjectives: [],
+      valueObjectives: [],
+      assessmentRequirements: [],
+      chapters: [],
+      globalKnowledgePoints: [],
+      notes: "",
+    };
+
+    mk(aiGenerateJSON)
+      .mockResolvedValueOnce({ summary: "", conceptTags: [] })
+      .mockRejectedValueOnce(new SyntaxError("Expected ',' or ']' after array element"))
+      .mockResolvedValueOnce(emptyOutline);
+
+    await processCourseKnowledgeSource("src-1", "user-1");
+
+    const updateCalls = mk(prisma.courseKnowledgeSource.update).mock.calls;
+    const finalUpdate = updateCalls[updateCalls.length - 1][0];
+    expect(finalUpdate.data.status).toBe("ai_summary_failed");
+    // 第一次 SyntaxError 的真实 message 会被 forwarded（不是静态文案）
+    expect(finalUpdate.data.error).toContain("课程大纲解析暂不可用");
+    expect(finalUpdate.data.error).toContain("Expected");
   });
 });
