@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { QuizRunner } from "@/components/quiz/quiz-runner";
+import { QuizAdaptiveRunner } from "@/components/quiz/quiz-adaptive-runner";
 import { SubjectiveRunner } from "@/components/subjective/subjective-runner";
 import { NotFoundState, ForbiddenState } from "@/components/states";
 
@@ -125,17 +126,30 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean, userId: 
   }
 
   if (task.taskType === "quiz" && task.quizConfig) {
+    // Unit 8: adaptive 模式走专用 runner（动态拉题 + 末尾雷达图）
+    if (task.quizConfig.mode === "adaptive") {
+      return (
+        <QuizAdaptiveRunner
+          taskId={task.id}
+          taskInstanceId={instance.id}
+          userId={userId}
+          taskName={instance.title || task.taskName}
+          taskSubtitle="测验 · 自适应"
+          isPreview={isPreview}
+        />
+      );
+    }
     return (
       <QuizRunner
         taskId={task.id}
         taskInstanceId={instance.id}
         userId={userId}
         taskName={instance.title || task.taskName}
-        taskSubtitle={`测验 · ${task.quizConfig.mode === "adaptive" ? "练习模式" : "考试模式"}`}
+        taskSubtitle={`测验 · 考试模式`}
         isPreview={isPreview}
         taskConfig={{
           timeLimit: task.quizConfig.timeLimitMinutes,
-          mode: task.quizConfig.mode === "adaptive" ? "practice" : "exam",
+          mode: "exam",
           shuffleQuestions: false,
           showResult: task.quizConfig.showCorrectAnswer,
           questions: task.quizQuestions
