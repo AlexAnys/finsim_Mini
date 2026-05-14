@@ -150,6 +150,7 @@ enum TaskBuildDraftStatus {
   queued
   processing
   ready
+  approved
   failed
   published
 }
@@ -954,6 +955,10 @@ model TaskBuildDraft {
   asyncJobId    String?              @db.VarChar(120)
   missingFields String[]             @default([])
   draftPayload  Json?
+  aiPayload     Json?
+  editedPayload Json?
+  approvedAt    DateTime?
+  approvedBy    String?
   error         String?              @db.Text
   createdBy     String
   createdAt     DateTime             @default(now())
