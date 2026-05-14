@@ -270,12 +270,35 @@ export default function StudentTaskPage() {
   }
 
   if (error) {
+    // Unit 3: 区分 3 种 Forbidden case 给具体文案
+    if (error.code === "TASK_INSTANCE_DRAFT_NOT_VISIBLE") {
+      return (
+        <ForbiddenState
+          title="任务尚未开放"
+          description="教师还没有发布这个任务，等教师发布后再来作答。"
+          primaryAction={{ label: "返回作业列表", href: "/tasks" }}
+          secondaryAction={{ label: "查看课程", href: "/courses" }}
+          fullPage={false}
+        />
+      );
+    }
+    if (error.code === "TASK_INSTANCE_CLOSED_NO_SUBMISSION") {
+      return (
+        <ForbiddenState
+          title="任务已结束"
+          description="这个任务已经关闭，且你之前没有提交过作答。"
+          primaryAction={{ label: "返回作业列表", href: "/tasks" }}
+          secondaryAction={{ label: "查看课程", href: "/courses" }}
+          fullPage={false}
+        />
+      );
+    }
     if (error.code === "FORBIDDEN") {
       return (
         <ForbiddenState
-          title="你还不能进入这个任务"
-          description={error.message || "这个任务可能不属于你所在的班级。"}
-          primaryAction={{ label: "返回作业列表", href: "/dashboard" }}
+          title="你不在该任务班级"
+          description="这个任务不属于你所在的班级。如有疑问，请联系任课教师。"
+          primaryAction={{ label: "返回作业列表", href: "/tasks" }}
           secondaryAction={{ label: "查看课程", href: "/courses" }}
           fullPage={false}
         />
@@ -285,7 +308,7 @@ export default function StudentTaskPage() {
       <NotFoundState
         title="任务不存在"
         description={error.message || "你访问的任务实例不存在或已被删除。"}
-        primaryAction={{ label: "返回作业列表", href: "/dashboard" }}
+        primaryAction={{ label: "返回作业列表", href: "/tasks" }}
         secondaryAction={{ label: "查看课程", href: "/courses" }}
         fullPage={false}
       />
@@ -307,6 +330,20 @@ export default function StudentTaskPage() {
         <ChevronRight className="size-4" />
         <span className="text-foreground">{instance.title || instance.task.taskName}</span>
       </div>
+
+      {/* Unit 3: 已关闭实例 - 只读提示横幅 */}
+      {instance.status === "closed" && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="font-medium">任务已结束 · 只读模式</div>
+          <div className="mt-1 text-amber-700">
+            这个任务已关闭，不能再提交新的作答。你可以在此回看题目，或前往
+            <Link href="/grades" className="ml-1 font-medium underline hover:text-amber-900">
+              「我的成绩」
+            </Link>
+            查看你之前的提交与评分。
+          </div>
+        </div>
+      )}
 
       {/* Task Header */}
       <Card>

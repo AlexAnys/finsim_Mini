@@ -29,6 +29,10 @@ export interface PriorityTask {
   studentStatus: "todo" | "submitted" | "grading" | "graded" | "failed" | "overdue";
   attemptsUsed?: number | null;
   questionCount?: number | null;
+  /** Unit 3: 关联 instance.status，graded + closed 时 [结果] 按钮跳 grades?focus= */
+  instanceStatus?: "published" | "closed" | "draft" | "archived" | null;
+  /** Unit 3: 最近一次提交 ID，graded + closed 状态下用作 grades 页 focus 参数 */
+  latestSubmissionId?: string | null;
 }
 
 interface PriorityTasksProps {
@@ -85,6 +89,14 @@ const FILTERS = [
 type TaskFilter = (typeof FILTERS)[number]["key"];
 
 function taskHref(task: PriorityTask): string {
+  // Unit 3: closed 实例 + 已批改 → 进 /grades 直接 focus 到这条提交
+  if (
+    task.instanceStatus === "closed" &&
+    task.studentStatus === "graded" &&
+    task.latestSubmissionId
+  ) {
+    return `/grades?focus=${task.latestSubmissionId}`;
+  }
   return task.taskType === "simulation"
     ? `/sim/${task.id}`
     : `/tasks/${task.id}`;

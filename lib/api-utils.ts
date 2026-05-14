@@ -139,6 +139,10 @@ export function handleServiceError(err: unknown) {
         return error("TASK_INSTANCE_NOT_CLOSEABLE", "只有已发布的实例可以关闭", 400);
       case "INSTANCE_HAS_SUBMISSIONS":
         return error("INSTANCE_HAS_SUBMISSIONS", "该实例已有学生提交，无法删除", 400);
+      case "TASK_INSTANCE_DRAFT_NOT_VISIBLE":
+        return error("TASK_INSTANCE_DRAFT_NOT_VISIBLE", "任务尚未开放", 403);
+      case "TASK_INSTANCE_CLOSED_NO_SUBMISSION":
+        return error("TASK_INSTANCE_CLOSED_NO_SUBMISSION", "任务已结束，且未提交过作答", 403);
       case "RATE_LIMIT_EXCEEDED":
         return NextResponse.json(
           { success: false, error: { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" } },

@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   CalendarDays,
+  ListChecks,
   Users,
   Search,
   Settings2,
@@ -37,6 +38,7 @@ interface NavItem {
 
 const studentNav: NavItem[] = [
   { label: "仪表盘", href: "/dashboard", icon: LayoutDashboard },
+  { label: "任务中心", href: "/tasks", icon: ListChecks },
   { label: "我的课程", href: "/courses", icon: BookOpen },
   { label: "我的成绩", href: "/grades", icon: Trophy },
   { label: "课表管理", href: "/schedule", icon: CalendarDays },

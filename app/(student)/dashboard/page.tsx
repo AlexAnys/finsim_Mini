@@ -286,6 +286,14 @@ export default function StudentDashboardPage() {
             ? t.studentStatus
             : "todo",
         questionCount: null,
+        instanceStatus:
+          t.status === "published" ||
+          t.status === "closed" ||
+          t.status === "draft" ||
+          t.status === "archived"
+            ? t.status
+            : null,
+        latestSubmissionId: (t.latestSubmissionId as string | null) ?? null,
       }));
   }, [data]);
 

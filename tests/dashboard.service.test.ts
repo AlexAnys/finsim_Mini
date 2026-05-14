@@ -28,8 +28,33 @@ describe("getStudentDashboard", () => {
     await getStudentDashboard("student-1", "class-A");
 
     const call = (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.where).toEqual({ classId: "class-A", status: "published" });
+    // Unit 3: 拉 published + closed，但 closed 后续会按"我有 submission"过滤
+    expect(call.where).toEqual({
+      classId: "class-A",
+      status: { in: ["published", "closed"] },
+    });
     expect(call.where.OR).toBeUndefined();
+  });
+
+  it("Unit 3: closed instance with my submission is kept; closed without is dropped", async () => {
+    const now = new Date();
+    const past = new Date(now.getTime() - 24 * 3600 * 1000);
+    (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "ti-pub", classId: "class-A", status: "published", dueAt: past, attemptsAllowed: null, task: {}, course: {} },
+      { id: "ti-closed-mine", classId: "class-A", status: "closed", dueAt: past, attemptsAllowed: null, task: {}, course: {} },
+      { id: "ti-closed-other", classId: "class-A", status: "closed", dueAt: past, attemptsAllowed: null, task: {}, course: {} },
+    ]);
+    (prisma.submission.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "sub-1", taskId: "t1", taskInstanceId: "ti-closed-mine", status: "graded", score: 80, maxScore: 100, submittedAt: past, gradedAt: past, releasedAt: past },
+    ]);
+
+    const result = await getStudentDashboard("student-1", "class-A");
+    const ids = result.tasks.map((t) => t.id);
+    expect(ids).toContain("ti-pub");
+    expect(ids).toContain("ti-closed-mine");
+    expect(ids).not.toContain("ti-closed-other");
+    const mine = result.tasks.find((t) => t.id === "ti-closed-mine");
+    expect(mine?.latestSubmissionId).toBe("sub-1");
   });
 
   it("does not leak tasks assigned to other classes of the same course", async () => {
