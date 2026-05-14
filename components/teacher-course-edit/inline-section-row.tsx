@@ -109,15 +109,19 @@ const DRAFT_STATUS_LABEL: Record<string, string> = {
   queued: "排队中",
   processing: "生成中",
   ready: "待审核",
+  approved: "已批准",
   failed: "失败",
+  published: "已发布",
 };
 
 const DRAFT_STATUS_CLASS: Record<string, string> = {
   draft: "border-line bg-paper-alt text-ink-3",
   queued: "border-brand/20 bg-brand-soft text-brand",
   processing: "border-brand/20 bg-brand-soft text-brand",
-  ready: "border-success/20 bg-success/10 text-success",
+  ready: "border-warn/30 bg-warn/10 text-warn",
+  approved: "border-success/20 bg-success/10 text-success",
   failed: "border-danger/20 bg-danger/10 text-danger",
+  published: "border-success/20 bg-success/10 text-success",
 };
 
 // ---------- Types ----------
@@ -559,6 +563,14 @@ export function InlineSectionRow({
                           )}
                         </button>
                         <div className="mt-1 flex items-center justify-end gap-1 border-t border-current/10 pt-1">
+                          {(draft.status === "ready" || draft.status === "approved") && (
+                            <Link
+                              href={`/teacher/tasks/drafts/${draft.id}`}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-medium hover:bg-white/70"
+                            >
+                              {draft.status === "ready" ? "审核" : "查看对照"}
+                            </Link>
+                          )}
                           {job?.status === "failed" && (
                             <button
                               type="button"
