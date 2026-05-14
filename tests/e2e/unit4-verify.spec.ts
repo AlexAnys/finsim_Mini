@@ -153,8 +153,104 @@ test.describe.serial("Unit 4 commit-1: 高危拦截 + 复制为新任务", () =>
     await page.getByRole("button", { name: /直接保存/ }).click();
     await page.waitForTimeout(2000);
     console.log("second PATCH body:", secondPatchBody);
-    if (secondPatchBody) {
-      expect(secondPatchBody).toContain('"force":true');
+    const body = secondPatchBody as string | null;
+    if (body) {
+      expect(body).toContain('"force":true');
     }
+  });
+});
+
+test.describe.serial("Unit 4 commit-2: 编辑模式 UI 扩 (quiz + scoring)", () => {
+  test("G: 编辑模式可见 quiz 题目编辑控件 + scoring 编辑控件", async ({ page }) => {
+    await loginMolly(page);
+    await page.goto(`${BASE}/teacher/tasks/${TASK_NO_SUB}`);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(1500);
+
+    await page.getByRole("button", { name: /编辑/ }).first().click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SS}/07-edit-mode.png`, fullPage: true });
+
+    // 编辑模式：quiz 题目"添加题目"按钮可见
+    await expect(page.getByRole("button", { name: /添加题目/ })).toBeVisible();
+    // scoring 添加标准按钮可见
+    await expect(page.getByRole("button", { name: /添加标准/ })).toBeVisible();
+    // quiz 配置 — 模式 select 可见
+    const modeSelect = page.locator('select, [role="combobox"]').first();
+    await expect(modeSelect).toBeVisible();
+  });
+
+  test("H: 添加 quiz 题目 → 保存 → 重新加载题目数 +1（基线 task NO_SUB）", async ({ page }) => {
+    await loginMolly(page);
+    await page.goto(`${BASE}/teacher/tasks/${TASK_NO_SUB}`);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
+
+    // 当前题目数（从 page 抓）
+    const titleBefore = await page.getByText(/题目列表/).first().innerText();
+    const matchBefore = titleBefore.match(/题目列表（(\d+) 题）/);
+    const before = matchBefore ? parseInt(matchBefore[1], 10) : 0;
+    console.log("quiz questions before:", before);
+
+    await page.getByRole("button", { name: /编辑/ }).first().click();
+    await page.waitForTimeout(500);
+
+    // 点添加题目
+    await page.getByRole("button", { name: /添加题目/ }).click();
+    await page.waitForTimeout(300);
+
+    // 填写新题（找最后一个 textarea-rows-2 为题干输入）
+    const promptInputs = page.locator('textarea[placeholder*="题题干"]');
+    const promptCount = await promptInputs.count();
+    if (promptCount > 0) {
+      await promptInputs.last().fill("Unit 4 测试题：1+1=?");
+    }
+
+    // 保存
+    await page.getByRole("button", { name: /保存/ }).first().click();
+    await page.waitForTimeout(3500);
+    await page.screenshot({ path: `${SS}/08-after-add-question.png`, fullPage: true });
+
+    // 重新加载后题目数 +1
+    const titleAfter = await page.getByText(/题目列表/).first().innerText();
+    const matchAfter = titleAfter.match(/题目列表（(\d+) 题）/);
+    const after = matchAfter ? parseInt(matchAfter[1], 10) : 0;
+    console.log("quiz questions after:", after);
+    expect(after).toBe(before + 1);
+
+    // 测后清理：直接通过 API 把新增题目删掉 + 把题目数恢复
+    // 取所有 quiz questions，过滤出我们刚加的（prompt 含 Unit 4），重发不含它的 PATCH
+    const detailRes = await page.request.get(`${BASE}/api/tasks/${TASK_NO_SUB}`);
+    const detailJson = await detailRes.json();
+    interface DbQ {
+      id: string;
+      type: string;
+      prompt: string;
+      options: Array<{ id: string; text: string }> | null;
+      correctOptionIds: string[];
+      correctAnswer: string | null;
+      points: number;
+      explanation: string | null;
+      order: number;
+    }
+    const originalQs = (detailJson.data.quizQuestions as DbQ[]).filter(
+      (q) => !q.prompt.includes("Unit 4 测试题"),
+    );
+    const cleanRes = await page.request.patch(`${BASE}/api/tasks/${TASK_NO_SUB}`, {
+      data: {
+        quizQuestions: originalQs.map((q, idx) => ({
+          type: q.type,
+          prompt: q.prompt,
+          options: q.options ?? undefined,
+          correctOptionIds: q.correctOptionIds,
+          correctAnswer: q.correctAnswer ?? undefined,
+          points: q.points,
+          explanation: q.explanation ?? undefined,
+          order: idx,
+        })),
+      },
+    });
+    const cleanJson = await cleanRes.json();
+    expect(cleanJson.success).toBe(true);
   });
 });
