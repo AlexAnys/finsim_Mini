@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
+import { getCourseActorRole } from "@/lib/auth/actor-role";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { handleServiceError, notFound, success } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 
@@ -48,7 +50,7 @@ export async function GET(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const result = await requireRole(["teacher", "admin"]);
@@ -58,14 +60,46 @@ export async function DELETE(
     const { id } = await params;
     const source = await prisma.courseKnowledgeSource.findUnique({
       where: { id },
-      select: { id: true, courseId: true },
+      select: {
+        id: true,
+        courseId: true,
+        teacherId: true,
+        fileName: true,
+      },
     });
     if (!source) return notFound("上下文素材不存在");
 
     const user = result.session.user;
     await assertCourseAccess(source.courseId, user.id, user.role);
 
+    // Unit 5c: 协作者删除非自己上传的素材，需带 force=true 二级确认
+    const force =
+      new URL(request.url).searchParams.get("force") === "true";
+    const actorRole = await getCourseActorRole(
+      source.courseId,
+      user.id,
+      user.role,
+    );
+    const isOwnUpload = source.teacherId === user.id;
+    if (!isOwnUpload && !force && actorRole !== "admin") {
+      throw new Error("KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM");
+    }
+
     await prisma.courseKnowledgeSource.delete({ where: { id } });
+    await logAuditForced({
+      action: "course_knowledge_source.delete",
+      actorId: user.id,
+      targetId: id,
+      targetType: "CourseKnowledgeSource",
+      metadata: {
+        courseId: source.courseId,
+        fileName: source.fileName,
+        ownerTeacherId: source.teacherId,
+        byOwner: isOwnUpload,
+        byCollaborator: !isOwnUpload && actorRole === "collaborator",
+        actorRole,
+      },
+    });
     return success({ id });
   } catch (err) {
     return handleServiceError(err);

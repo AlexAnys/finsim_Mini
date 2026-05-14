@@ -165,6 +165,12 @@ export function handleServiceError(err: unknown) {
         return error("SUBMISSION_NOT_GRADED_YET", "该提交尚未批改，无法撤销", 400);
       case "STUDY_BUDDY_POST_NOT_FOUND":
         return notFound("Study Buddy 帖子不存在");
+      case "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM":
+        return error(
+          "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM",
+          "这是其他老师上传的素材，请确认后再删除",
+          400,
+        );
       case "TASK_HAS_GRADED_SUBMISSIONS":
         return error(
           "TASK_HAS_GRADED_SUBMISSIONS",

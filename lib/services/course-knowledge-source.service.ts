@@ -2,6 +2,8 @@ import { readFile, unlink } from "fs/promises";
 import { join } from "path";
 import { z } from "zod";
 import { assertCourseAccess } from "@/lib/auth/course-access";
+import { getCourseActorRole } from "@/lib/auth/actor-role";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "@/lib/services/ai.service";
 import { enqueueAsyncJob } from "@/lib/services/async-job.service";
@@ -232,6 +234,8 @@ export async function deleteCourseKnowledgeSource(input: {
   id: string;
   userId: string;
   role: string;
+  /** Unit 5c: 协作者删 owner 上传素材需带 force=true（前端 confirm 后重发）*/
+  force?: boolean;
 }) {
   const source = await prisma.courseKnowledgeSource.findUnique({
     where: { id: input.id },
@@ -239,17 +243,45 @@ export async function deleteCourseKnowledgeSource(input: {
       id: true,
       courseId: true,
       filePath: true,
+      teacherId: true,
+      fileName: true,
     },
   });
   if (!source) throw new Error("KNOWLEDGE_SOURCE_NOT_FOUND");
 
   await assertCourseAccess(source.courseId, input.userId, input.role);
 
+  // Unit 5c: actor role + owner-confirm 拦截
+  const actorRole = await getCourseActorRole(
+    source.courseId,
+    input.userId,
+    input.role,
+  );
+  const isOwnUpload = source.teacherId === input.userId;
+  if (!isOwnUpload && !input.force && actorRole !== "admin") {
+    throw new Error("KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM");
+  }
+
   await prisma.courseKnowledgeSource.delete({ where: { id: source.id } });
 
   if (source.filePath) {
     await unlink(join(STORAGE_BASE, source.filePath)).catch(() => undefined);
   }
+
+  await logAuditForced({
+    action: "course_knowledge_source.delete",
+    actorId: input.userId,
+    targetId: source.id,
+    targetType: "CourseKnowledgeSource",
+    metadata: {
+      courseId: source.courseId,
+      fileName: source.fileName,
+      ownerTeacherId: source.teacherId,
+      byOwner: isOwnUpload,
+      byCollaborator: !isOwnUpload && actorRole === "collaborator",
+      actorRole,
+    },
+  });
 
   return { id: source.id };
 }

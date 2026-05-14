@@ -162,14 +162,28 @@ export function ContextSourcesPanel({
     }
   }
 
-  async function handleDelete(sourceId: string) {
+  async function handleDelete(sourceId: string, force = false) {
     setDeletingId(sourceId);
     try {
-      const res = await fetch(`/api/lms/course-knowledge-sources/${sourceId}`, {
-        method: "DELETE",
-      });
+      const url = force
+        ? `/api/lms/course-knowledge-sources/${sourceId}?force=true`
+        : `/api/lms/course-knowledge-sources/${sourceId}`;
+      const res = await fetch(url, { method: "DELETE" });
       const json = await res.json();
       if (!json.success) {
+        // Unit 5c: 协作者删 owner 上传素材，服务端返回 KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM
+        if (
+          json.error?.code === "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM" &&
+          !force
+        ) {
+          const confirmed = window.confirm(
+            "这是其他老师上传的素材，确认删除？删除后无法恢复。",
+          );
+          if (confirmed) {
+            await handleDelete(sourceId, true);
+          }
+          return;
+        }
         toast.error(json.error?.message || "素材删除失败");
         return;
       }

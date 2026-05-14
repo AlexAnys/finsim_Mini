@@ -115,11 +115,13 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return validationError("缺少素材 id");
+    const force = searchParams.get("force") === "true";
 
     const deleted = await deleteCourseKnowledgeSource({
       id,
       userId: result.session.user.id,
       role: result.session.user.role,
+      force,
     });
     return success(deleted);
   } catch (err) {

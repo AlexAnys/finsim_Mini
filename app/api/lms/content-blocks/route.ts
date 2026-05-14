@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
 import { createContentBlock } from "@/lib/services/course.service";
+import { getCourseActorRole } from "@/lib/auth/actor-role";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -37,6 +39,7 @@ export async function POST(request: NextRequest) {
     // within that course. The service then cross-validates section parentage.
     await assertCourseAccess(parsed.data.courseId, user.id, user.role);
 
+    const actorRole = await getCourseActorRole(parsed.data.courseId, user.id, user.role);
     const block = await createContentBlock({
       courseId: parsed.data.courseId,
       chapterId: parsed.data.chapterId,
@@ -44,6 +47,18 @@ export async function POST(request: NextRequest) {
       slot: parsed.data.slot,
       blockType: parsed.data.blockType,
       payload: parsed.data.payload as import("@prisma/client").Prisma.InputJsonValue | undefined,
+    });
+    await logAuditForced({
+      action: "contentBlock.create",
+      actorId: user.id,
+      targetId: block.id,
+      targetType: "contentBlock",
+      metadata: {
+        courseId: parsed.data.courseId,
+        sectionId: parsed.data.sectionId,
+        blockType: parsed.data.blockType,
+        actorRole,
+      },
     });
     return created(block);
   } catch (err) {

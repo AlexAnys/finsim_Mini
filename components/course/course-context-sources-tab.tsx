@@ -263,15 +263,31 @@ export function CourseContextSourcesTab({
     }
   }
 
-  async function handleDelete(source: KnowledgeSourceItem) {
-    if (!window.confirm(`删除素材「${source.fileName}」？该操作不会删除已经生成的任务或统计。`)) return;
+  async function handleDelete(source: KnowledgeSourceItem, force = false) {
+    if (!force && !window.confirm(`删除素材「${source.fileName}」？该操作不会删除已经生成的任务或统计。`)) return;
     setDeletingSourceId(source.id);
     try {
-      const res = await fetch(`/api/lms/course-knowledge-sources?id=${encodeURIComponent(source.id)}`, {
+      const params = new URLSearchParams({ id: source.id });
+      if (force) params.set("force", "true");
+      const res = await fetch(`/api/lms/course-knowledge-sources?${params.toString()}`, {
         method: "DELETE",
       });
       const json = await res.json();
       if (!json.success) {
+        // Unit 5c: 协作者删 owner 上传素材，服务端返回 KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM
+        if (
+          json.error?.code === "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM" &&
+          !force
+        ) {
+          const confirmed = window.confirm(
+            "这是其他老师上传的素材，确认删除？删除后无法恢复。",
+          );
+          if (confirmed) {
+            setDeletingSourceId(null);
+            await handleDelete(source, true);
+          }
+          return;
+        }
         toast.error(json.error?.message || "素材删除失败");
         return;
       }
