@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { clampTake } from "@/lib/pagination";
+import { logAuditForced } from "@/lib/services/audit.service";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validators/task.schema";
 import type { Prisma } from "@prisma/client";
 
@@ -202,63 +203,81 @@ export async function getTasksByCreator(
 
 export async function updateTask(taskId: string, creatorId: string, input: UpdateTaskInput) {
   // 验证归属
-  const existing = await prisma.task.findUnique({ where: { id: taskId } });
+  const existing = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { id: true, creatorId: true, taskName: true, taskType: true, requirements: true },
+  });
   if (!existing || existing.creatorId !== creatorId) {
     throw new Error("FORBIDDEN");
   }
 
-  return prisma.$transaction(async (tx) => {
+  // Unit 4 高危拦截：若 task 有 >=1 graded submission，且客户端未明确 force=true，则拒绝
+  const { force, ...patchData } = input;
+  const gradedCount = await prisma.submission.count({
+    where: { taskId, status: "graded" },
+  });
+  if (gradedCount > 0 && !force) {
+    const err = new Error("TASK_HAS_GRADED_SUBMISSIONS") as Error & { gradedCount?: number };
+    err.gradedCount = gradedCount;
+    throw err;
+  }
+
+  // before 关键字段（写入 audit log，避免整 JSON 入库）
+  const beforeQuestionCount = await prisma.quizQuestion.count({ where: { taskId } });
+  const beforeCriteriaCount = await prisma.scoringCriterion.count({ where: { taskId } });
+
+  const updated = await prisma.$transaction(async (tx) => {
     // 更新主记录
     const task = await tx.task.update({
       where: { id: taskId },
       data: {
-        taskName: input.taskName,
-        requirements: input.requirements,
-        visibility: input.visibility,
-        practiceEnabled: input.practiceEnabled,
-        courseName: input.courseName,
-        chapterName: input.chapterName,
+        taskName: patchData.taskName,
+        requirements: patchData.requirements,
+        visibility: patchData.visibility,
+        practiceEnabled: patchData.practiceEnabled,
+        courseName: patchData.courseName,
+        chapterName: patchData.chapterName,
       },
     });
 
     // 更新类型专属配置
-    if (input.simulationConfig && existing.taskType === "simulation") {
-      const safeConfig = sanitizeSimulationConfig(input.simulationConfig);
+    if (patchData.simulationConfig && existing.taskType === "simulation") {
+      const safeConfig = sanitizeSimulationConfig(patchData.simulationConfig);
       await tx.simulationConfig.upsert({
         where: { taskId },
         create: { taskId, ...safeConfig },
         update: safeConfig,
       });
     }
-    if (input.quizConfig && existing.taskType === "quiz") {
+    if (patchData.quizConfig && existing.taskType === "quiz") {
       await tx.quizConfig.upsert({
         where: { taskId },
-        create: { taskId, ...input.quizConfig },
-        update: input.quizConfig,
+        create: { taskId, ...patchData.quizConfig },
+        update: patchData.quizConfig,
       });
     }
-    if (input.subjectiveConfig && existing.taskType === "subjective") {
+    if (patchData.subjectiveConfig && existing.taskType === "subjective") {
       await tx.subjectiveConfig.upsert({
         where: { taskId },
-        create: { taskId, ...input.subjectiveConfig },
-        update: input.subjectiveConfig,
+        create: { taskId, ...patchData.subjectiveConfig },
+        update: patchData.subjectiveConfig,
       });
     }
 
     // 更新评分标准（全量替换）
-    if (input.scoringCriteria) {
+    if (patchData.scoringCriteria) {
       await tx.scoringCriterion.deleteMany({ where: { taskId } });
-      if (input.scoringCriteria.length > 0) {
+      if (patchData.scoringCriteria.length > 0) {
         await tx.scoringCriterion.createMany({
-          data: input.scoringCriteria.map((c) => ({ taskId, ...c })),
+          data: patchData.scoringCriteria.map((c) => ({ taskId, ...c })),
         });
       }
     }
 
     // 更新资产配置（全量替换）
-    if (input.allocationSections) {
+    if (patchData.allocationSections) {
       await tx.allocationSection.deleteMany({ where: { taskId } });
-      for (const section of input.allocationSections) {
+      for (const section of patchData.allocationSections) {
         const created = await tx.allocationSection.create({
           data: { taskId, label: section.label, order: section.order },
         });
@@ -274,11 +293,11 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
     }
 
     // 更新测验题目（全量替换）
-    if (input.quizQuestions) {
+    if (patchData.quizQuestions) {
       await tx.quizQuestion.deleteMany({ where: { taskId } });
-      if (input.quizQuestions.length > 0) {
+      if (patchData.quizQuestions.length > 0) {
         await tx.quizQuestion.createMany({
-          data: input.quizQuestions.map((q) => ({
+          data: patchData.quizQuestions.map((q) => ({
             taskId,
             type: q.type,
             prompt: q.prompt,
@@ -296,6 +315,37 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
 
     return task;
   });
+
+  // Unit 4 audit log — 紧凑 diff，避免整 JSON 入库
+  await logAuditForced({
+    action: "task.update",
+    actorId: creatorId,
+    targetId: taskId,
+    targetType: "Task",
+    metadata: {
+      fieldsChanged: Object.keys(patchData),
+      hadGradedSubmissions: gradedCount > 0,
+      gradedCount,
+      force: !!force,
+      before: {
+        taskName: existing.taskName,
+        requirements: existing.requirements,
+        questionCount: beforeQuestionCount,
+        criteriaCount: beforeCriteriaCount,
+      },
+      after: {
+        taskName: patchData.taskName ?? existing.taskName,
+        questionCount: patchData.quizQuestions
+          ? patchData.quizQuestions.length
+          : beforeQuestionCount,
+        criteriaCount: patchData.scoringCriteria
+          ? patchData.scoringCriteria.length
+          : beforeCriteriaCount,
+      },
+    },
+  });
+
+  return updated;
 }
 
 export async function deleteTask(taskId: string, creatorId: string) {

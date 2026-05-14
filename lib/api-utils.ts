@@ -143,6 +143,12 @@ export function handleServiceError(err: unknown) {
         return error("TASK_INSTANCE_DRAFT_NOT_VISIBLE", "任务尚未开放", 403);
       case "TASK_INSTANCE_CLOSED_NO_SUBMISSION":
         return error("TASK_INSTANCE_CLOSED_NO_SUBMISSION", "任务已结束，且未提交过作答", 403);
+      case "TASK_HAS_GRADED_SUBMISSIONS":
+        return error(
+          "TASK_HAS_GRADED_SUBMISSIONS",
+          "该任务已有已批改的提交，直接修改可能影响分数解读。请确认后继续，或复制为新任务再修改。",
+          400,
+        );
       case "RATE_LIMIT_EXCEEDED":
         return NextResponse.json(
           { success: false, error: { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" } },

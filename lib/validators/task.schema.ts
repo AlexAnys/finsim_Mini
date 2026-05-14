@@ -99,7 +99,13 @@ export const createTaskSchema = z.object({
   quizQuestions: z.array(quizQuestionSchema).optional(),
 });
 
-export const updateTaskSchema = createTaskSchema.partial();
+export const updateTaskSchema = createTaskSchema.partial().extend({
+  /** Unit 4: 高危拦截 — 已有 graded submission 时第一次 PATCH 会被服务端拒绝。
+   *  用户在客户端 dialog 明确点"直接保存"后，前端会重发同 body + force:true 跳过拦截。
+   *  audit log 会记录 force=true。
+   */
+  force: z.boolean().optional(),
+});
 
 // 任务实例
 export const createTaskInstanceSchema = z.object({

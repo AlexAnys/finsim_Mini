@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Loader2,
@@ -33,6 +33,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ImportProgressDialog } from "@/components/task-edit/import-progress-dialog";
 
 interface ScoringCriterion {
@@ -144,10 +154,16 @@ const statusVariant: Record<string, "default" | "secondary" | "destructive" | "o
 
 export default function TaskDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const taskId = params.id as string;
 
   const [task, setTask] = useState<TaskDetail | null>(null);
+  // Unit 4: 高危改动拦截 dialog state
+  const [highRiskOpen, setHighRiskOpen] = useState(false);
+  const [highRiskGradedCount, setHighRiskGradedCount] = useState(0);
+  const [pendingPatchBody, setPendingPatchBody] = useState<Record<string, unknown> | null>(null);
+  const [copying, setCopying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(searchParams.get("edit") === "true");
@@ -208,54 +224,69 @@ export default function TaskDetailPage() {
     fetchTask();
   }, [fetchTask]);
 
-  async function handleSave() {
+  function buildPatchBody(): Record<string, unknown> | null {
     if (!editName.trim()) {
       toast.error("任务名称不能为空");
-      return;
+      return null;
     }
+    const body: Record<string, unknown> = {
+      taskName: editName.trim(),
+      requirements: editRequirements.trim() || undefined,
+    };
+
+    if (task?.taskType === "simulation" && task.simulationConfig) {
+      // Build systemPrompt from the 3 prompt sections
+      const promptParts = [
+        editSimPersona.trim() ? `【核心人设】\n${editSimPersona.trim()}` : "",
+        editSimDialogueStyle.trim() ? `【对话风格】\n${editSimDialogueStyle.trim()}` : "",
+        editSimConstraints.trim() ? `【禁止行为】\n${editSimConstraints.trim()}` : "",
+      ].filter(Boolean);
+      // PR-FIX-4 D1: 同 new/page.tsx — 清掉旧 5 档 [MOOD:] 指令
+      // (PR-7B 已切到 8 档 JSON 协议，运行时由 ai.service.chatReply 注入)
+      const systemPrompt = promptParts.length > 0
+        ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}`
+        : undefined;
+
+      body.simulationConfig = {
+        scenario: editScenario.trim(),
+        openingLine: editOpeningLine.trim(),
+        dialogueRequirements: task.simulationConfig.dialogueRequirements,
+        strictnessLevel: task.simulationConfig.strictnessLevel,
+        systemPrompt,
+      };
+    }
+    if (task?.taskType === "subjective" && task.subjectiveConfig) {
+      body.subjectiveConfig = {
+        prompt: editPrompt.trim(),
+        allowTextAnswer: task.subjectiveConfig.allowTextAnswer,
+        allowedAttachmentTypes: task.subjectiveConfig.allowedAttachmentTypes,
+        strictnessLevel: task.subjectiveConfig.strictnessLevel,
+      };
+    }
+    return body;
+  }
+
+  async function performPatch(body: Record<string, unknown>) {
     setSaving(true);
     try {
-      const body: Record<string, unknown> = {
-        taskName: editName.trim(),
-        requirements: editRequirements.trim() || undefined,
-      };
-
-      if (task?.taskType === "simulation" && task.simulationConfig) {
-        // Build systemPrompt from the 3 prompt sections
-        const promptParts = [
-          editSimPersona.trim() ? `【核心人设】\n${editSimPersona.trim()}` : "",
-          editSimDialogueStyle.trim() ? `【对话风格】\n${editSimDialogueStyle.trim()}` : "",
-          editSimConstraints.trim() ? `【禁止行为】\n${editSimConstraints.trim()}` : "",
-        ].filter(Boolean);
-        // PR-FIX-4 D1: 同 new/page.tsx — 清掉旧 5 档 [MOOD:] 指令
-        // (PR-7B 已切到 8 档 JSON 协议，运行时由 ai.service.chatReply 注入)
-        const systemPrompt = promptParts.length > 0
-          ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}`
-          : undefined;
-
-        body.simulationConfig = {
-          scenario: editScenario.trim(),
-          openingLine: editOpeningLine.trim(),
-          dialogueRequirements: task.simulationConfig.dialogueRequirements,
-          strictnessLevel: task.simulationConfig.strictnessLevel,
-          systemPrompt,
-        };
-      }
-      if (task?.taskType === "subjective" && task.subjectiveConfig) {
-        body.subjectiveConfig = {
-          prompt: editPrompt.trim(),
-          allowTextAnswer: task.subjectiveConfig.allowTextAnswer,
-          allowedAttachmentTypes: task.subjectiveConfig.allowedAttachmentTypes,
-          strictnessLevel: task.subjectiveConfig.strictnessLevel,
-        };
-      }
-
       const res = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const json = await res.json();
+      // Unit 4 高危拦截：服务端返回 TASK_HAS_GRADED_SUBMISSIONS → 弹 dialog
+      if (!json.success && json.error?.code === "TASK_HAS_GRADED_SUBMISSIONS") {
+        // 拉一次最新的 graded 计数（服务端 details 没透传，简单查 task instances 列表估算）
+        const count = task?.taskInstances.reduce(
+          (acc, ti) => acc + (ti._count?.submissions ?? 0),
+          0,
+        ) ?? 0;
+        setHighRiskGradedCount(count);
+        setPendingPatchBody(body);
+        setHighRiskOpen(true);
+        return;
+      }
       if (!json.success) {
         toast.error(json.error?.message || "保存失败");
         return;
@@ -268,6 +299,114 @@ export default function TaskDetailPage() {
       toast.error("网络错误，请稍后重试");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSave() {
+    const body = buildPatchBody();
+    if (!body) return;
+    await performPatch(body);
+  }
+
+  async function handleForceSave() {
+    if (!pendingPatchBody) return;
+    setHighRiskOpen(false);
+    await performPatch({ ...pendingPatchBody, force: true });
+    setPendingPatchBody(null);
+  }
+
+  async function handleCopyAsNew() {
+    if (!task) return;
+    setCopying(true);
+    setHighRiskOpen(false);
+    try {
+      // 复制任务：拷全字段 + 改名为 "{原名} (副本)"。creatorId 由后端从 session 推断。
+      const body: Record<string, unknown> = {
+        taskType: task.taskType,
+        taskName: `${editName.trim() || task.taskName} (副本)`,
+        requirements: editRequirements.trim() || undefined,
+        visibility: task.visibility,
+        practiceEnabled: task.practiceEnabled,
+      };
+
+      if (task.taskType === "simulation" && task.simulationConfig) {
+        const promptParts = [
+          editSimPersona.trim() ? `【核心人设】\n${editSimPersona.trim()}` : "",
+          editSimDialogueStyle.trim() ? `【对话风格】\n${editSimDialogueStyle.trim()}` : "",
+          editSimConstraints.trim() ? `【禁止行为】\n${editSimConstraints.trim()}` : "",
+        ].filter(Boolean);
+        const systemPrompt = promptParts.length > 0
+          ? `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：\n\n{scenario}\n\n${promptParts.join("\n\n")}`
+          : undefined;
+        body.simulationConfig = {
+          scenario: editScenario.trim(),
+          openingLine: editOpeningLine.trim(),
+          dialogueRequirements: task.simulationConfig.dialogueRequirements,
+          strictnessLevel: task.simulationConfig.strictnessLevel,
+          systemPrompt,
+        };
+      }
+      if (task.taskType === "quiz" && task.quizConfig) {
+        body.quizConfig = {
+          mode: task.quizConfig.mode,
+          timeLimitMinutes: task.quizConfig.timeLimitMinutes ?? undefined,
+          showCorrectAnswer: task.quizConfig.showCorrectAnswer,
+        };
+        body.quizQuestions = task.quizQuestions.map((q, idx) => ({
+          type: q.type,
+          prompt: q.prompt,
+          options: q.options ?? undefined,
+          correctOptionIds: q.correctOptionIds,
+          correctAnswer: q.correctAnswer ?? undefined,
+          points: q.points,
+          explanation: q.explanation ?? undefined,
+          order: idx,
+        }));
+      }
+      if (task.taskType === "subjective" && task.subjectiveConfig) {
+        body.subjectiveConfig = {
+          prompt: editPrompt.trim(),
+          allowTextAnswer: task.subjectiveConfig.allowTextAnswer,
+          allowedAttachmentTypes: task.subjectiveConfig.allowedAttachmentTypes,
+          strictnessLevel: task.subjectiveConfig.strictnessLevel,
+        };
+      }
+      if (task.scoringCriteria.length > 0) {
+        body.scoringCriteria = task.scoringCriteria.map((c, idx) => ({
+          name: c.name,
+          description: c.description ?? undefined,
+          maxPoints: c.maxPoints,
+          order: idx,
+        }));
+      }
+      if (task.allocationSections.length > 0) {
+        body.allocationSections = task.allocationSections.map((sec, idx) => ({
+          label: sec.label,
+          order: idx,
+          items: sec.items.map((it, iidx) => ({
+            label: it.label,
+            order: iidx,
+          })),
+        }));
+      }
+
+      const res = await fetch(`/api/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "复制失败");
+        return;
+      }
+      toast.success("已复制为新任务");
+      router.push(`/teacher/tasks/${json.data.id}?edit=true`);
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setCopying(false);
+      setPendingPatchBody(null);
     }
   }
 
@@ -836,6 +975,58 @@ export default function TaskDetailPage() {
         onComplete={handleImportComplete}
         onRetry={handleImportRetry}
       />
+
+      {/* Unit 4: 高危改动拦截 dialog */}
+      <AlertDialog
+        open={highRiskOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setHighRiskOpen(false);
+            setPendingPatchBody(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              该任务已有 {highRiskGradedCount} 条已批改提交
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              直接修改可能影响这些学生的分数解读。<span className="font-medium">推荐复制为新任务再修改</span>。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving || copying}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCopyAsNew}
+              disabled={saving || copying}
+            >
+              {copying ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  复制中...
+                </>
+              ) : (
+                "复制为新任务"
+              )}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={handleForceSave}
+              disabled={saving || copying}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                "直接保存"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
