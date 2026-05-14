@@ -1990,7 +1990,7 @@ function OutlineEditableDraft({
         </summary>
         <div className="mt-3 space-y-3">
           {draft.chapters.map((chapter, chapterIndex) => (
-            <div key={`${chapter.title}-${chapterIndex}`} className="rounded-md border border-line bg-paper px-3 py-3">
+            <div key={chapter.chapterId ?? `new-chapter-${chapterIndex}`} className="rounded-md border border-line bg-paper px-3 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={chapter.title}
@@ -2049,7 +2049,7 @@ function OutlineEditableDraft({
               </div>
               <div className="mt-2 space-y-2">
                 {chapter.sections.map((section, sectionIndex) => (
-                  <div key={`${section.title}-${sectionIndex}`} className="rounded border border-line bg-surface px-2.5 py-2">
+                  <div key={section.sectionId ?? `new-section-${chapterIndex}-${sectionIndex}`} className="rounded border border-line bg-surface px-2.5 py-2">
                     <div className="flex items-center gap-2">
                       <Input
                         value={section.title}
