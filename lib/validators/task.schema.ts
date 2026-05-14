@@ -130,6 +130,8 @@ export const createPublishedTaskWithInstanceSchema = z.object({
     taskId: true,
     taskType: true,
   }),
+  // Unit 10: 关联 TaskBuildDraft；带此字段时强制要求 draft.status === "approved"，发布后 draft 转 published
+  taskBuildDraftId: z.string().uuid().optional(),
 });
 
 export const updateTaskInstanceSchema = z.object({

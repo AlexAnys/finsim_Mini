@@ -93,6 +93,18 @@ export function handleServiceError(err: unknown) {
         return notFound("任务草稿不存在");
       case "TASK_BUILD_DRAFT_SCOPE_MISMATCH":
         return error("TASK_BUILD_DRAFT_SCOPE_MISMATCH", "任务草稿不属于当前课程", 400);
+      case "TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL":
+        return error(
+          "TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL",
+          "只有 AI 已就绪（ready 状态）的草稿可以批准",
+          400,
+        );
+      case "TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH":
+        return error(
+          "TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH",
+          "草稿尚未审核通过，请先在审核页批准 AI 原稿",
+          400,
+        );
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
       case "FILE_NOT_FOUND":

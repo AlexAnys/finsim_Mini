@@ -20,12 +20,16 @@ const updateDraftSchema = z.object({
   taskType: taskTypeSchema.optional(),
   title: z.string().trim().max(200).optional(),
   description: z.string().trim().max(5000).nullable().optional(),
-  status: z.enum(["draft", "queued", "processing", "ready", "failed", "published"]).optional(),
+  status: z
+    .enum(["draft", "queued", "processing", "ready", "approved", "failed", "published"])
+    .optional(),
   progress: z.number().min(0).max(100).optional(),
   sourceIds: z.array(z.string().uuid()).max(50).optional(),
   asyncJobId: z.string().uuid().nullable().optional(),
   missingFields: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
   draftPayload: z.unknown().optional(),
+  aiPayload: z.unknown().optional(),
+  editedPayload: z.unknown().optional(),
   error: z.string().trim().max(2000).nullable().optional(),
 });
 
@@ -65,9 +69,12 @@ export async function PATCH(
     const courseId = parsed.data.courseId ?? existing.courseId;
     await assertCourseAccess(courseId, result.session.user.id, result.session.user.role);
 
+    type JsonInput = import("@prisma/client").Prisma.InputJsonValue | undefined;
     const draft = await updateTaskBuildDraft(id, {
       ...parsed.data,
-      draftPayload: parsed.data.draftPayload as import("@prisma/client").Prisma.InputJsonValue | undefined,
+      draftPayload: parsed.data.draftPayload as JsonInput,
+      aiPayload: parsed.data.aiPayload as JsonInput,
+      editedPayload: parsed.data.editedPayload as JsonInput,
     });
     return success(draft);
   } catch (err) {
