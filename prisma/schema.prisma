@@ -143,6 +143,7 @@ enum AsyncJobType {
   ai_work_assistant
   analytics_recompute
   data_insight_advice
+  quiz_question_tag
 }
 
 enum TaskBuildDraftStatus {
@@ -490,6 +491,8 @@ model QuizQuestion {
   difficulty       Int?
   explanation      String?          @db.Text
   order            Int
+  // Unit 8: 知识点标签（AI 离线打标，用于 adaptive 模式按知识点诊断）
+  knowledgeTagIds  String[]         @default([])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
