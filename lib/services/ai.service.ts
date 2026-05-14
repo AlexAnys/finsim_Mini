@@ -1530,6 +1530,26 @@ ${recent}
 // 模拟对话 - AI 评估
 // ============================================
 
+/**
+ * Unit 9 · 计算 rubric 评估输出中"找不到对应原句"的 evidence 条数。
+ *
+ * studentText 为空字符串视为"AI 主动声明无可引用"，不算 mismatch。
+ */
+export function countMismatchedEvidence(
+  rubricBreakdown: Array<{ evidence?: Array<{ studentText: string }> }>,
+  transcriptText: string,
+): number {
+  let n = 0;
+  for (const r of rubricBreakdown) {
+    for (const ev of r.evidence ?? []) {
+      if (ev.studentText && !transcriptText.includes(ev.studentText)) {
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
 export async function evaluateSimulation(
   userId: string,
   data: {
@@ -1560,6 +1580,15 @@ export async function evaluateSimulation(
       score: z.number(),
       maxScore: z.number(),
       comment: z.string(),
+      // Unit 9: evidence — 每项 rubric 至少 1 条引用学生原句的依据
+      evidence: z
+        .array(
+          z.object({
+            studentText: z.string(),
+            comment: z.string(),
+          }),
+        )
+        .default([]),
     })),
     conceptTags: z.array(z.string()).optional(),
   });
@@ -1582,6 +1611,11 @@ ${data.requirements ? `要求: ${data.requirements}` : ""}
 1. 对话中的 [MOOD:] 标签反映了客户的真实情绪反应，请将其作为客户满意度的强信号。ANGRY 出现较多说明理财经理沟通存在严重问题。
 2. totalScore 必须等于 rubricBreakdown 中所有 score 之和，不得凭空修改。
 3. 评语要具体，引用对话中的原文作为依据。
+4. 每项 rubric 必须返回 evidence 数组（1-3 条），格式 {studentText, comment}：
+   - studentText 必须是 transcript 中"理财经理"（即学生）角色的**精确原句**（逐字引用，不得改写、不得跨行拼接、不得加引号/省略号）。
+   - comment 解释这句话如何对应该 rubric 评分。
+   - 没有可引用原句时，studentText 设为 ""（空字符串），并在 comment 中说明缺失原因（不影响 score）。
+   - 不要引用 [MOOD:...] 标签内的内容，引用时去除 MOOD 部分。
 
 评分标准:
 ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description || ""}`).join("\n")}`;
@@ -1613,7 +1647,15 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
   "totalScore": 总分,
   "feedback": "总体评语",
   "rubricBreakdown": [
-    {"criterionId": "标准ID", "score": 得分, "maxScore": 满分, "comment": "评语"}
+    {
+      "criterionId": "标准ID",
+      "score": 得分,
+      "maxScore": 满分,
+      "comment": "评语",
+      "evidence": [
+        {"studentText": "理财经理原句（必须逐字摘自上方对话）", "comment": "为何此句对应该 rubric 的得分"}
+      ]
+    }
   ],
   "conceptTags": ["核心概念1", "核心概念2", "核心概念3"]
 }
@@ -1621,9 +1663,17 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
 注意:
 - rubricBreakdown 必须包含恰好 ${data.rubric.length} 项，对应每个评分标准。
 - criterionId 使用以下 ID: ${data.rubric.map((r) => r.id).join(", ")}
+- evidence 数组每项 1-3 条；studentText 必须能在上方对话中找到完全相同的子串（包括标点和空格）。
 - conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于后续班级薄弱点聚合。`;
 
-  const result = await aiGenerateJSON(
+  // Unit 9: 学生原句池（用于 evidence 引用校验）
+  const studentTextPool = data.transcript
+    .filter((m) => m.role === "student")
+    .map((m) => m.text.replace(/\[MOOD:.*?\]/g, "").trim());
+  const joinedStudentText = studentTextPool.join("\n");
+
+  // 1st pass
+  let result = await aiGenerateJSON(
     "evaluation",
     userId,
     systemPrompt,
@@ -1633,15 +1683,45 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
     options,
   );
 
+  // Unit 9: 校验每条 evidence.studentText 是否能在原对话中找到。
+  // 找不到 → 1 次 wrap retry 加 hint；仍找不到 → 接受但 unverified=true。
+  let mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, joinedStudentText);
+  if (mismatchedCount > 0) {
+    const retryHint = `\n\n注意：上一轮你引用的 ${mismatchedCount} 条 studentText 在对话记录中找不到对应原句。请仅引用对话记录中"理财经理"角色的逐字原话作为 evidence.studentText（不要改写、不要加引号、不要拼接多句）。若实在没有可引用的原句，studentText 设为 ""。`;
+    result = await aiGenerateJSON(
+      "evaluation",
+      userId,
+      systemPrompt,
+      userPrompt + retryHint,
+      evaluationSchema,
+      1,
+      { ...options, metadata: { ...(options.metadata ?? {}), evidenceRetry: true } },
+    );
+    mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, joinedStudentText);
+    if (mismatchedCount > 0) {
+      console.warn(
+        `[evaluateSimulation] evidence 引用校验：${mismatchedCount} 条引用在 transcript 中找不到，标记 unverified=true`,
+      );
+    }
+  }
+
   // 标准化: 确保分数不超上限, 补全缺失项
   const maxScore = data.rubric.reduce((sum, r) => sum + r.maxPoints, 0);
   const breakdown = data.rubric.map((r) => {
     const found = result.rubricBreakdown.find((b) => b.criterionId === r.id);
+    const evidenceRaw = found?.evidence ?? [];
+    // 限制每项 evidence ≤ 3 条 + 给每条打 unverified flag
+    const evidence = evidenceRaw.slice(0, 3).map((ev) => ({
+      studentText: ev.studentText,
+      comment: ev.comment,
+      unverified: ev.studentText !== "" && !joinedStudentText.includes(ev.studentText),
+    }));
     return {
       criterionId: r.id,
       score: found ? Math.min(found.score, r.maxPoints) : 0,
       maxScore: r.maxPoints,
       comment: found?.comment || "暂无评语",
+      evidence,
     };
   });
   const totalScore = breakdown.reduce((sum, b) => sum + b.score, 0);

@@ -74,7 +74,14 @@ interface GradeEvaluation {
   totalScore?: number;
   maxScore?: number;
   feedback?: string;
-  rubricBreakdown?: Array<{ criterionId: string; score: number; maxScore: number; comment?: string }>;
+  rubricBreakdown?: Array<{
+    criterionId: string;
+    score: number;
+    maxScore: number;
+    comment?: string;
+    // Unit 9: 评分依据
+    evidence?: Array<{ studentText: string; comment: string; unverified?: boolean }>;
+  }>;
   confidence?: number;
 }
 
@@ -385,9 +392,39 @@ export function GradingDrawer({
                               </div>
                             </div>
                             {aiScore && showAiSuggestion && showAi && (
-                              <div className="mt-1.5 text-[10.5px] text-sim">
-                                AI 建议 {aiScore.score}/{aiScore.maxScore}
-                                {aiScore.comment && ` · ${aiScore.comment}`}
+                              <div className="mt-1.5 space-y-1">
+                                <div className="text-[10.5px] text-sim">
+                                  AI 建议 {aiScore.score}/{aiScore.maxScore}
+                                  {aiScore.comment && ` · ${aiScore.comment}`}
+                                </div>
+                                {aiScore.evidence && aiScore.evidence.length > 0 && (
+                                  <div className="space-y-1 border-l-2 border-line pl-2">
+                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-5">
+                                      评分依据
+                                    </div>
+                                    {aiScore.evidence.map((ev, i) => (
+                                      <div key={i} className="text-[10.5px] leading-relaxed">
+                                        {ev.studentText ? (
+                                          <div>
+                                            <span className="rounded bg-yellow-50 px-1 text-ink-2">
+                                              「{ev.studentText}」
+                                            </span>
+                                            {ev.unverified && (
+                                              <span className="ml-1 text-[9.5px] text-warn">
+                                                未通过引用校验
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div className="italic text-ink-5">未引用原句</div>
+                                        )}
+                                        {ev.comment && (
+                                          <div className="mt-0.5 text-ink-5">{ev.comment}</div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

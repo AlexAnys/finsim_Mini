@@ -8,11 +8,19 @@ export type SubmissionSortKey = "score-desc" | "score-asc" | "time-desc" | "time
 // released = 学生已可见
 export type SubmissionAnalysisStatus = "pending" | "analyzed_unreleased" | "released";
 
+export interface RubricEvidence {
+  studentText: string;
+  comment: string;
+  unverified?: boolean;
+}
+
 export interface RubricBreakdownEntry {
   criterionId: string;
   score: number;
   maxScore: number;
   comment?: string;
+  // Unit 9: 评分依据 — AI 引用对话中的学生原句作为评分依据
+  evidence?: RubricEvidence[];
 }
 
 export interface SubmissionEvaluation {

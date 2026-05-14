@@ -18,6 +18,8 @@ interface RubricEntry {
   score: number;
   maxScore: number;
   comment?: string;
+  // Unit 9: 评分依据 — 学生侧只显示通过校验（unverified !== true）的 evidence
+  evidence?: Array<{ studentText: string; comment: string; unverified?: boolean }>;
 }
 
 interface QuizEntry {
@@ -234,6 +236,37 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
                       <div className="mt-1.5 text-[11.5px] leading-relaxed text-ink-4">
                         {r.comment}
                       </div>
+                    )}
+                    {/* Unit 9: 学生侧 evidence — 仅显示通过校验的引文（unverified !== true）；
+                        老评分 evidence===undefined 时显示"无引用依据（历史评分）"。 */}
+                    {r.evidence === undefined ? (
+                      <div className="mt-1.5 text-[10.5px] italic text-ink-5">
+                        无引用依据（历史评分）
+                      </div>
+                    ) : (
+                      r.evidence.filter((ev) => !ev.unverified).length > 0 && (
+                        <div className="mt-2 space-y-1.5 border-l-2 border-line pl-2.5">
+                          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-5">
+                            评分依据
+                          </div>
+                          {r.evidence
+                            .filter((ev) => !ev.unverified)
+                            .map((ev, j) => (
+                              <div key={j} className="text-[11px] leading-relaxed">
+                                {ev.studentText && (
+                                  <div>
+                                    <span className="rounded bg-yellow-50 px-1 text-ink-2">
+                                      「{ev.studentText}」
+                                    </span>
+                                  </div>
+                                )}
+                                {ev.comment && (
+                                  <div className="mt-0.5 text-ink-5">{ev.comment}</div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )
                     )}
                   </div>
                 );
