@@ -82,14 +82,13 @@ export function WeeklyInsightModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-h-[85vh] overflow-y-auto sm:max-w-3xl"
-        aria-describedby="weekly-insight-desc"
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-ink">
             <Sparkles className="size-[16px] text-ochre" aria-hidden />
             一周洞察
           </DialogTitle>
-          <DialogDescription id="weekly-insight-desc" className="text-ink-3">
+          <DialogDescription className="text-ink-3">
             基于过去 7 天已批改并已公布的提交，结合接下来 7 天课表，生成跨课程 / 班级 / 任务的教学聚合视图。
           </DialogDescription>
         </DialogHeader>
