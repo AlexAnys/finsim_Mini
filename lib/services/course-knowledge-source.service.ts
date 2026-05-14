@@ -427,63 +427,24 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
     }
 
     if (source.sourceType === "syllabus") {
+      // M1 (PR #11) · Molly 案例：outline AI 调用因 JSON 截断（默认 8192 token）失败。
+      // 策略：先 16384 token + 完整 schema 尝试一次（带 1 次内部 retry）；若仍失败，
+      // 切到 compact prompt（更短素材 + 精简 schema 描述）再试一次。
       try {
         structuredData = await aiGenerateJSON(
           "taskDraft",
           userId,
           "你是一位中高职课程负责人。请只生成可供教师审核的课程目录草稿，不要直接写入系统。",
-          `文件名: ${source.fileName}
-
-请阅读课程大纲或课程整体内容，返回 JSON：
-{
-  "courseGoals": ["课程总体目标"],
-  "knowledgeObjectives": ["知识目标"],
-  "skillObjectives": ["技能目标"],
-  "valueObjectives": ["素养/价值/思政融合目标"],
-  "assessmentRequirements": ["考核要求或评价方式"],
-  "chapters": [
-    {
-      "title": "章节标题",
-      "order": 0,
-      "learningGoals": ["本章学习目标"],
-      "knowledgeObjectives": ["本章知识目标"],
-      "skillObjectives": ["本章技能目标"],
-      "sections": [
-        {
-          "title": "小节标题",
-          "order": 0,
-          "learningGoals": ["本节学习目标"],
-          "knowledgeObjectives": ["本节知识目标"],
-          "skillObjectives": ["本节技能目标"],
-          "knowledgePoints": ["知识点"],
-          "taskSuggestions": [
-            {
-              "slot": "pre|in|post",
-              "taskType": "quiz|simulation|subjective",
-              "title": "建议任务标题",
-              "rationale": "为什么适合这里"
-            }
-          ]
-        }
-      ]
-    }
-  ],
-  "globalKnowledgePoints": ["课程级知识点"],
-  "notes": "需要教师确认或补充的地方"
-}
-
-要求：
-- 只做草稿，不要声称已经改写课程结构。
-- 尽量把学习目标、知识目标、技能目标、素养/思政目标、考核要求分开，不要混写成一段话。
-- 章节、小节和知识点要面向中高职课堂，不要使用 MBA/投行语境。
-- taskSuggestions 只给少量高价值建议，slot 必须是 pre/in/post。
-
-素材文本：
-${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
+          buildOutlinePrompt({
+            fileName: source.fileName,
+            extractedText,
+            compact: false,
+          }),
           outlineDraftSchema,
           1,
           {
             settingsUserId: userId,
+            maxOutputTokens: 16384,
             metadata: {
               sourceId,
               sourceType: source.sourceType,
@@ -493,9 +454,35 @@ ${extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`,
           },
         );
       } catch (err) {
-        aiError = [aiError, `课程大纲解析暂不可用：${errorMessage(err)}`]
-          .filter(Boolean)
-          .join("；");
+        // M1 · 结构化重试：用更短素材 + 精简 prompt 再发一次。仍失败再写 aiError。
+        try {
+          structuredData = await aiGenerateJSON(
+            "taskDraft",
+            userId,
+            "你是一位中高职课程负责人。请只生成可供教师审核的课程目录草稿，不要直接写入系统。",
+            buildOutlinePrompt({
+              fileName: source.fileName,
+              extractedText,
+              compact: true,
+            }),
+            outlineDraftSchema,
+            1,
+            {
+              settingsUserId: userId,
+              maxOutputTokens: 16384,
+              metadata: {
+                sourceId,
+                sourceType: source.sourceType,
+                courseId: source.courseId,
+                parser: "syllabus-outline-compact-retry",
+              },
+            },
+          );
+        } catch (retryErr) {
+          aiError = [aiError, `课程大纲解析暂不可用：${errorMessage(retryErr)}`]
+            .filter(Boolean)
+            .join("；");
+        }
       }
     }
 
@@ -635,6 +622,98 @@ export async function getKnowledgeSourcesForStudyBuddy(input: {
       conceptTags: source.conceptTags,
       excerpt: source.excerpt,
     }));
+}
+
+function buildOutlinePrompt(input: {
+  fileName: string;
+  extractedText: string;
+  compact: boolean;
+}): string {
+  if (input.compact) {
+    // M1 · 精简版：减少素材 + 收窄结构要求，给截断更大缓冲。
+    const COMPACT_LIMIT = 6000;
+    return `文件名: ${input.fileName}
+
+请阅读以下课程素材，返回 JSON 草稿（精简版，只包含核心章节结构）：
+{
+  "courseGoals": ["课程总体目标"],
+  "knowledgeObjectives": ["知识目标"],
+  "skillObjectives": ["技能目标"],
+  "valueObjectives": ["素养/价值/思政融合目标"],
+  "assessmentRequirements": ["考核要求或评价方式"],
+  "chapters": [
+    {
+      "title": "章节标题",
+      "order": 0,
+      "learningGoals": ["本章学习目标"],
+      "knowledgeObjectives": ["本章知识目标"],
+      "skillObjectives": ["本章技能目标"],
+      "sections": [
+        { "title": "小节标题", "order": 0, "knowledgePoints": ["知识点"] }
+      ]
+    }
+  ],
+  "globalKnowledgePoints": ["课程级知识点"],
+  "notes": ""
+}
+
+要求：
+- 只输出严格 JSON，不要 Markdown 代码块。
+- 每章 sections 最多 5 个，不要写 taskSuggestions / learningGoals 细分（除非素材直接给出）。
+- 面向中高职课堂。
+
+素材文本（前 ${COMPACT_LIMIT} 字符）：
+${input.extractedText.slice(0, COMPACT_LIMIT)}`;
+  }
+
+  return `文件名: ${input.fileName}
+
+请阅读课程大纲或课程整体内容，返回 JSON：
+{
+  "courseGoals": ["课程总体目标"],
+  "knowledgeObjectives": ["知识目标"],
+  "skillObjectives": ["技能目标"],
+  "valueObjectives": ["素养/价值/思政融合目标"],
+  "assessmentRequirements": ["考核要求或评价方式"],
+  "chapters": [
+    {
+      "title": "章节标题",
+      "order": 0,
+      "learningGoals": ["本章学习目标"],
+      "knowledgeObjectives": ["本章知识目标"],
+      "skillObjectives": ["本章技能目标"],
+      "sections": [
+        {
+          "title": "小节标题",
+          "order": 0,
+          "learningGoals": ["本节学习目标"],
+          "knowledgeObjectives": ["本节知识目标"],
+          "skillObjectives": ["本节技能目标"],
+          "knowledgePoints": ["知识点"],
+          "taskSuggestions": [
+            {
+              "slot": "pre|in|post",
+              "taskType": "quiz|simulation|subjective",
+              "title": "建议任务标题",
+              "rationale": "为什么适合这里"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "globalKnowledgePoints": ["课程级知识点"],
+  "notes": "需要教师确认或补充的地方"
+}
+
+要求：
+- 只做草稿，不要声称已经改写课程结构。
+- 尽量把学习目标、知识目标、技能目标、素养/思政目标、考核要求分开，不要混写成一段话。
+- 章节、小节和知识点要面向中高职课堂，不要使用 MBA/投行语境。
+- taskSuggestions 只给少量高价值建议，slot 必须是 pre/in/post。
+
+素材文本：
+${input.extractedText.slice(0, AI_SOURCE_TEXT_LIMIT)}`;
 }
 
 function dedupeTags(tags: string[]) {
