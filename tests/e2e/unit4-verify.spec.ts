@@ -254,3 +254,194 @@ test.describe.serial("Unit 4 commit-2: 编辑模式 UI 扩 (quiz + scoring)", ()
     expect(cleanJson.success).toBe(true);
   });
 });
+
+// === Unit 4 r2: allocation editing + sim/sub full save ===
+
+const SIM_TASK_NO_SUB = "a308c7ba-2713-4c2d-9441-c92927e3f9f4"; // teacher1, sim, 0 graded, 1 allocation section "资产配置方案"
+const SUB_TASK_NO_SUB = "aff902a3-a669-4181-91ea-613519b9f4d2"; // teacher1, sub, 0 graded
+
+async function loginTeacher1(page: Page) {
+  await page.goto(`${BASE}/login`);
+  await page.waitForLoadState("domcontentloaded");
+  await page.fill('input[type="email"]', "teacher1@finsim.edu.cn");
+  await page.fill('input[type="password"]', "password123");
+  await Promise.all([
+    page
+      .waitForURL((u) => !/\/login(\?|$)/.test(u.pathname + u.search), {
+        timeout: 25_000,
+      })
+      .catch(() => {}),
+    page.click('button[type="submit"]'),
+  ]);
+  await page.waitForLoadState("networkidle").catch(() => {});
+}
+
+test.describe.serial("Unit 4 r2: allocation editing + sim/sub full save", () => {
+  test("I: simulation task — 编辑模式 allocation 分区可见 + 添加条目 + 保存", async ({
+    page,
+  }) => {
+    await loginTeacher1(page);
+
+    // 通过 API 拿到 baseline allocation 条目数
+    const baseRes = await page.request.get(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`);
+    const baseJson = await baseRes.json();
+    interface AllocItem { id: string; label: string; order: number; }
+    interface AllocSec { id: string; label: string; order: number; items: AllocItem[]; }
+    const baseSections = baseJson.data.allocationSections as AllocSec[];
+    const baseSec0ItemCount = baseSections[0]?.items?.length ?? 0;
+    console.log("sim task baseline section[0] items:", baseSec0ItemCount);
+
+    // 通过 API patch：第 0 个 section 加一个条目 "QA-r2-test-item"
+    const newSections = baseSections.map((sec, idx) => ({
+      label: sec.label,
+      order: idx,
+      items:
+        idx === 0
+          ? [
+              ...sec.items.map((it, i) => ({ label: it.label, order: i })),
+              { label: "QA-r2-test-item", order: sec.items.length },
+            ]
+          : sec.items.map((it, i) => ({ label: it.label, order: i })),
+    }));
+    const patchRes = await page.request.patch(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`, {
+      data: { allocationSections: newSections },
+    });
+    const patchJson = await patchRes.json();
+    expect(patchJson.success).toBe(true);
+
+    // 重读校验
+    const afterRes = await page.request.get(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`);
+    const afterJson = await afterRes.json();
+    const afterSections = afterJson.data.allocationSections as AllocSec[];
+    const newCount = afterSections[0].items.length;
+    console.log("sim task after PATCH section[0] items:", newCount);
+    expect(newCount).toBe(baseSec0ItemCount + 1);
+    expect(afterSections[0].items.some((it) => it.label === "QA-r2-test-item")).toBe(true);
+
+    // 清理：还原回 baseline
+    const cleanRes = await page.request.patch(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`, {
+      data: {
+        allocationSections: baseSections.map((sec, idx) => ({
+          label: sec.label,
+          order: idx,
+          items: sec.items.map((it, i) => ({ label: it.label, order: i })),
+        })),
+      },
+    });
+    const cleanJson = await cleanRes.json();
+    expect(cleanJson.success).toBe(true);
+
+    // UI 验证：编辑模式显示「添加分区」+「添加条目」按钮
+    await page.goto(`${BASE}/teacher/tasks/${SIM_TASK_NO_SUB}`);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(1500);
+    await page.getByRole("button", { name: /编辑/ }).first().click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SS}/09-sim-edit-mode.png`, fullPage: true });
+    await expect(page.getByRole("button", { name: /添加分区/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /添加条目/ }).first()).toBeVisible();
+  });
+
+  test("J: simulation task — 改 systemPrompt 中的核心人设 → 保存 → 回看反映", async ({
+    page,
+  }) => {
+    await loginTeacher1(page);
+
+    // baseline systemPrompt
+    const baseRes = await page.request.get(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`);
+    const baseJson = await baseRes.json();
+    const basePrompt = baseJson.data.simulationConfig.systemPrompt as string;
+    console.log("sim baseline systemPrompt len:", basePrompt?.length);
+
+    // 通过 API patch: 改核心人设的内容（注入一行 marker）
+    const marker = `QA-r2-test-persona-${Date.now()}`;
+    const newSystemPrompt =
+      basePrompt && basePrompt.includes("【核心人设】")
+        ? basePrompt.replace(
+            /【核心人设】\n([\s\S]*?)(?=\n\n【|$)/,
+            `【核心人设】\n$1\n${marker}`,
+          )
+        : `${basePrompt ?? ""}\n\n【核心人设】\n${marker}`;
+    const patchRes = await page.request.patch(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`, {
+      data: {
+        simulationConfig: {
+          scenario: baseJson.data.simulationConfig.scenario,
+          openingLine: baseJson.data.simulationConfig.openingLine,
+          dialogueRequirements:
+            baseJson.data.simulationConfig.dialogueRequirements ?? undefined,
+          strictnessLevel: baseJson.data.simulationConfig.strictnessLevel,
+          systemPrompt: newSystemPrompt,
+        },
+      },
+    });
+    const patchJson = await patchRes.json();
+    console.log("sim PATCH systemPrompt:", JSON.stringify(patchJson).slice(0, 200));
+    expect(patchJson.success).toBe(true);
+
+    // 回读
+    const afterRes = await page.request.get(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`);
+    const afterJson = await afterRes.json();
+    const afterPrompt = afterJson.data.simulationConfig.systemPrompt as string;
+    expect(afterPrompt).toContain(marker);
+
+    // 清理
+    const cleanRes = await page.request.patch(`${BASE}/api/tasks/${SIM_TASK_NO_SUB}`, {
+      data: {
+        simulationConfig: {
+          scenario: baseJson.data.simulationConfig.scenario,
+          openingLine: baseJson.data.simulationConfig.openingLine,
+          dialogueRequirements:
+            baseJson.data.simulationConfig.dialogueRequirements ?? undefined,
+          strictnessLevel: baseJson.data.simulationConfig.strictnessLevel,
+          systemPrompt: basePrompt ?? undefined,
+        },
+      },
+    });
+    expect((await cleanRes.json()).success).toBe(true);
+  });
+
+  test("K: subjective task — 改 prompt → 保存 → 回看反映", async ({ page }) => {
+    await loginTeacher1(page);
+
+    const baseRes = await page.request.get(`${BASE}/api/tasks/${SUB_TASK_NO_SUB}`);
+    const baseJson = await baseRes.json();
+    const basePrompt = baseJson.data.subjectiveConfig.prompt as string;
+    console.log("sub baseline prompt:", basePrompt.slice(0, 80));
+
+    const marker = `QA-r2-test-prompt-${Date.now()}`;
+    const newPrompt = `${basePrompt}\n\n[${marker}]`;
+    const patchRes = await page.request.patch(`${BASE}/api/tasks/${SUB_TASK_NO_SUB}`, {
+      data: {
+        subjectiveConfig: {
+          prompt: newPrompt,
+          allowTextAnswer: baseJson.data.subjectiveConfig.allowTextAnswer,
+          allowedAttachmentTypes:
+            baseJson.data.subjectiveConfig.allowedAttachmentTypes,
+          strictnessLevel: baseJson.data.subjectiveConfig.strictnessLevel,
+        },
+      },
+    });
+    const patchJson = await patchRes.json();
+    console.log("sub PATCH:", JSON.stringify(patchJson).slice(0, 200));
+    expect(patchJson.success).toBe(true);
+
+    const afterRes = await page.request.get(`${BASE}/api/tasks/${SUB_TASK_NO_SUB}`);
+    const afterJson = await afterRes.json();
+    const afterPrompt = afterJson.data.subjectiveConfig.prompt as string;
+    expect(afterPrompt).toContain(marker);
+
+    // 清理
+    const cleanRes = await page.request.patch(`${BASE}/api/tasks/${SUB_TASK_NO_SUB}`, {
+      data: {
+        subjectiveConfig: {
+          prompt: basePrompt,
+          allowTextAnswer: baseJson.data.subjectiveConfig.allowTextAnswer,
+          allowedAttachmentTypes:
+            baseJson.data.subjectiveConfig.allowedAttachmentTypes,
+          strictnessLevel: baseJson.data.subjectiveConfig.strictnessLevel,
+        },
+      },
+    });
+    expect((await cleanRes.json()).success).toBe(true);
+  });
+});

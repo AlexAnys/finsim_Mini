@@ -198,6 +198,8 @@ export default function TaskDetailPage() {
   const [editQuestions, setEditQuestions] = useState<QuizQuestion[]>([]);
   // Unit 4 commit-2: scoring criteria
   const [editCriteria, setEditCriteria] = useState<ScoringCriterion[]>([]);
+  // Unit 4 commit-3 r2: allocation sections
+  const [editAllocations, setEditAllocations] = useState<AllocationSection[]>([]);
 
   const fetchTask = useCallback(async () => {
     try {
@@ -251,6 +253,20 @@ export default function TaskDetailPage() {
             .slice()
             .sort((a: ScoringCriterion, b: ScoringCriterion) => a.order - b.order)
             .map((c: ScoringCriterion) => ({ ...c })),
+        );
+      }
+      if (Array.isArray(json.data.allocationSections)) {
+        setEditAllocations(
+          json.data.allocationSections
+            .slice()
+            .sort((a: AllocationSection, b: AllocationSection) => a.order - b.order)
+            .map((sec: AllocationSection) => ({
+              ...sec,
+              items: sec.items
+                .slice()
+                .sort((a, b) => a.order - b.order)
+                .map((it) => ({ ...it })),
+            })),
         );
       }
     } catch {
@@ -333,6 +349,20 @@ export default function TaskDetailPage() {
         description: c.description?.trim() || undefined,
         maxPoints: c.maxPoints,
         order: idx,
+      }));
+    }
+    // Unit 4 commit-3 r2: allocation sections (仅 simulation 任务在 wizard 创建时填）
+    if (
+      editAllocations.length > 0 ||
+      (task?.allocationSections.length ?? 0) > 0
+    ) {
+      body.allocationSections = editAllocations.map((sec, idx) => ({
+        label: sec.label.trim(),
+        order: idx,
+        items: sec.items.map((it, iidx) => ({
+          label: it.label.trim(),
+          order: iidx,
+        })),
       }));
     }
     return body;
@@ -1008,28 +1038,156 @@ export default function TaskDetailPage() {
       )}
 
       {/* Allocation Sections */}
-      {task.allocationSections.length > 0 && (
+      {(task.allocationSections.length > 0 ||
+        (editing && task.taskType === "simulation")) && (
         <Card>
           <CardHeader>
-            <CardTitle>资产配置</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>资产配置</CardTitle>
+              {editing && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setEditAllocations((arr) => [
+                      ...arr,
+                      {
+                        id: `new-sec-${Date.now()}`,
+                        label: "",
+                        order: arr.length,
+                        items: [],
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="size-3 mr-1" />
+                  添加分区
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {task.allocationSections
-              .sort((a, b) => a.order - b.order)
-              .map((section) => (
-                <div key={section.id} className="rounded-lg border p-3">
-                  <p className="text-sm font-medium">{section.label}</p>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {section.items
-                      .sort((a, b) => a.order - b.order)
-                      .map((item) => (
-                        <Badge key={item.id} variant="outline">
-                          {item.label}
-                        </Badge>
+            {editing ? (
+              editAllocations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">暂无资产配置分区，点「添加分区」开始。</p>
+              ) : (
+                editAllocations.map((sec, secIdx) => (
+                  <div key={sec.id} className="rounded-lg border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="分区名称（如：资产配置方案 / 资金安排）"
+                        value={sec.label}
+                        onChange={(e) =>
+                          setEditAllocations((arr) =>
+                            arr.map((it, i) =>
+                              i === secIdx ? { ...it, label: e.target.value } : it,
+                            ),
+                          )
+                        }
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setEditAllocations((arr) =>
+                            arr.filter((_, i) => i !== secIdx),
+                          )
+                        }
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <X className="size-3" />
+                      </Button>
+                    </div>
+                    <div className="space-y-1 pl-2">
+                      {sec.items.length === 0 && (
+                        <p className="text-xs text-muted-foreground">该分区暂无条目。</p>
+                      )}
+                      {sec.items.map((item, itIdx) => (
+                        <div key={item.id} className="flex items-center gap-2">
+                          <Input
+                            placeholder={`条目 ${itIdx + 1}`}
+                            value={item.label}
+                            onChange={(e) =>
+                              setEditAllocations((arr) =>
+                                arr.map((s, i) => {
+                                  if (i !== secIdx) return s;
+                                  return {
+                                    ...s,
+                                    items: s.items.map((it, j) =>
+                                      j === itIdx ? { ...it, label: e.target.value } : it,
+                                    ),
+                                  };
+                                }),
+                              )
+                            }
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setEditAllocations((arr) =>
+                                arr.map((s, i) => {
+                                  if (i !== secIdx) return s;
+                                  return {
+                                    ...s,
+                                    items: s.items.filter((_, j) => j !== itIdx),
+                                  };
+                                }),
+                              )
+                            }
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <X className="size-3" />
+                          </Button>
+                        </div>
                       ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setEditAllocations((arr) =>
+                            arr.map((s, i) => {
+                              if (i !== secIdx) return s;
+                              return {
+                                ...s,
+                                items: [
+                                  ...s.items,
+                                  {
+                                    id: `new-item-${Date.now()}`,
+                                    label: "",
+                                    order: s.items.length,
+                                  },
+                                ],
+                              };
+                            }),
+                          )
+                        }
+                      >
+                        <Plus className="size-3 mr-1" />
+                        添加条目
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )
+            ) : (
+              task.allocationSections
+                .sort((a, b) => a.order - b.order)
+                .map((section) => (
+                  <div key={section.id} className="rounded-lg border p-3">
+                    <p className="text-sm font-medium">{section.label}</p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {section.items
+                        .sort((a, b) => a.order - b.order)
+                        .map((item) => (
+                          <Badge key={item.id} variant="outline">
+                            {item.label}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                ))
+            )}
           </CardContent>
         </Card>
       )}
