@@ -37,6 +37,9 @@ export function deriveAnalysisStatus(args: {
  * - 不动 transcript / answers / textAnswer / attachments（学生自己提交的内容仍可见）
  * - 总是附 analysisStatus 字段
  *
+ * Fix 6 例外：当 status="failed" 时保留 evaluation.feedback 字段（仅 feedback 一个字段），
+ * 让学生在 grades 页看到「AI 批改暂未完成…」的中文提示。其余敏感字段照常剥离。
+ *
  * 注：当 releasedAt 非 null 时，此函数仍返回原始数据（仅加 analysisStatus="released"），不剥离。
  */
 export function stripSubmissionForStudent<T extends Record<string, unknown>>(submission: T): T & { analysisStatus: SubmissionAnalysisStatus } {
@@ -56,12 +59,24 @@ export function stripSubmissionForStudent<T extends Record<string, unknown>>(sub
   stripped.score = null;
   stripped.maxScore = null;
 
+  // Fix 6: status="failed" 时保留 evaluation.feedback（学生需要看到中文失败提示），
+  // 但仍剥离 score 与 rubricBreakdown / conceptTags（避免泄露评分结构）。
+  const isFailed = status === "failed";
+
   for (const sub of ["simulationSubmission", "quizSubmission", "subjectiveSubmission"] as const) {
     const detail = stripped[sub] as Record<string, unknown> | null | undefined;
     if (detail && typeof detail === "object") {
+      let preservedEvaluation: Record<string, unknown> | null = null;
+      if (isFailed) {
+        const ev = detail.evaluation as Record<string, unknown> | null | undefined;
+        const feedback = ev && typeof ev === "object" ? ev.feedback : undefined;
+        if (typeof feedback === "string" && feedback.length > 0) {
+          preservedEvaluation = { feedback };
+        }
+      }
       stripped[sub] = {
         ...detail,
-        evaluation: null,
+        evaluation: preservedEvaluation,
         conceptTags: [],
       };
     }

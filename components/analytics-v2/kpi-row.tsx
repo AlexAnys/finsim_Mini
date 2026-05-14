@@ -8,10 +8,16 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock3,
+  Info,
   Target,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { KpiTrailingVisual } from "@/components/analytics-v2/kpi-trailing-visual";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +93,7 @@ export type KpiKind =
 interface KpiCardProps {
   icon: LucideIcon;
   label: string;
+  labelTooltip?: React.ReactNode;
   value: string;
   sub?: string;
   warning?: boolean;
@@ -100,6 +107,7 @@ interface KpiCardProps {
 function KpiCard({
   icon: Icon,
   label,
+  labelTooltip,
   value,
   sub,
   warning = false,
@@ -129,6 +137,27 @@ function KpiCard({
               )}
             />
             <span className="text-xs font-medium text-muted-foreground">{label}</span>
+            {labelTooltip && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${label}口径说明`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex size-3.5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                  >
+                    <Info className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  align="start"
+                  className="max-w-[280px] whitespace-normal text-left leading-relaxed"
+                >
+                  {labelTooltip}
+                </TooltipContent>
+              </Tooltip>
+            )}
             {warning && (
               <Badge
                 variant="outline"
@@ -202,6 +231,12 @@ export function KpiRow({ diagnosis, onKpiClick }: KpiRowProps) {
       <KpiCard
         icon={CheckCircle2}
         label="完成率"
+        labelTooltip={
+          <>
+            完成率 = 至少提交一次作业的学生数 ÷ 应交学生数。
+            本页与「教师仪表盘」口径不同：仪表盘按「各任务提交总数 ÷ 各任务应交总数（按班级人数 × 任务数累计）」。
+          </>
+        }
         value={formatRate(kpis.completionRate)}
         sub={`${kpis.submittedStudents}/${kpis.assignedStudents} 人次`}
         warning={hasQualityCategory(dataQualityFlags, ["assignment", "aggregation"])}

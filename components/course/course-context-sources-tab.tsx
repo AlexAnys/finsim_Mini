@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
-import { BookOpen, Eye, FileText, Layers, ListChecks, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
+import { BookOpen, Eye, FileText, Layers, ListChecks, Loader2, RefreshCw, RotateCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { isKnowledgeSourceRetryable } from "@/lib/utils/knowledge-source-status";
 
 interface ContextTaskInstance {
   id: string;
@@ -114,6 +115,7 @@ export function CourseContextSourcesTab({
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const flattenedTasks = useMemo(() => {
@@ -234,6 +236,27 @@ export function CourseContextSourcesTab({
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function handleRetry(source: KnowledgeSourceItem) {
+    setRetryingSourceId(source.id);
+    try {
+      const res = await fetch(
+        `/api/lms/course-knowledge-sources/${encodeURIComponent(source.id)}/retry`,
+        { method: "POST" },
+      );
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "重新解析失败");
+        return;
+      }
+      toast.success("已重新排队 AI 解析");
+      await fetchSources();
+    } catch {
+      toast.error("重新解析失败");
+    } finally {
+      setRetryingSourceId(null);
     }
   }
 
@@ -482,6 +505,23 @@ export function CourseContextSourcesTab({
                           <Eye className="mr-1 size-3" />
                           查看解析
                         </Button>
+                        {isKnowledgeSourceRetryable(source.status) && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={retryingSourceId === source.id}
+                            onClick={() => handleRetry(source)}
+                          >
+                            {retryingSourceId === source.id ? (
+                              <Loader2 className="mr-1 size-3 animate-spin" />
+                            ) : (
+                              <RotateCw className="mr-1 size-3" />
+                            )}
+                            重新 AI 解析
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           size="sm"

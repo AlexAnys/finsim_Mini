@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { QuizRunner } from "@/components/quiz/quiz-runner";
 import { SubjectiveRunner } from "@/components/subjective/subjective-runner";
+import { NotFoundState, ForbiddenState } from "@/components/states";
 
 interface ScoringCriterion {
   id: string;
@@ -226,7 +227,7 @@ export default function StudentTaskPage() {
 
   const [instance, setInstance] = useState<TaskInstanceDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code: string | null; message: string } | null>(null);
 
   useEffect(() => {
     async function fetchTask() {
@@ -234,7 +235,10 @@ export default function StudentTaskPage() {
         const res = await fetch(`/api/lms/task-instances/${taskInstanceId}`);
         const json = await res.json();
         if (!json.success) {
-          setError(json.error?.message || "加载失败");
+          setError({
+            code: json.error?.code ?? null,
+            message: json.error?.message || "加载失败",
+          });
           return;
         }
 
@@ -248,7 +252,7 @@ export default function StudentTaskPage() {
 
         setInstance(data);
       } catch {
-        setError("网络错误，请稍后重试");
+        setError({ code: "NETWORK_ERROR", message: "网络错误，请稍后重试" });
       } finally {
         setLoading(false);
       }
@@ -266,11 +270,25 @@ export default function StudentTaskPage() {
   }
 
   if (error) {
+    if (error.code === "FORBIDDEN") {
+      return (
+        <ForbiddenState
+          title="你还不能进入这个任务"
+          description={error.message || "这个任务可能不属于你所在的班级。"}
+          primaryAction={{ label: "返回作业列表", href: "/dashboard" }}
+          secondaryAction={{ label: "查看课程", href: "/courses" }}
+          fullPage={false}
+        />
+      );
+    }
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-2">
-        <AlertCircle className="size-8 text-destructive" />
-        <p className="text-destructive">{error}</p>
-      </div>
+      <NotFoundState
+        title="任务不存在"
+        description={error.message || "你访问的任务实例不存在或已被删除。"}
+        primaryAction={{ label: "返回作业列表", href: "/dashboard" }}
+        secondaryAction={{ label: "查看课程", href: "/courses" }}
+        fullPage={false}
+      />
     );
   }
 

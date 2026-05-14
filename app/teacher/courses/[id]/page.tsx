@@ -35,6 +35,8 @@ import {
   Check,
   X,
   Upload,
+  RotateCw,
+  FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,6 +79,12 @@ import {
   type BlockType,
   type SlotType,
 } from "@/lib/utils/course-editor-transforms";
+import {
+  isKnowledgeSourceProcessing,
+  isKnowledgeSourceRetryable,
+  knowledgeSourceStatusLabel,
+  knowledgeSourceProgressPercent,
+} from "@/lib/utils/knowledge-source-status";
 
 // ---------- API types ----------
 
@@ -142,7 +150,9 @@ interface CourseOutlineSource {
   id: string;
   fileName: string;
   status: string;
+  sourceType: string | null;
   summary: string | null;
+  error: string | null;
   structuredData: unknown;
 }
 
@@ -209,7 +219,11 @@ export default function TeacherCourseDetailPage() {
   const [outlineDialogOpen, setOutlineDialogOpen] = useState(false);
   const [outlineFile, setOutlineFile] = useState<File | null>(null);
   const [outlineTags, setOutlineTags] = useState("课程大纲,课程结构");
+  const [outlineDialogSourceType, setOutlineDialogSourceType] = useState<
+    "syllabus" | "question_bank"
+  >("syllabus");
   const [uploadingOutline, setUploadingOutline] = useState(false);
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
 
   // ---------- Chapter / Section dialogs ----------
 
@@ -440,7 +454,7 @@ export default function TeacherCourseDetailPage() {
     fetchCourseOutlineSources();
   }
 
-  async function fetchCourseOutlineSources() {
+  const fetchCourseOutlineSources = useCallback(async () => {
     try {
       const params = new URLSearchParams({ courseId, sourceType: "syllabus" });
       const res = await fetch(`/api/lms/course-knowledge-sources?${params}`);
@@ -449,7 +463,19 @@ export default function TeacherCourseDetailPage() {
     } catch {
       // 课程编辑不因大纲素材加载失败而阻塞。
     }
-  }
+  }, [courseId]);
+
+  useEffect(() => {
+    if (!editCourseDialogOpen) return;
+    const hasProcessing = courseOutlineSources.some((source) =>
+      isKnowledgeSourceProcessing(source.status),
+    );
+    if (!hasProcessing) return;
+    const timer = window.setInterval(() => {
+      fetchCourseOutlineSources();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [editCourseDialogOpen, courseOutlineSources, fetchCourseOutlineSources]);
 
   function openOutlineEditor(source: CourseOutlineSource) {
     const nextSourceId = outlineActiveSourceId === source.id ? null : source.id;
@@ -868,7 +894,11 @@ export default function TeacherCourseDetailPage() {
 
   async function handleUploadOutline() {
     if (!outlineFile) {
-      toast.error("请选择课程大纲或课程内容文件");
+      toast.error(
+        outlineDialogSourceType === "question_bank"
+          ? "请选择题库文件"
+          : "请选择课程大纲或课程内容文件",
+      );
       return;
     }
     setUploadingOutline(true);
@@ -876,22 +906,59 @@ export default function TeacherCourseDetailPage() {
       const formData = new FormData();
       formData.append("file", outlineFile);
       formData.append("tags", outlineTags);
-      const res = await fetch(`/api/lms/courses/${courseId}/outline-import`, {
+      let endpoint = `/api/lms/courses/${courseId}/outline-import`;
+      if (outlineDialogSourceType === "question_bank") {
+        formData.append("courseId", courseId);
+        formData.append("sourceType", "question_bank");
+        endpoint = "/api/lms/course-knowledge-sources";
+      }
+      const res = await fetch(endpoint, {
         method: "POST",
         body: formData,
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "上传课程大纲失败");
+        toast.error(
+          json.error?.message ||
+            (outlineDialogSourceType === "question_bank"
+              ? "上传题库失败"
+              : "上传课程大纲失败"),
+        );
         return;
       }
-      toast.success("课程大纲已上传，正在异步识别与解析");
+      toast.success(
+        outlineDialogSourceType === "question_bank"
+          ? "题库已上传，正在异步识别与解析（可在「教学上下文」Tab 查看）"
+          : "课程大纲已上传，正在异步识别与解析",
+      );
       setOutlineDialogOpen(false);
       setOutlineFile(null);
+      fetchCourseOutlineSources();
     } catch {
       toast.error("网络错误，请稍后重试");
     } finally {
       setUploadingOutline(false);
+    }
+  }
+
+  async function handleRetryKnowledgeSource(sourceId: string) {
+    setRetryingSourceId(sourceId);
+    try {
+      const res = await fetch(
+        `/api/lms/course-knowledge-sources/${sourceId}/retry`,
+        { method: "POST" },
+      );
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "重新解析失败");
+        return;
+      }
+      toast.success("已重新排队 AI 解析");
+      fetchCourseOutlineSources();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setRetryingSourceId(null);
     }
   }
 
@@ -1035,7 +1102,11 @@ export default function TeacherCourseDetailPage() {
         onAddChapter={() => setChapterDialogOpen(true)}
         onAddTeacher={() => setTeacherDialogOpen(true)}
         onEditCourse={openEditCourseDialog}
-        onUploadSyllabus={() => setOutlineDialogOpen(true)}
+        onUploadSyllabus={() => {
+          setOutlineDialogSourceType("syllabus");
+          setOutlineTags("课程大纲,课程结构");
+          setOutlineDialogOpen(true);
+        }}
         onAddClass={() => {
           setAddClassDialogOpen(true);
           fetchAvailableClasses();
@@ -1429,21 +1500,39 @@ export default function TeacherCourseDetailPage() {
                 <div>
                   <div className="text-sm font-semibold text-ink">AI 解析大纲管理</div>
                   <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-                    上传的课程大纲、课程标准和 Excel 编码表会被识别为课程级上下文。可先查看结构化结果，再用安全合并把缺失章节/小节同步到课程目录。
+                    上传的课程大纲、课程标准和 Excel 编码表会被识别为课程级上下文。可先查看结构化结果，再用安全合并把缺失章节/小节同步到课程目录。题库文件请走「上传题库」入口，避免被走 AI 大纲解析浪费时间。
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditCourseDialogOpen(false);
-                    setOutlineDialogOpen(true);
-                  }}
-                >
-                  <Upload className="mr-1.5 size-3.5" />
-                  继续上传
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setOutlineDialogSourceType("syllabus");
+                      setOutlineTags("课程大纲,课程结构");
+                      setEditCourseDialogOpen(false);
+                      setOutlineDialogOpen(true);
+                    }}
+                  >
+                    <Upload className="mr-1.5 size-3.5" />
+                    上传大纲
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setOutlineDialogSourceType("question_bank");
+                      setOutlineTags("课程题库");
+                      setEditCourseDialogOpen(false);
+                      setOutlineDialogOpen(true);
+                    }}
+                  >
+                    <FileSpreadsheet className="mr-1.5 size-3.5" />
+                    上传题库
+                  </Button>
+                </div>
               </div>
               {courseOutlineSources.length === 0 ? (
                 <p className="mt-3 rounded-md border border-dashed border-line bg-surface px-3 py-3 text-xs text-muted-foreground">
@@ -1460,8 +1549,16 @@ export default function TeacherCourseDetailPage() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate text-sm font-medium text-ink">{source.fileName}</span>
-                            <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10.5px] text-brand">
-                              {source.status === "ready" ? "可用" : source.status}
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10.5px] ${
+                                source.status === "ready"
+                                  ? "bg-brand-soft text-brand"
+                                  : isKnowledgeSourceProcessing(source.status)
+                                    ? "bg-paper-alt text-ink-4"
+                                    : "bg-warn-soft text-warn"
+                              }`}
+                            >
+                              {knowledgeSourceStatusLabel(source.status)}
                             </span>
                             {hasOutline && (
                               <span className="rounded bg-paper-alt px-1.5 py-0.5 text-[10.5px] text-ink-4">
@@ -1469,10 +1566,23 @@ export default function TeacherCourseDetailPage() {
                               </span>
                             )}
                           </div>
+                          {isKnowledgeSourceProcessing(source.status) && (
+                            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-paper-alt">
+                              <div
+                                className="h-full bg-brand transition-all"
+                                style={{
+                                  width: `${knowledgeSourceProgressPercent(source.status)}%`,
+                                }}
+                              />
+                            </div>
+                          )}
                           {source.summary && (
                             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                               {source.summary}
                             </p>
+                          )}
+                          {source.error && isKnowledgeSourceRetryable(source.status) && (
+                            <p className="mt-1 text-[11px] text-warn">{source.error}</p>
                           )}
                           {outlineObjectiveSummary(source.structuredData) && (
                             <p className="mt-1 text-[11px] leading-relaxed text-ink-4">
@@ -1481,6 +1591,22 @@ export default function TeacherCourseDetailPage() {
                           )}
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-1.5">
+                          {isKnowledgeSourceRetryable(source.status) && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={retryingSourceId === source.id}
+                              onClick={() => handleRetryKnowledgeSource(source.id)}
+                            >
+                              {retryingSourceId === source.id ? (
+                                <Loader2 className="mr-1.5 size-3 animate-spin" />
+                              ) : (
+                                <RotateCw className="mr-1.5 size-3" />
+                              )}
+                              重新 AI 解析
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             variant="outline"
@@ -1582,15 +1708,21 @@ export default function TeacherCourseDetailPage() {
       <Dialog open={outlineDialogOpen} onOpenChange={setOutlineDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>上传课程大纲 / 课程内容</DialogTitle>
+            <DialogTitle>
+              {outlineDialogSourceType === "question_bank"
+                ? "上传课程题库"
+                : "上传课程大纲 / 课程内容"}
+            </DialogTitle>
             <DialogDescription>
-              文件会保存为课程级上下文。AI 只生成目录草稿和知识点建议，教师确认后再调整课程结构。
+              {outlineDialogSourceType === "question_bank"
+                ? "题库文件不会被走 AI 大纲解析；regex 可直接识别的题目会作为题库素材保存到「教学上下文」Tab。"
+                : "文件会保存为课程级上下文。AI 只生成目录草稿和知识点建议，教师确认后再调整课程结构。"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="rounded-lg border border-dashed border-line bg-paper-alt/50 p-4">
               <Label htmlFor="outlineFile" className="mb-2 block">
-                课程文件
+                {outlineDialogSourceType === "question_bank" ? "题库文件" : "课程文件"}
               </Label>
               <Input
                 id="outlineFile"
@@ -1599,7 +1731,9 @@ export default function TeacherCourseDetailPage() {
                 onChange={(event) => setOutlineFile(event.target.files?.[0] ?? null)}
               />
               <p className="mt-2 text-xs text-muted-foreground">
-                支持 PDF、DOCX、TXT/MD、图片、ZIP、XLS/XLSX/CSV。扫描件会进入 OCR 流程。
+                {outlineDialogSourceType === "question_bank"
+                  ? "支持 PDF、DOCX、TXT/MD、XLS/XLSX/CSV、ZIP。题库直抽 regex 路径不变。"
+                  : "支持 PDF、DOCX、TXT/MD、图片、ZIP、XLS/XLSX/CSV。扫描件会进入 OCR 流程。"}
               </p>
             </div>
             <div className="space-y-2">
@@ -1608,7 +1742,11 @@ export default function TeacherCourseDetailPage() {
                 id="outlineTags"
                 value={outlineTags}
                 onChange={(event) => setOutlineTags(event.target.value)}
-                placeholder="例如：课程大纲,知识点,期末复习"
+                placeholder={
+                  outlineDialogSourceType === "question_bank"
+                    ? "例如：课程题库,期末"
+                    : "例如：课程大纲,知识点,期末复习"
+                }
               />
               <p className="text-xs text-muted-foreground">
                 用英文逗号分隔，后续 AI 出题和上下文检索会用这些标签筛选素材。
