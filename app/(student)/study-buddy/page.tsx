@@ -12,6 +12,7 @@
 //     · 匿名同上，由 post 创建时锁定
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -58,6 +59,15 @@ export default function StudyBuddyPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  // Unit 6: dashboard ai-buddy-callout 跳转时带 ?openNew=true 自动进通用提问
+  useEffect(() => {
+    if (searchParams.get("openNew") === "true") {
+      setShowNewDialog(true);
+      setIsGeneralMode(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Unit 5b: 删除（隐藏）post confirm
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
@@ -73,6 +83,9 @@ export default function StudyBuddyPage() {
   const [newMode, setNewMode] = useState<StudyBuddyMode>("socratic");
   const [newAnonymous, setNewAnonymous] = useState(false);
   const [newTaskInstanceId, setNewTaskInstanceId] = useState("");
+  // Unit 6: "通用提问 / 任务相关" mode + 通用模式下可选关联课程
+  const [isGeneralMode, setIsGeneralMode] = useState(false);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [isCreating, setIsCreating] = useState(false);
 
   // 初始拉两个端点（并行）
@@ -156,6 +169,8 @@ export default function StudyBuddyPage() {
       !selectableTasks.some((task) => task.id === newTaskInstanceId)
     ) {
       setNewTaskInstanceId("");
+      setIsGeneralMode(false);
+      setSelectedCourseId("");
     }
   }, [newTaskInstanceId, selectableTasks]);
 
@@ -204,30 +219,42 @@ export default function StudyBuddyPage() {
       toast.error("请填写标题和问题");
       return;
     }
-    const selectedTask = selectableTasks.find(
-      (task) => task.id === newTaskInstanceId,
-    );
-    if (!selectedTask?.taskId) {
-      toast.error(
-        selectableTasks.length > 0
-          ? "请选择要关联的任务"
-          : "当前学期暂无可关联的任务，无法发起对话",
+    let payload: Record<string, unknown>;
+    if (isGeneralMode) {
+      payload = {
+        title: newTitle.trim(),
+        question: newQuestion.trim(),
+        mode: newMode,
+        anonymous: newAnonymous,
+        ...(selectedCourseId && { courseId: selectedCourseId }),
+      };
+    } else {
+      const selectedTask = selectableTasks.find(
+        (task) => task.id === newTaskInstanceId,
       );
-      return;
+      if (!selectedTask?.taskId) {
+        toast.error(
+          selectableTasks.length > 0
+            ? "请选择要关联的任务"
+            : "当前学期暂无可关联的任务，无法发起对话",
+        );
+        return;
+      }
+      payload = {
+        taskId: selectedTask.taskId,
+        taskInstanceId: selectedTask.id,
+        title: newTitle.trim(),
+        question: newQuestion.trim(),
+        mode: newMode,
+        anonymous: newAnonymous,
+      };
     }
     setIsCreating(true);
     try {
       const res = await fetch("/api/study-buddy/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: selectedTask.taskId,
-          taskInstanceId: selectedTask.id,
-          title: newTitle.trim(),
-          question: newQuestion.trim(),
-          mode: newMode,
-          anonymous: newAnonymous,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!json.success) {
@@ -241,6 +268,8 @@ export default function StudyBuddyPage() {
       setNewMode("socratic");
       setNewAnonymous(false);
       setNewTaskInstanceId("");
+      setIsGeneralMode(false);
+      setSelectedCourseId("");
 
       // 立即把新 post 注入列表（等待 3s 轮询补全 messages/aiReply）
       const created = json.data as RawStudyBuddyPost | null;
@@ -385,11 +414,15 @@ export default function StudyBuddyPage() {
         tasks={selectableTasks}
         selectedTaskInstanceId={newTaskInstanceId}
         isSubmitting={isCreating}
+        isGeneralMode={isGeneralMode}
+        selectedCourseId={selectedCourseId}
         onTitleChange={setNewTitle}
         onQuestionChange={setNewQuestion}
         onModeChange={setNewMode}
         onAnonymousChange={setNewAnonymous}
         onSelectedTaskInstanceIdChange={setNewTaskInstanceId}
+        onIsGeneralModeChange={setIsGeneralMode}
+        onSelectedCourseIdChange={setSelectedCourseId}
         onSubmit={handleCreatePost}
       />
 

@@ -262,6 +262,7 @@ model Course {
   classes        CourseClass[] @relation("CourseClasses")
   knowledgeSources CourseKnowledgeSource[]
   taskBuildDrafts TaskBuildDraft[]
+  studyBuddyPosts StudyBuddyPost[]
 
   @@index([classId])
   @@index([createdBy])
@@ -650,7 +651,10 @@ model Attachment {
 model StudyBuddyPost {
   id               String           @id @default(uuid())
   studentId        String
-  taskId           String
+  // Unit 6: taskId nullable — 支持自由问（无关联任务）
+  taskId           String?
+  // Unit 6: courseId 字段 — 自由问可选挂课程；任务相关由 service 自动写入
+  courseId         String?
   taskInstanceId   String?
   title            String           @db.VarChar(500)
   question         String           @db.Text
@@ -668,11 +672,13 @@ model StudyBuddyPost {
   updatedAt        DateTime         @updatedAt
 
   student      User          @relation("StudentStudyBuddy", fields: [studentId], references: [id])
-  task         Task          @relation(fields: [taskId], references: [id])
+  task         Task?         @relation(fields: [taskId], references: [id])
+  course       Course?       @relation(fields: [courseId], references: [id])
   taskInstance TaskInstance?  @relation(fields: [taskInstanceId], references: [id])
 
   @@index([studentId])
   @@index([taskId])
+  @@index([courseId])
   @@index([taskInstanceId])
   @@index([isPreview])
   @@index([hiddenAt])

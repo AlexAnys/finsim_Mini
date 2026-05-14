@@ -45,12 +45,17 @@ interface StudyBuddyNewPostDialogProps {
   tasks: DashboardTaskLite[];
   selectedTaskInstanceId: string;
   isSubmitting: boolean;
+  /** Unit 6: "通用提问 / 任务相关" segmented，受控 */
+  isGeneralMode: boolean;
+  selectedCourseId: string;
   /** 表单 setters */
   onTitleChange: (v: string) => void;
   onQuestionChange: (v: string) => void;
   onModeChange: (m: StudyBuddyMode) => void;
   onAnonymousChange: (v: boolean) => void;
   onSelectedTaskInstanceIdChange: (v: string) => void;
+  onIsGeneralModeChange: (v: boolean) => void;
+  onSelectedCourseIdChange: (v: string) => void;
   onSubmit: () => void;
 }
 
@@ -80,11 +85,15 @@ export function StudyBuddyNewPostDialog({
   tasks,
   selectedTaskInstanceId,
   isSubmitting,
+  isGeneralMode,
+  selectedCourseId,
   onTitleChange,
   onQuestionChange,
   onModeChange,
   onAnonymousChange,
   onSelectedTaskInstanceIdChange,
+  onIsGeneralModeChange,
+  onSelectedCourseIdChange,
   onSubmit,
 }: StudyBuddyNewPostDialogProps) {
   const [courseFilter, setCourseFilter] = useState(ALL_COURSES);
@@ -130,11 +139,12 @@ export function StudyBuddyNewPostDialog({
     filteredTasks.some((task) => task.id === selectedTaskInstanceId);
   const taskSelectValue = selectedTaskStillVisible ? selectedTaskInstanceId : "";
 
-  const canSubmit =
-    selectedTaskStillVisible &&
-    title.trim().length > 0 &&
-    question.trim().length > 0 &&
-    !isSubmitting;
+  const canSubmit = isGeneralMode
+    ? title.trim().length > 0 && question.trim().length > 0 && !isSubmitting
+    : selectedTaskStillVisible &&
+      title.trim().length > 0 &&
+      question.trim().length > 0 &&
+      !isSubmitting;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -149,7 +159,65 @@ export function StudyBuddyNewPostDialog({
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
-          {/* 关联任务 */}
+          {/* Unit 6: segmented "通用提问 / 任务相关" */}
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-paper-alt p-1">
+            <button
+              type="button"
+              onClick={() => onIsGeneralModeChange(true)}
+              aria-pressed={isGeneralMode}
+              className={
+                isGeneralMode
+                  ? "rounded-md px-3 py-1.5 text-[12.5px] font-medium bg-brand text-brand-fg"
+                  : "rounded-md px-3 py-1.5 text-[12.5px] font-medium text-ink-3 hover:bg-paper"
+              }
+            >
+              通用提问
+            </button>
+            <button
+              type="button"
+              onClick={() => onIsGeneralModeChange(false)}
+              aria-pressed={!isGeneralMode}
+              className={
+                !isGeneralMode
+                  ? "rounded-md px-3 py-1.5 text-[12.5px] font-medium bg-brand text-brand-fg"
+                  : "rounded-md px-3 py-1.5 text-[12.5px] font-medium text-ink-3 hover:bg-paper"
+              }
+            >
+              任务相关
+            </button>
+          </div>
+
+          {isGeneralMode && (
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px] font-medium text-ink-2">
+                关联课程（可选）
+              </Label>
+              <Select
+                value={selectedCourseId || ALL_COURSES}
+                onValueChange={(v) => onSelectedCourseIdChange(v === ALL_COURSES ? "" : v)}
+                disabled={isSubmitting || courseOptions.length === 0}
+              >
+                <SelectTrigger className="h-9 w-full border-line bg-paper text-[13.5px]">
+                  <SelectValue placeholder="选择课程（可不选）" />
+                </SelectTrigger>
+                <SelectContent position="popper" className="max-h-72">
+                  <SelectItem value={ALL_COURSES}>不关联课程（全平台通用）</SelectItem>
+                  {courseOptions.map((course) => (
+                    <SelectItem key={course.id} value={course.id}>
+                      {course.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11.5px] leading-relaxed text-ink-4">
+                选了课程，老师可以在「学生提问」管理页看到这条提问；不选则仅你自己可见。
+              </p>
+            </div>
+          )}
+
+          {/* 关联任务（仅任务相关 mode 显示）*/}
+          {!isGeneralMode && (
+          <>
           <div className="space-y-1.5">
             <Label className="text-[12.5px] font-medium text-ink-2">
               课程与章节
@@ -235,6 +303,8 @@ export function StudyBuddyNewPostDialog({
               学习伙伴会根据所选任务的课程上下文回答问题。
             </p>
           </div>
+          </>
+          )}
 
           {/* 标题 */}
           <div className="space-y-1.5">

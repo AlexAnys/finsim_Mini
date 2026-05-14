@@ -5,8 +5,10 @@ import { success, created, validationError, handleServiceError } from "@/lib/api
 import { z } from "zod";
 
 const createPostSchema = z.object({
-  taskId: z.string().uuid(),
+  // Unit 6: taskId 改 optional 支持自由问；自由问可选传 courseId
+  taskId: z.string().uuid().optional(),
   taskInstanceId: z.string().uuid().optional(),
+  courseId: z.string().uuid().optional(),
   title: z.string().min(1).max(500),
   question: z.string().min(1).max(5000),
   mode: z.enum(["socratic", "direct"]),

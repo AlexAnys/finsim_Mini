@@ -13,7 +13,7 @@ interface AiBuddyCalloutProps {
 }
 
 export function AiBuddyCallout({
-  href = "/study-buddy",
+  href = "/study-buddy?openNew=true",
   eyebrow = "学习伙伴",
   title = "随时向 AI 学习伙伴提问",
   hint = "课业疑问、术语解释、案例复习——立即开始对话",
