@@ -389,6 +389,12 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
     dueAt: submission.taskInstance?.dueAt,
     submittedAt: submission.submittedAt,
   });
+  // Unit 8: 把 submission 创建时携带的 adaptive masteryReport merge 进 evaluation Json
+  const existingEvaluation = submission.quizSubmission?.evaluation as
+    | { adaptiveMasteryReport?: unknown }
+    | null;
+  const adaptiveMasteryReport = existingEvaluation?.adaptiveMasteryReport ?? null;
+
   const evaluation = {
     totalScore: penalty.score,
     maxScore,
@@ -398,6 +404,9 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
     ),
     quizBreakdown: breakdown,
     latePenalty: latePenaltyMetadata(penalty),
+    ...(adaptiveMasteryReport
+      ? { adaptiveMasteryReport }
+      : {}),
   };
 
   // PR-FIX-3 C4: quiz 也写 conceptTags（best-effort AI 提取，让 insights aggregate 能聚合 quiz 类）

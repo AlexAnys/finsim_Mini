@@ -157,7 +157,29 @@ export async function createTaskInTransaction(
 }
 
 export async function createTask(creatorId: string, input: CreateTaskInput) {
-  return prisma.$transaction((tx) => createTaskInTransaction(tx, creatorId, input));
+  const task = await prisma.$transaction((tx) =>
+    createTaskInTransaction(tx, creatorId, input),
+  );
+  // Unit 8: adaptive quiz 任务创建后自动触发知识点 tagging（异步，不阻塞）
+  if (
+    input.taskType === "quiz" &&
+    input.quizConfig?.mode === "adaptive" &&
+    (input.quizQuestions?.length ?? 0) > 0
+  ) {
+    try {
+      const { enqueueAsyncJob } = await import("./async-job.service");
+      await enqueueAsyncJob({
+        type: "quiz_question_tag",
+        entityType: "task",
+        entityId: task.id,
+        input: { taskId: task.id },
+        createdBy: creatorId,
+      });
+    } catch (err) {
+      console.error("[createTask] 自动触发 quiz_question_tag 失败（不阻塞）：", err);
+    }
+  }
+  return task;
 }
 
 export async function getTaskById(taskId: string) {

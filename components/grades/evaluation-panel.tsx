@@ -34,6 +34,20 @@ interface EvaluationShape {
   feedback?: string;
   rubricBreakdown?: RubricEntry[];
   quizBreakdown?: QuizEntry[];
+  // Unit 8: adaptive 模式的薄弱知识点报告
+  adaptiveMasteryReport?: {
+    totalQuestions: number;
+    correctCount: number;
+    knowledgePoints: Array<{
+      tag: string;
+      ability: number;
+      confidence: number;
+      questionsAnswered: number;
+      classification: "薄弱" | "一般" | "掌握";
+    }>;
+    weakestTopics: string[];
+    recommendation: string;
+  } | null;
 }
 
 const TYPE_TONE: Record<
@@ -108,6 +122,7 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
   const evaluation = (row.evaluation ?? null) as EvaluationShape | null;
   const rubric = isReleased ? evaluation?.rubricBreakdown ?? null : null;
   const quizBreak = isReleased ? evaluation?.quizBreakdown ?? null : null;
+  const masteryReport = isReleased ? evaluation?.adaptiveMasteryReport ?? null : null;
   const feedback = isReleased ? evaluation?.feedback : undefined;
 
   return (
@@ -321,10 +336,50 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
             </div>
           )}
 
+          {/* Unit 8: 自适应测验的薄弱知识点报告 */}
+          {masteryReport && (
+            <div className="mt-5 rounded-lg border border-ochre/30 bg-ochre-soft/40 p-3.5">
+              <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.05em] text-ink-5">
+                自适应诊断
+              </div>
+              <div className="mb-2 text-[12px] text-ink-3">
+                共答题 <b className="text-ink">{masteryReport.totalQuestions}</b> 题 · 答对{" "}
+                <b className="text-ink">{masteryReport.correctCount}</b> 题 · 诊断{" "}
+                <b className="text-ink">{masteryReport.knowledgePoints.length}</b> 个知识点
+              </div>
+              <ul className="mb-2 grid gap-1.5 sm:grid-cols-2">
+                {masteryReport.knowledgePoints.map((kp) => (
+                  <li
+                    key={kp.tag}
+                    className="flex items-center justify-between rounded-md border border-line bg-paper p-2 text-[12px]"
+                  >
+                    <span className="truncate text-ink-2">{kp.tag}</span>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] ${
+                        kp.classification === "薄弱"
+                          ? "bg-danger-soft text-danger"
+                          : kp.classification === "一般"
+                            ? "bg-warn-soft text-warn"
+                            : "bg-success-soft text-success"
+                      }`}
+                    >
+                      {kp.classification}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="rounded-md bg-paper p-2 text-[11.5px] leading-relaxed text-ink-3">
+                <b>学习建议：</b>
+                {masteryReport.recommendation}
+              </div>
+            </div>
+          )}
+
           {/* feedback/rubric/quiz 全空时 */}
           {!feedback &&
             (!rubric || rubric.length === 0) &&
-            (!quizBreak || quizBreak.length === 0) && (
+            (!quizBreak || quizBreak.length === 0) &&
+            !masteryReport && (
               <div className="rounded-lg border border-line bg-paper-alt px-3.5 py-6 text-center text-xs text-ink-4">
                 暂无评分明细
               </div>

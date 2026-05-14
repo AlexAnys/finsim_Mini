@@ -129,6 +129,12 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
         },
       });
     } else if (input.taskType === "quiz") {
+      // Unit 8: adaptive 模式可在 input.masteryReport 携带本次诊断报告，
+      // 先写入 QuizSubmission.evaluation.adaptiveMasteryReport，等 grader
+      // 计算 totalScore/feedback 时 merge 进同一 evaluation Json。
+      const initialEvaluation = input.masteryReport
+        ? { adaptiveMasteryReport: input.masteryReport }
+        : undefined;
       await tx.quizSubmission.create({
         data: {
           submissionId: submission.id,
@@ -136,6 +142,7 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
           startedAt: input.startedAt ? new Date(input.startedAt) : undefined,
           finishedAt: input.finishedAt ? new Date(input.finishedAt) : undefined,
           durationSeconds: input.durationSeconds,
+          evaluation: initialEvaluation as Prisma.InputJsonValue | undefined,
         },
       });
     } else if (input.taskType === "subjective") {
