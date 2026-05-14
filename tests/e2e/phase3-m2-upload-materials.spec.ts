@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, prefer-const */
 /**
  * Phase 3 M-2: molly 上传 2 份真实教学材料 + AI 解析
  *

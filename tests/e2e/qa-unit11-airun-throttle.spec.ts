@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, prefer-const */
 import { test, expect, type APIRequestContext, type BrowserContext } from "@playwright/test";
 
 const BASE = "http://localhost:3000";

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, prefer-const */
 /**
  * Phase 3 M-4: 4 学生真实提交 — 合并单 test，避免 NextAuth race
  */

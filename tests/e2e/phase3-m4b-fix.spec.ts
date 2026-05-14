@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, prefer-const */
 /**
  * Phase 3 M-4b fix: belle 答 simulation（chat 带完整 scenario）+ dexter SB mode=socratic
  */

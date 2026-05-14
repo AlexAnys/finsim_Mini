@@ -240,7 +240,7 @@ describe("买力诊断完整路径：3 KP × 8 题（spec 字面要求）", () =
       q("Q-D1", "true_false", 3, ["KP-储蓄"]),
       q("Q-D2", "single_choice", 4, ["KP-投资"]),
     ];
-    let state: AdaptiveState = { abilities: new Map(), answeredIds: new Set() };
+    const state: AdaptiveState = { abilities: new Map(), answeredIds: new Set() };
     const history: Array<{ questionId: string; correct: boolean }> = [];
     let questionsAsked = 0;
 

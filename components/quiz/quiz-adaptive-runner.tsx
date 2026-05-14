@@ -340,7 +340,7 @@ export function QuizAdaptiveRunner({
         <Card>
           <CardContent className="flex items-center justify-between gap-3 py-4">
             <p className="text-sm text-ink-3">
-              查看上方诊断报告后，点击"提交答卷"完成本次测验。
+              查看上方诊断报告后，点击&ldquo;提交答卷&rdquo;完成本次测验。
             </p>
             <Button onClick={finalSubmit} disabled={isSubmitting}>
               {isSubmitting ? "提交中..." : "提交答卷"}

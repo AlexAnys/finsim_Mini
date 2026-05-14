@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, prefer-const */
 import { test } from "@playwright/test";
 import path from "path";
 const BASE = "http://localhost:3000";
