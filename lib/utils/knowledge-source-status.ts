@@ -20,6 +20,7 @@ const RETRYABLE_STATUSES = new Set([
   "ai_summary_failed",
   "failed",
   "ocr_required",
+  "ready",
 ]);
 
 export function isKnowledgeSourceProcessing(status: KnowledgeSourceStatus) {
@@ -73,4 +74,8 @@ export function knowledgeSourceProgressPercent(status: KnowledgeSourceStatus): n
     default:
       return 25;
   }
+}
+
+export function knowledgeSourceRetryLabel(status: KnowledgeSourceStatus): string {
+  return status === "ready" ? "重新解析素材" : "重新 AI 解析";
 }

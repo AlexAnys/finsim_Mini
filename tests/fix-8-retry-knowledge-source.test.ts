@@ -27,6 +27,7 @@ import { retryCourseKnowledgeSource } from "@/lib/services/course-knowledge-sour
 import {
   isKnowledgeSourceProcessing,
   isKnowledgeSourceRetryable,
+  knowledgeSourceRetryLabel,
   knowledgeSourceStatusLabel,
   knowledgeSourceProgressPercent,
 } from "@/lib/utils/knowledge-source-status";
@@ -97,13 +98,18 @@ describe("retryCourseKnowledgeSource", () => {
     expect(enqueueAsyncJob).toHaveBeenCalled();
   });
 
-  it("rejects retry when status is already ready", async () => {
+  it("re-enqueues a ready source for rescan (M3b)", async () => {
     mk(prisma.courseKnowledgeSource.findUnique).mockResolvedValue({
       id: "src-1",
       courseId: "course-1",
       filePath: "uploads/x.pdf",
       teacherId: "teacher-1",
       status: "ready",
+    });
+    mk(prisma.courseKnowledgeSource.update).mockResolvedValue({
+      id: "src-1",
+      status: "uploaded",
+      error: null,
     });
 
     await expect(
@@ -112,8 +118,12 @@ describe("retryCourseKnowledgeSource", () => {
         userId: "teacher-1",
         role: "teacher",
       }),
-    ).rejects.toThrow("KNOWLEDGE_SOURCE_NOT_RETRYABLE");
-    expect(enqueueAsyncJob).not.toHaveBeenCalled();
+    ).resolves.toBeDefined();
+    expect(prisma.courseKnowledgeSource.update).toHaveBeenCalledWith({
+      where: { id: "src-1" },
+      data: { status: "uploaded", error: null },
+    });
+    expect(enqueueAsyncJob).toHaveBeenCalled();
   });
 
   it("rejects retry when source not found", async () => {
@@ -159,11 +169,11 @@ describe("knowledge-source-status helpers", () => {
     expect(isKnowledgeSourceProcessing("failed")).toBe(false);
   });
 
-  it("marks ai_summary_failed / failed / ocr_required as retryable", () => {
+  it("marks ai_summary_failed / failed / ocr_required / ready as retryable", () => {
     expect(isKnowledgeSourceRetryable("ai_summary_failed")).toBe(true);
     expect(isKnowledgeSourceRetryable("failed")).toBe(true);
     expect(isKnowledgeSourceRetryable("ocr_required")).toBe(true);
-    expect(isKnowledgeSourceRetryable("ready")).toBe(false);
+    expect(isKnowledgeSourceRetryable("ready")).toBe(true);
     expect(isKnowledgeSourceRetryable("processing")).toBe(false);
   });
 
@@ -183,5 +193,12 @@ describe("knowledge-source-status helpers", () => {
     expect(extracting).toBeLessThan(processing);
     expect(processing).toBeLessThan(ready);
     expect(ready).toBe(100);
+  });
+
+  it("knowledgeSourceRetryLabel returns rescan label for ready and AI-parse label for others", () => {
+    expect(knowledgeSourceRetryLabel("ready")).toBe("重新解析素材");
+    expect(knowledgeSourceRetryLabel("ai_summary_failed")).toBe("重新 AI 解析");
+    expect(knowledgeSourceRetryLabel("failed")).toBe("重新 AI 解析");
+    expect(knowledgeSourceRetryLabel("ocr_required")).toBe("重新 AI 解析");
   });
 });

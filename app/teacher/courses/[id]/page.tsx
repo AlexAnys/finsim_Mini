@@ -60,6 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
 import { CourseContextSourcesTab } from "@/components/course/course-context-sources-tab";
@@ -82,6 +83,7 @@ import {
 import {
   isKnowledgeSourceProcessing,
   isKnowledgeSourceRetryable,
+  knowledgeSourceRetryLabel,
   knowledgeSourceStatusLabel,
   knowledgeSourceProgressPercent,
 } from "@/lib/utils/knowledge-source-status";
@@ -941,7 +943,10 @@ export default function TeacherCourseDetailPage() {
     }
   }
 
-  async function handleRetryKnowledgeSource(sourceId: string) {
+  async function handleRetryKnowledgeSource(sourceId: string, currentStatus: string) {
+    if (currentStatus === "ready") {
+      if (!window.confirm("重新解析将重新跑 AI，是否继续？")) return;
+    }
     setRetryingSourceId(sourceId);
     try {
       const res = await fetch(
@@ -1597,14 +1602,14 @@ export default function TeacherCourseDetailPage() {
                               variant="outline"
                               size="sm"
                               disabled={retryingSourceId === source.id}
-                              onClick={() => handleRetryKnowledgeSource(source.id)}
+                              onClick={() => handleRetryKnowledgeSource(source.id, source.status)}
                             >
                               {retryingSourceId === source.id ? (
                                 <Loader2 className="mr-1.5 size-3 animate-spin" />
                               ) : (
                                 <RotateCw className="mr-1.5 size-3" />
                               )}
-                              重新 AI 解析
+                              {knowledgeSourceRetryLabel(source.status)}
                             </Button>
                           )}
                           <Button
@@ -1990,7 +1995,7 @@ function OutlineEditableDraft({
         </summary>
         <div className="mt-3 space-y-3">
           {draft.chapters.map((chapter, chapterIndex) => (
-            <div key={`${chapter.title}-${chapterIndex}`} className="rounded-md border border-line bg-paper px-3 py-3">
+            <div key={chapter.chapterId ?? `new-chapter-${chapterIndex}`} className="rounded-md border border-line bg-paper px-3 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={chapter.title}
@@ -2049,7 +2054,7 @@ function OutlineEditableDraft({
               </div>
               <div className="mt-2 space-y-2">
                 {chapter.sections.map((section, sectionIndex) => (
-                  <div key={`${section.title}-${sectionIndex}`} className="rounded border border-line bg-surface px-2.5 py-2">
+                  <div key={section.sectionId ?? `new-section-${chapterIndex}-${sectionIndex}`} className="rounded border border-line bg-surface px-2.5 py-2">
                     <div className="flex items-center gap-2">
                       <Input
                         value={section.title}
@@ -2147,14 +2152,24 @@ function OutlineEditableDraft({
           {isPreviewing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
           按当前草稿预览合并
         </Button>
-        <Button type="button" size="sm" onClick={onApply} disabled={isApplying}>
-          {isApplying ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
-          安全合并
-        </Button>
-        <Button type="button" size="sm" variant="destructive" onClick={onReplace} disabled={isReplacing}>
-          {isReplacing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
-          应用到课程结构（替换）
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" size="sm" onClick={onApply} disabled={isApplying}>
+              {isApplying ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+              安全合并
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>只新增草稿里有但课程结构没有的章节，不会删除或修改已有章节</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" size="sm" variant="destructive" onClick={onReplace} disabled={isReplacing}>
+              {isReplacing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+              应用到课程结构（替换）
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>按草稿完整对齐：新增/修改/删除/重排已有章节。删除带任务的章节会被拒绝</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

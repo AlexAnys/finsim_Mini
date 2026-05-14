@@ -27,6 +27,8 @@ interface AiRuntimeSetting {
 export interface AiCallOptions {
   settingsUserId?: string | null;
   metadata?: Record<string, unknown>;
+  /** Override default 8192. outline / 长 schema 易截断 → 调用方传 16384。 */
+  maxOutputTokens?: number;
 }
 
 export function getProviderConfig(name: string): ProviderConfig | null {
@@ -538,6 +540,159 @@ function isJsonShapeError(err: Error): boolean {
   return /unexpected (?:end|token)|json|zod/.test(msg);
 }
 
+/**
+ * M1 (PR #11) · 修复 Molly XLSX outline JSON 截断。
+ *
+ * MiMo 输出深嵌 outline schema 时常因 maxOutputTokens 截断在 chapters[].sections[]
+ * 数组中部，落地 "Expected ',' or ']' after array element in JSON at position N"。
+ *
+ * 策略（单遍扫描 + 截断恢复）：
+ *   1. 从前往后扫描，用栈跟踪 array/object/string 状态。
+ *   2. 在每个 "完整 token 边界"（紧随 `,`、`]`、`}`、闭合 `"`，或新 `[`/`{` 开口）
+ *      记下 lastSafeEnd —— 截断到此处后栈状态可平凡补齐。
+ *   3. 若扫到结尾栈非空，按栈顺序补齐闭合符；先 trim trailing `,`/whitespace。
+ *   4. 返回补齐后的字符串；JSON.parse 验证失败返回 null（caller 走 retry）。
+ *
+ * 注意：本函数只修复"末端截断"，不修复"中段非法 token"。后者由 retry hint 处理。
+ */
+export function tryRepairTruncatedJSON(raw: string): string | null {
+  if (!raw) return null;
+
+  // 先 fast-path：本来就合法直接返回。
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch {
+    // 继续修复路径
+  }
+
+  type StackFrame = "{" | "[" | '"';
+  const stack: StackFrame[] = [];
+  let escape = false;
+  // 安全截断点：满足下述条件之一时记录 (i+1)：
+  //   - 容器开口 `[` / `{`（紧随其后即可补齐 ]/}）
+  //   - 完整 token 结尾：`,` (后续 trim 掉)、`]`、`}`、闭合 `"`
+  //   - 字面值（数字 / true / false / null）后的"清楚结束位置"（其后跟 ,/]/}/whitespace）
+  // 这里采用"边界字符到达后记录"的写法：在遇到 ,/]/}/closing-" 时记录。
+  // 字面值的处理：扫描到下一个分隔符时再记录。
+  let lastSafeEnd = -1;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    const top = stack[stack.length - 1];
+
+    // 字符串内部
+    if (top === '"') {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        stack.pop();
+        lastSafeEnd = i + 1; // 闭合 `"` 是合法边界
+      }
+      continue;
+    }
+
+    // 容器外或值边界
+    if (ch === '"') {
+      stack.push('"');
+      continue;
+    }
+    if (ch === "{" || ch === "[") {
+      stack.push(ch);
+      lastSafeEnd = i + 1; // 紧随 [ / { 后是合法边界（可补 ] / }）
+      continue;
+    }
+    if (ch === "}" || ch === "]") {
+      if (top === "{" && ch === "}") stack.pop();
+      else if (top === "[" && ch === "]") stack.pop();
+      else return null; // 括号不匹配 → 不是单纯截断
+      lastSafeEnd = i + 1;
+      continue;
+    }
+    if (ch === ",") {
+      // 逗号本身合法的边界（后续 trim 掉）
+      lastSafeEnd = i + 1;
+      continue;
+    }
+    if (ch === ":") {
+      // 冒号也是合法边界：之后会 trim 掉 ":" 或在 truncated 末尾遇 `:` 时补 `null`。
+      lastSafeEnd = i + 1;
+      continue;
+    }
+    // 字面值（数字 / true / false / null）持续中 → lastSafeEnd 不更新。
+    // 截断恢复时会被 trim 掉。
+  }
+
+  if (stack.length === 0) {
+    // 走到这说明 raw 整体已合法但 fast-path 落地失败（不可能）；防御性返回 null。
+    return null;
+  }
+
+  if (lastSafeEnd <= 0) return null;
+
+  // 截断到 lastSafeEnd
+  let truncated = raw.slice(0, lastSafeEnd);
+
+  // Trim trailing 逗号 + 空白（JSON 不允许 trailing comma）
+  truncated = truncated.replace(/[,\s]+$/, "");
+  if (!truncated) return null;
+
+  // 重新扫一遍 truncated 求当前栈状态（lastSafeEnd 可能漏掉某些边界后的开口）
+  const finalStack: StackFrame[] = [];
+  let esc = false;
+  for (let i = 0; i < truncated.length; i++) {
+    const ch = truncated[i];
+    const top = finalStack[finalStack.length - 1];
+    if (top === '"') {
+      if (esc) { esc = false; continue; }
+      if (ch === "\\") { esc = true; continue; }
+      if (ch === '"') finalStack.pop();
+      continue;
+    }
+    if (ch === '"') finalStack.push('"');
+    else if (ch === "{" || ch === "[") finalStack.push(ch);
+    else if (ch === "}" && top === "{") finalStack.pop();
+    else if (ch === "]" && top === "[") finalStack.pop();
+  }
+
+  // 若 truncated 末尾刚好是 `"key":` 这种（冒号后没值），补 null
+  // 通过检查：在不在字符串内的前提下，扫到的最后一个非空字符是不是 `:`
+  // 简单实现：trim 后判断
+  let suffix = "";
+  // 若顶层是字符串，先补 `"` 关闭
+  if (finalStack[finalStack.length - 1] === '"') {
+    suffix += '"';
+    finalStack.pop();
+  }
+  // 看 truncated（含已加的 suffix 关闭引号）末尾是否为 `:` —— 是的话补 null
+  const probe = (truncated + suffix).replace(/\s+$/, "");
+  if (probe.endsWith(":")) {
+    suffix += "null";
+  }
+
+  // 关闭剩余栈
+  while (finalStack.length > 0) {
+    const top = finalStack.pop()!;
+    if (top === "[") suffix += "]";
+    else if (top === "{") suffix += "}";
+    else if (top === '"') suffix += '"';
+  }
+
+  const repaired = truncated + suffix;
+  try {
+    JSON.parse(repaired);
+    return repaired;
+  } catch {
+    return null;
+  }
+}
+
 function errorMessage(err: unknown) {
   return err instanceof Error ? err.message : String(err);
 }
@@ -627,6 +782,9 @@ export async function aiGenerateJSON<T>(
 
   let lastError: Error | null = null;
 
+  // M1 (PR #11) · 调用方可覆盖默认 8192：outline / 长 schema 在 8192 易截断 → 16384。
+  const maxOutputTokens = options.maxOutputTokens ?? 8192;
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // 上一轮是 JSON / Schema 失败时，下一轮在 prompt 末尾追加严格 JSON 提示
@@ -640,12 +798,21 @@ export async function aiGenerateJSON<T>(
         prompt: userPrompt + repairHint,
         temperature,
         // 提高输出上限：weeklyInsight / questionBank 长 prompt 在 4096 容易截断
-        maxOutputTokens: 8192,
+        maxOutputTokens,
         providerOptions: getProviderOptions(provider, setting, feature),
       });
 
       const jsonStr = extractJSON(text);
-      const parsed = JSON.parse(jsonStr);
+      // M1 · JSON resilient parse：先尝试严格 parse；SyntaxError 时走截断修复再 parse。
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        if (!(parseErr instanceof SyntaxError)) throw parseErr;
+        const repaired = tryRepairTruncatedJSON(jsonStr);
+        if (!repaired) throw parseErr;
+        parsed = JSON.parse(repaired);
+      }
       const data = schema.parse(parsed);
       await finishAiRun(aiRun?.id, { status: "succeeded", startedAt, output: text });
       return data;
