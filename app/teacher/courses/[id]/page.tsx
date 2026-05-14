@@ -60,6 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CourseAnalyticsTab } from "@/components/course/course-analytics-tab";
 import { CourseAnnouncementsPanel } from "@/components/course/course-announcements-panel";
 import { CourseContextSourcesTab } from "@/components/course/course-context-sources-tab";
@@ -2147,14 +2148,24 @@ function OutlineEditableDraft({
           {isPreviewing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
           按当前草稿预览合并
         </Button>
-        <Button type="button" size="sm" onClick={onApply} disabled={isApplying}>
-          {isApplying ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
-          安全合并
-        </Button>
-        <Button type="button" size="sm" variant="destructive" onClick={onReplace} disabled={isReplacing}>
-          {isReplacing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
-          应用到课程结构（替换）
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" size="sm" onClick={onApply} disabled={isApplying}>
+              {isApplying ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+              安全合并
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>只新增草稿里有但课程结构没有的章节，不会删除或修改已有章节</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" size="sm" variant="destructive" onClick={onReplace} disabled={isReplacing}>
+              {isReplacing ? <Loader2 className="mr-1.5 size-3 animate-spin" /> : null}
+              应用到课程结构（替换）
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>按草稿完整对齐：新增/修改/删除/重排已有章节。删除带任务的章节会被拒绝</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
