@@ -1,5 +1,6 @@
 import { Prisma, SlotType, TaskBuildDraftStatus, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { logAudit } from "@/lib/services/audit.service";
 
 export interface TaskBuildDraftInput {
   courseId: string;
@@ -15,12 +16,23 @@ export interface TaskBuildDraftInput {
   asyncJobId?: string | null;
   missingFields?: string[];
   draftPayload?: Prisma.InputJsonValue;
+  aiPayload?: Prisma.InputJsonValue;
+  editedPayload?: Prisma.InputJsonValue;
   error?: string | null;
 }
 
-export async function listTaskBuildDrafts(courseId: string) {
+export async function listTaskBuildDrafts(
+  courseId: string,
+  filters?: { status?: TaskBuildDraftStatus | TaskBuildDraftStatus[] },
+) {
+  const statusFilter = filters?.status;
   const drafts = await prisma.taskBuildDraft.findMany({
-    where: { courseId },
+    where: {
+      courseId,
+      ...(statusFilter && {
+        status: Array.isArray(statusFilter) ? { in: statusFilter } : statusFilter,
+      }),
+    },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
 
@@ -68,6 +80,8 @@ export async function createTaskBuildDraft(
       asyncJobId: input.asyncJobId || null,
       missingFields: input.missingFields ?? [],
       draftPayload: input.draftPayload ?? Prisma.JsonNull,
+      aiPayload: input.aiPayload ?? Prisma.JsonNull,
+      editedPayload: input.editedPayload ?? Prisma.JsonNull,
       error: normalizeOptionalText(input.error),
       createdBy,
     },
@@ -136,11 +150,62 @@ export async function updateTaskBuildDraft(
   if (input.draftPayload !== undefined) {
     data.draftPayload = input.draftPayload ?? Prisma.JsonNull;
   }
+  if (input.aiPayload !== undefined) {
+    data.aiPayload = input.aiPayload ?? Prisma.JsonNull;
+  }
+  if (input.editedPayload !== undefined) {
+    data.editedPayload = input.editedPayload ?? Prisma.JsonNull;
+  }
   if (input.error !== undefined) data.error = normalizeOptionalText(input.error);
 
   return prisma.taskBuildDraft.update({
     where: { id: draftId },
     data,
+  });
+}
+
+export async function approveTaskBuildDraft(draftId: string, actorId: string) {
+  const draft = await prisma.taskBuildDraft.findUnique({
+    where: { id: draftId },
+    select: { id: true, status: true, courseId: true, title: true },
+  });
+  if (!draft) throw new Error("TASK_BUILD_DRAFT_NOT_FOUND");
+  if (draft.status !== "ready") {
+    throw new Error("TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL");
+  }
+
+  const updated = await prisma.taskBuildDraft.update({
+    where: { id: draftId },
+    data: {
+      status: "approved",
+      approvedAt: new Date(),
+      approvedBy: actorId,
+    },
+  });
+
+  await logAudit({
+    action: "task_draft.approve",
+    actorId,
+    targetId: draftId,
+    targetType: "TaskBuildDraft",
+    metadata: { courseId: draft.courseId, title: draft.title },
+  });
+
+  return updated;
+}
+
+export async function markTaskBuildDraftPublished(draftId: string) {
+  const draft = await prisma.taskBuildDraft.findUnique({
+    where: { id: draftId },
+    select: { id: true, status: true },
+  });
+  if (!draft) throw new Error("TASK_BUILD_DRAFT_NOT_FOUND");
+  if (draft.status !== "approved") {
+    throw new Error("TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH");
+  }
+  return prisma.taskBuildDraft.update({
+    where: { id: draftId },
+    data: { status: "published" },
   });
 }
 

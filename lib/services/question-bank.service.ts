@@ -399,12 +399,14 @@ async function writeQuestionBankResultToDraft(
     return true;
   });
 
+  // 快照 AI 原稿到 aiPayload（用于审核页 left-right diff），draftPayload 是教师编辑稿载体
   await updateTaskBuildDraft(draftId, {
     status: "ready",
     progress: 100,
     sourceIds: input.sourceIds.length > 0 ? input.sourceIds : draft.sourceIds,
     missingFields,
     draftPayload: payload as Prisma.InputJsonValue,
+    aiPayload: payload as Prisma.InputJsonValue,
     error: null,
   });
 }
