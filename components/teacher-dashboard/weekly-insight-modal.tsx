@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Sparkles, AlertCircle } from "lucide-react";
+import { Loader2, RefreshCw, Sparkles, AlertCircle, Inbox, ArrowRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +42,8 @@ export interface WeeklyInsightUiPayload {
     recommendation: string;
   }>;
   highlightSummary: string;
+  // Unit 15: 服务端标记本次结果为空数据/AI 失败兜底
+  emptyState?: boolean;
 }
 
 export interface WeeklyInsightUiResult {
@@ -199,6 +203,34 @@ export function WeeklyInsightModal({
                 </>
               )}
             </div>
+
+            {/* Unit 15: emptyState / 4 数组全空 → 显示 CTA 卡引导老师去发布 */}
+            {(data.payload.emptyState === true ||
+              (data.payload.weakConceptsByCourse.length === 0 &&
+                data.payload.classDifferences.length === 0 &&
+                data.payload.studentClusters.length === 0 &&
+                data.payload.upcomingClassRecommendations.length === 0)) && (
+              <section className="rounded-lg border border-line p-5 bg-paper-alt">
+                <div className="mb-2 flex items-center gap-2 text-ink">
+                  <Inbox className="size-4 text-ink-4" aria-hidden />
+                  <h3 className="text-[14px] font-semibold">本周尚无可聚合数据</h3>
+                </div>
+                <p className="mb-3 text-[13px] leading-[1.6] text-ink-3">
+                  {data.payload.highlightSummary ||
+                    "本周尚无已批改且已公布的提交。"}
+                </p>
+                <p className="mb-3 text-[12.5px] leading-[1.6] text-ink-4">
+                  请先去任务实例公布学生成绩，再回来重新生成一周洞察。
+                </p>
+                <Link
+                  href="/teacher/instances"
+                  className="inline-flex items-center gap-1 rounded-md bg-brand px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-brand-deep"
+                >
+                  去管理任务实例
+                  <ArrowRight className="size-3.5" aria-hidden />
+                </Link>
+              </section>
+            )}
 
             {/* Section 1: 本周亮点摘要 */}
             <section>

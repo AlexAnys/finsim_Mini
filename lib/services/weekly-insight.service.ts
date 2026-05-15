@@ -60,6 +60,8 @@ export interface WeeklyInsightPayload {
   studentClusters: StudentCluster[];
   upcomingClassRecommendations: UpcomingClassRecommendation[];
   highlightSummary: string;
+  /** Unit 15: 0 submission 或 AI 失败时 UI 切 CTA 卡 */
+  emptyState?: boolean;
 }
 
 export interface WeeklyInsightResult {
@@ -271,6 +273,54 @@ export interface GenerateOptions {
   now?: Date;
 }
 
+// Unit 15: 空数据时缩短 cache（5 分钟）— 避免老师 release 完仍卡在 emptyState 7 天
+const EMPTY_STATE_CACHE_TTL_MS = 5 * 60_000;
+
+/**
+ * Unit 15: 把 AI catch 到的 err 按关键字分级，输出中文 highlightSummary 文案。
+ *
+ * - 超时（Vercel AI SDK 30s timeout / abort）
+ * - 配额耗尽（429 / rate limit / quota）
+ * - 模型未配置（AI_PROVIDER_NOT_CONFIGURED 或类似）
+ * - 其他（截前 100 字 err.message 帮助 troubleshoot）
+ */
+export function classifyAiErrorSummary(err: unknown): string {
+  const msg =
+    err instanceof Error
+      ? `${err.name}: ${err.message}`
+      : typeof err === "string"
+        ? err
+        : "未知错误";
+  const lower = msg.toLowerCase();
+
+  if (
+    lower.includes("timeout") ||
+    lower.includes("aborted") ||
+    lower.includes("aborterror")
+  ) {
+    return "AI 生成超时（30s+），请检查网络或稍后重试。";
+  }
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("ratelimit") ||
+    lower.includes("rate_limit") ||
+    lower.includes("quota") ||
+    lower.includes("429")
+  ) {
+    return "AI 服务繁忙（配额已用尽），请联系管理员或换 provider。";
+  }
+  if (
+    lower.includes("not_configured") ||
+    lower.includes("not configured") ||
+    lower.includes("ai_provider")
+  ) {
+    return "AI 模型未配置，请管理员前往 /teacher/ai-settings 配置后再试。";
+  }
+  // 默认通用：含 err.message 前 100 字
+  const tail = msg.length > 100 ? `${msg.slice(0, 100)}...` : msg;
+  return `AI 服务暂不可用：${tail}。请稍后重试。`;
+}
+
 export async function generateWeeklyInsight(
   teacherId: string,
   options: GenerateOptions = {},
@@ -383,6 +433,35 @@ export async function generateWeeklyInsight(
     upcomingSlots,
   };
 
+  // Unit 15 · short-circuit: 0 submissions 直接返回 emptyState，不调 AI
+  if (promptInput.submissions.length === 0) {
+    const emptyResult: WeeklyInsightResult = {
+      payload: {
+        weakConceptsByCourse: [],
+        classDifferences: [],
+        studentClusters: [],
+        upcomingClassRecommendations: [],
+        highlightSummary: "本周尚无已批改且已公布的提交，暂无可聚合的洞察。",
+        emptyState: true,
+      },
+      generatedAt: now,
+      windowStart,
+      windowEnd,
+      submissionCount: 0,
+      cached: false,
+      modelUsed: null,
+      durationMs: 0,
+      inputTokens: null,
+      outputTokens: null,
+      costEstUSD: null,
+    };
+    cache.set(teacherId, {
+      result: emptyResult,
+      expiresAt: now.getTime() + EMPTY_STATE_CACHE_TTL_MS,
+    });
+    return emptyResult;
+  }
+
   // 5) 调 AI（包计时 + 读 provider/model 写入 meta，供 modal footer 展示）
   const { systemPrompt, userPrompt } = buildWeeklyInsightPrompt(promptInput);
 
@@ -444,10 +523,8 @@ export async function generateWeeklyInsight(
       classDifferences: [],
       studentClusters: [],
       upcomingClassRecommendations: [],
-      highlightSummary:
-        promptInput.submissions.length === 0
-          ? "本周尚无已批改且已公布的提交，暂无可聚合的洞察。"
-          : "本周洞察 AI 服务暂不可用，请稍后重新生成。",
+      highlightSummary: classifyAiErrorSummary(err),
+      emptyState: true,
     };
   }
 

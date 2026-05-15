@@ -161,7 +161,26 @@ describe("computeUpcomingOccurrences", () => {
 
 describe("generateWeeklyInsight cache + force", () => {
   function setupHappyPathMocks() {
-    mk(prisma.submission.findMany).mockResolvedValue([]);
+    // Unit 15: service 现在对 0 submissions short-circuit 不调 AI；
+    // 测试 cache/force 路径需至少 1 submission 才会走 AI。
+    mk(prisma.submission.findMany).mockResolvedValue([
+      {
+        id: "s-happy",
+        score: 90,
+        maxScore: 100,
+        student: { id: "u-happy", name: "happy" },
+        task: { id: "t-happy", taskName: "T", taskType: "simulation" },
+        taskInstance: {
+          class: { id: "cl-happy", name: "happy班" },
+          course: { id: "co-happy", courseTitle: "happy 课" },
+          chapter: null,
+          section: null,
+        },
+        simulationSubmission: { conceptTags: [], evaluation: null },
+        quizSubmission: null,
+        subjectiveSubmission: null,
+      },
+    ]);
     mk(prisma.scheduleSlot.findMany).mockResolvedValue([]);
     mk(aiGenerateJSON).mockResolvedValue({
       weakConceptsByCourse: [],
@@ -335,7 +354,7 @@ describe("GET /api/lms/weekly-insight", () => {
     expect(res.status).toBe(403);
   });
 
-  it("returns 200 with payload for teacher", async () => {
+  it("returns 200 with payload for teacher (0 submissions → Unit 15 emptyState 不调 AI)", async () => {
     mk(requireRole).mockResolvedValue({
       session: { user: { id: "teacher-1", role: "teacher" } },
       error: null,
@@ -354,8 +373,12 @@ describe("GET /api/lms/weekly-insight", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.data.payload.highlightSummary).toBe("本周教学需关注 demo");
+    // Unit 15: 0 submissions short-circuit，AI 未被调用
     expect(json.data.submissionCount).toBe(0);
+    expect(json.data.payload.emptyState).toBe(true);
+    expect(json.data.payload.highlightSummary).toContain("尚无");
+    // AI 不应被调用
+    expect(mk(aiGenerateJSON)).not.toHaveBeenCalled();
   });
 
   it("first force=true bypasses cache and calls AI; 2nd force=true within 60s returns 429 (Unit 11 throttle)", async () => {
@@ -365,7 +388,25 @@ describe("GET /api/lms/weekly-insight", () => {
       session: { user: { id: "teacher-1", role: "teacher" } },
       error: null,
     });
-    mk(prisma.submission.findMany).mockResolvedValue([]);
+    // Unit 15: service 现在对 0 submissions short-circuit；force throttle 测试需 ≥1 sub 让 AI 真被调
+    mk(prisma.submission.findMany).mockResolvedValue([
+      {
+        id: "s-throttle",
+        score: 90,
+        maxScore: 100,
+        student: { id: "u", name: "n" },
+        task: { id: "t", taskName: "T", taskType: "simulation" },
+        taskInstance: {
+          class: { id: "c", name: "c" },
+          course: { id: "co", courseTitle: "co" },
+          chapter: null,
+          section: null,
+        },
+        simulationSubmission: { conceptTags: [], evaluation: null },
+        quizSubmission: null,
+        subjectiveSubmission: null,
+      },
+    ]);
     mk(prisma.scheduleSlot.findMany).mockResolvedValue([]);
     mk(aiGenerateJSON).mockResolvedValue({
       weakConceptsByCourse: [],
