@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth/guards";
+import { assertTaskInstanceReadable } from "@/lib/auth/resource-access";
 import { success, error, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 import {
@@ -19,6 +20,8 @@ const requestSchema = z.object({
       correct: z.boolean(),
     }),
   ),
+  // Codex-P1-1: required so 服务端可校验学生班级 access (防跨班题库泄漏)
+  taskInstanceId: z.string().uuid(),
 });
 
 /**
@@ -40,6 +43,7 @@ export async function POST(
   try {
     const result = await requireAuth();
     if (result.error) return result.error;
+    const { user } = result.session;
 
     const body = await request.json();
     const parsed = requestSchema.safeParse(body);
@@ -47,6 +51,24 @@ export async function POST(
       return error("VALIDATION_ERROR", "请求参数不正确", 400);
     }
     const history = parsed.data.history;
+    const taskInstanceId = parsed.data.taskInstanceId;
+
+    // Codex-P1-1: 校验学生是否能读该 instance（strict，不 opt-in closed-with-own-sub）
+    await assertTaskInstanceReadable(taskInstanceId, {
+      id: user.id,
+      role: user.role,
+      classId: user.classId,
+    });
+
+    // 防伪造：instance.taskId 必须等于 URL 中的 taskId
+    const instance = await prisma.taskInstance.findUnique({
+      where: { id: taskInstanceId },
+      select: { taskId: true },
+    });
+    if (!instance) return error("TASK_INSTANCE_NOT_FOUND", "任务实例不存在", 404);
+    if (instance.taskId !== taskId) {
+      return error("FORBIDDEN", "任务实例与任务不匹配", 403);
+    }
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },

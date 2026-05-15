@@ -107,7 +107,8 @@ export function QuizAdaptiveRunner({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ history: currentHistory }),
+            // Codex-P1-1: taskInstanceId 必填，服务端校验学生班级 access
+            body: JSON.stringify({ history: currentHistory, taskInstanceId }),
           },
         );
         const data = await res.json();

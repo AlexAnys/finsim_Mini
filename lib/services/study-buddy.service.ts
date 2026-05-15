@@ -67,8 +67,26 @@ export async function createPost(data: {
       });
       resolvedCourseId = anyInst?.courseId ?? undefined;
     }
+  } else if (data.courseId) {
+    // Codex-P1-2: 自由问 + courseId → 校验学生属于该 course 的某 class（防跨课程 KS 泄漏）
+    // 学生 classId 必须 = Course.classId OR ∈ CourseClass.classId (CourseClasses 多班级关联)
+    const userClassId = data.user.classId;
+    if (!userClassId) throw new Error("FORBIDDEN");
+    const course = await prisma.course.findFirst({
+      where: {
+        id: data.courseId,
+        OR: [
+          { classId: userClassId },
+          { classes: { some: { classId: userClassId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!course) {
+      throw new Error("COURSE_ACCESS_DENIED");
+    }
   }
-  // 自由问（taskId / taskInstanceId 都没）：仅学生角色可发；不校验 courseId 归属（学生选错也没事，仅影响老师可见性）
+  // 自由问（taskId / taskInstanceId 都没 + courseId 未传）：仅学生角色可发；courseId=null 持久化（admin-bin 兜底场景）
 
   const post = await prisma.studyBuddyPost.create({
     data: {

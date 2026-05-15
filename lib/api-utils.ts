@@ -59,6 +59,8 @@ export function handleServiceError(err: unknown) {
     switch (err.message) {
       case "FORBIDDEN":
         return forbidden();
+      case "COURSE_ACCESS_DENIED":
+        return error("COURSE_ACCESS_DENIED", "你不在该课程的班级，无法关联此课程", 403);
       case "COURSE_NOT_FOUND":
         return notFound("课程不存在");
       case "CLASS_NOT_FOUND":
