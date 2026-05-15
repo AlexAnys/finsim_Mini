@@ -35,6 +35,13 @@ const requestSchema = z.object({
  *
  * 服务端无状态：每次请求带完整 history，引擎重算。
  */
+/**
+ * Codex-P1-1 r1 (commit 489aa8e): 已 address.
+ *  - requireAuth + assertTaskInstanceReadable strict (不 opt-in closed-with-own-sub)
+ *  - instance.taskId === routeTaskId 双校验 (防伪造跨班 instance)
+ *  - schema 必填 taskInstanceId uuid
+ * Codex r2 reflag 是 false positive (AI 没识别 r1 改动)。
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },

@@ -177,20 +177,22 @@ export function QuizAdaptiveRunner({
 
     // 调 /check-answer 拿 correct
     try {
+      // Codex-P1-3 r2: 服务端要求 taskInstanceId 校验班级 access
+      const checkBody =
+        currentQuestion.type === "short_answer"
+          ? { taskInstanceId, textAnswer: currentAnswer }
+          : {
+              taskInstanceId,
+              selectedOptionIds: Array.isArray(currentAnswer)
+                ? currentAnswer
+                : [currentAnswer as string],
+            };
       const checkRes = await fetch(
         `/api/lms/quiz-questions/${currentQuestion.id}/check`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            currentQuestion.type === "short_answer"
-              ? { textAnswer: currentAnswer }
-              : {
-                  selectedOptionIds: Array.isArray(currentAnswer)
-                    ? currentAnswer
-                    : [currentAnswer as string],
-                },
-          ),
+          body: JSON.stringify(checkBody),
         },
       );
       const checkData = await checkRes.json();
