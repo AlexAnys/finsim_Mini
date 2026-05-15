@@ -425,7 +425,8 @@ export function InlineSectionRow({
                   <button
                     type="button"
                     onClick={() => onAddTask(chapter.id, section.id, slot)}
-                    className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] text-brand transition-colors hover:bg-brand-soft"
+                    // Unit 16: 中老年教师辨识度，按钮字号 10.5 → 12
+                    className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[12px] text-brand transition-colors hover:bg-brand-soft"
                     aria-label={`在${SLOT_LABEL[slot]}添加任务`}
                   >
                     <Plus className="size-3" />
@@ -436,7 +437,7 @@ export function InlineSectionRow({
                     onClick={() =>
                       setCreatingSlot(isCreatingHere ? null : slot)
                     }
-                    className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] text-ink-4 transition-colors hover:bg-paper-alt hover:text-ink-2"
+                    className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[12px] text-ink-4 transition-colors hover:bg-paper-alt hover:text-ink-2"
                     aria-label={`在${SLOT_LABEL[slot]}添加内容块`}
                   >
                     <Plus className="size-3" />

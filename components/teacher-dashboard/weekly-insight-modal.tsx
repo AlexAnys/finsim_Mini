@@ -131,7 +131,8 @@ export function WeeklyInsightModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[85vh] overflow-y-auto sm:max-w-3xl"
+        // Unit 16: 移动端近全屏 (w 占满 viewport)，桌面保留 sm:max-w-3xl
+        className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-3xl"
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-ink">

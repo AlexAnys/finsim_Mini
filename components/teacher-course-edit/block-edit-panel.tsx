@@ -364,7 +364,7 @@ function SectionOverview({
                   className="flex items-center gap-0.5 text-ink-4 transition-colors hover:text-brand"
                 >
                   <Plus className="size-3" />
-                  <span className="text-[10.5px]">新建块</span>
+                  <span className="text-[12px]">新建块</span>
                 </button>
               </div>
 
