@@ -155,15 +155,28 @@ export function PriorityTasks({ tasks }: PriorityTasksProps) {
         </div>
       </header>
 
-      <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+      <div className="space-y-2">
         {filteredTasks.length === 0 ? (
           <div className="rounded-xl border border-line bg-surface py-6">
             <p className="text-center text-sm text-ink-4">当前筛选下暂无任务</p>
           </div>
         ) : (
-          filteredTasks.map((task) => <TaskRow key={task.id} task={task} />)
+          filteredTasks
+            .slice(0, 5)
+            .map((task) => <TaskRow key={task.id} task={task} />)
         )}
       </div>
+      {/* Unit 14: 折叠 — 显示前 5 项后给"查看全部"链接到 /tasks */}
+      {filteredTasks.length > 5 && (
+        <div className="mt-2 flex justify-end">
+          <Link
+            href="/tasks"
+            className="text-[12px] text-brand hover:underline"
+          >
+            查看全部 {filteredTasks.length} 项 →
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

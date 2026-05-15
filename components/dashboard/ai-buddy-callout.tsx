@@ -24,7 +24,8 @@ export function AiBuddyCallout({
     return (
       <Link
         href={href}
-        className="hidden min-w-[360px] max-w-[420px] items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5 shadow-fs transition-colors hover:bg-surface-tint xl:flex"
+        // Unit 14: 移除 hidden ... xl:flex，让所有视口（移动端 + 笔记本）都能看见 callout
+        className="flex min-w-[280px] max-w-[420px] items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5 shadow-fs transition-colors hover:bg-surface-tint"
       >
         <span
           className="grid size-9 shrink-0 place-items-center rounded-lg"
