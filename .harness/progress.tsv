@@ -169,3 +169,5 @@ timestamp	unit	round	verdict	cost_usd	description	git_commit
 2026-05-15T05:29:46Z	A1-iw	r1b	PASS	0.7	UI Sheet + graded 警告 PASS（acc 8/8 + tsc 0 new + vitest 1049/1049 0 regression）；A1 整 unit 收官；worktree 3 unit 全 done	9c4b957
 2026-05-15T08:55:07Z	e2e-iw	r1	PASS	0.8	Playwright 真浏览器 E2E 3/3 PASS（A2 标题 + A1 Sheet + C1-B 切页保状态）；molly@:3001；0 DB 污染	9c4b957
 2026-05-15T23:21:38Z	B1-iw	r1	BUILD	builder	Unit B1 build done: /teacher/ai-workbench Tabs 容器 + URL ?tab= 同步 + 旧路径 redirect + sidebar 9→7 + 9 vitest; tsc clean; eslint clean; 1162→1171 (+9) 0 regression
+2026-05-15T23:25:46Z	B1-iw	r1	PASS	0.7	AI 工作台合并 PASS（acc 7/7 + tsc 0 new + vitest 1171/1171 0 regression + readFile 路径变更断言契约 100% 保留）	04bc427
+2026-05-15T23:27:00Z	B2-iw	r1	BUILD	builder	Unit B2 build done: /api/teacher/study-buddy/posts 加 courseId filter + PendingQuestionsList 新 section + AlertDialog 删除 + 13 vitest; tsc 0 / vitest 1184 / lint 0; 0 regression. Worktree 5 unit 全完成.
