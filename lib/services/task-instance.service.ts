@@ -82,7 +82,7 @@ export async function createPublishedTaskWithInstance(
   createdBy: string,
   input: CreatePublishedTaskWithInstanceInput,
 ) {
-  return prisma.$transaction(async (tx) => {
+  const output = await prisma.$transaction(async (tx) => {
     const task = await createTaskInTransaction(tx, createdBy, input.task);
     const taskForSnapshot = await tx.task.findUnique({
       where: { id: task.id },
@@ -118,6 +118,33 @@ export async function createPublishedTaskWithInstance(
 
     return { task: taskForSnapshot, instance };
   });
+
+  // Phase3-A · Root cause 1: 任务发布后若是 adaptive quiz，自动 enqueue tagger job
+  // （createTask 已有同款；本路径 createPublishedTaskWithInstance 之前漏触发，学生进 adaptive
+  //  task 时 < 50% tagged → fallback "知识点诊断暂未启用"，演示卡死）
+  if (
+    input.task.taskType === "quiz" &&
+    input.task.quizConfig?.mode === "adaptive" &&
+    (input.task.quizQuestions?.length ?? 0) > 0
+  ) {
+    try {
+      const { enqueueAsyncJob } = await import("./async-job.service");
+      await enqueueAsyncJob({
+        type: "quiz_question_tag",
+        entityType: "task",
+        entityId: output.task.id,
+        input: { taskId: output.task.id },
+        createdBy,
+      });
+    } catch (err) {
+      console.error(
+        "[createPublishedTaskWithInstance] 自动触发 quiz_question_tag 失败（不阻塞）：",
+        err,
+      );
+    }
+  }
+
+  return output;
 }
 
 export async function publishTaskInstance(instanceId: string, createdBy: string) {

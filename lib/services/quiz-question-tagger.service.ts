@@ -114,11 +114,24 @@ ${questionsBlock}
   }
 
   // 写入 DB
+  // Phase3-A · Defense 3: byId 主匹配 UUID；byIdx fallback 兜底 AI 用 prompt 索引（"[1]"、"1"）
+  // 替代 questionId 的情况。tagged 计数仅在 prisma.update 成功后递增，确保 result 与 DB 状态一致。
   const byId = new Map(result.taggings.map((t) => [t.questionId, t.tags]));
+  // byIdx 总是用 array position 建索引（idx+1）；与 byId 的 questionId 主键并存。
+  // 查找顺序：byId.get(q.id) 优先（真 UUID）→ byIdx.get("N"|"[N]") 兜底（AI 用 index 替代 UUID 时）。
+  const byIdx = new Map<string, string[]>();
+  result.taggings.forEach((t, idx) => {
+    byIdx.set(`${idx + 1}`, t.tags);
+    byIdx.set(`[${idx + 1}]`, t.tags);
+  });
+
   let tagged = 0;
   let failed = 0;
-  for (const q of targetQuestions) {
-    const tags = byId.get(q.id);
+  for (let i = 0; i < targetQuestions.length; i++) {
+    const q = targetQuestions[i];
+    const primary = byId.get(q.id);
+    const fallbackIdx = byIdx.get(`${i + 1}`) ?? byIdx.get(`[${i + 1}]`);
+    const tags = primary && primary.length > 0 ? primary : fallbackIdx;
     if (!tags || tags.length === 0) {
       failed++;
       continue;

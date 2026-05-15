@@ -367,6 +367,36 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
     },
   });
 
+  // Phase3-A · Root cause 2: updateTask 重建 quizQuestions（line 319 deleteMany）后，
+  // 所有 knowledgeTagIds 都被清空。仅当 patchData.quizQuestions 真改 + adaptive 模式 + 有题时
+  // 才 re-enqueue tagger（避免改无关字段也烧 AI cost）。
+  const quizQuestionsChanged =
+    patchData.quizQuestions !== undefined && patchData.quizQuestions.length > 0;
+  if (existing.taskType === "quiz" && quizQuestionsChanged) {
+    const liveConfig = await prisma.quizConfig.findUnique({
+      where: { taskId },
+      select: { mode: true },
+    });
+    const mode = patchData.quizConfig?.mode ?? liveConfig?.mode;
+    if (mode === "adaptive") {
+      try {
+        const { enqueueAsyncJob } = await import("./async-job.service");
+        await enqueueAsyncJob({
+          type: "quiz_question_tag",
+          entityType: "task",
+          entityId: taskId,
+          input: { taskId },
+          createdBy: creatorId,
+        });
+      } catch (err) {
+        console.error(
+          "[updateTask] 自动触发 quiz_question_tag 失败（不阻塞）：",
+          err,
+        );
+      }
+    }
+  }
+
   return updated;
 }
 
