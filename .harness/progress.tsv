@@ -158,3 +158,5 @@ timestamp	unit	round	verdict	cost_usd	description	git_commit
 2026-05-15T04:42:11Z	A2-iw	r1	BUILD	builder	Unit A2 build r1 done: EditableTitle 组件 + onTitleSave; 7 vitest 测试; tsc clean; eslint clean
 2026-05-15T04:45:11Z	A2-iw	r1	PASS	0.5	标题 inline 编辑 PASS（acc 4/4 + tsc 0 new + vitest 988/988）	97ed850
 2026-05-15T04:51:56Z	C1-B-iw	r1a	BUILD	builder	Unit C1-B r1a (localStorage 基础) build done: use-persisted-job hook + page 集成; 7 vitest 测试; tsc clean; eslint clean
+2026-05-15T04:56:05Z	C1-B-iw	r1a	PASS	0.6	localStorage 持久化基础 PASS（acc 8/8 + tsc 0 new + vitest 995/995, 0 regression）	918a5d7
+2026-05-15T04:59:12Z	C1-B-iw	r1b	BUILD	builder	Unit C1-B r1b (4 工具差异化渲染) build done: 5 个 ai-assistant 组件 + page 重构; 11 vitest 测试; tsc clean; eslint clean
