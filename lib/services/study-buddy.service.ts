@@ -60,14 +60,17 @@ export async function createPost(data: {
     if (!data.taskId) data = { ...data, taskId: instance.taskId };
   } else if (data.taskId) {
     await assertTaskReadable(data.taskId, data.user);
-    // Codex-P1-2 r2: **强制覆盖** client 传入的 courseId — 防 bogus courseId
-    // 让 generateReply load 跨课程 KS。资源 courseId 永远由服务端从该 task 任何
-    // 一个 instance 反推（学生通过此 task 能看到的实例）。
+    // Codex-P1-2 r2: 强制覆盖 client 传入的 courseId — 防 bogus courseId 让 generateReply 加载跨课程 KS。
+    // Codex-P1-r3: 加 classId scope — task 复用多班场景下，确保反推的 instance.courseId
+    // 来自学生自己班级，不会拿到别班 instance 的 courseId。
+    const userClassId = data.user.classId;
+    if (!userClassId) throw new Error("FORBIDDEN");
     const anyInst = await prisma.taskInstance.findFirst({
-      where: { taskId: data.taskId },
+      where: { taskId: data.taskId, classId: userClassId },
       select: { courseId: true },
     });
-    resolvedCourseId = anyInst?.courseId ?? undefined;
+    if (!anyInst) throw new Error("FORBIDDEN");
+    resolvedCourseId = anyInst.courseId ?? undefined;
   } else if (data.courseId) {
     // Codex-P1-2: 自由问 + courseId → 校验学生属于该 course 的某 class（防跨课程 KS 泄漏）
     // 学生 classId 必须 = Course.classId OR ∈ CourseClass.classId (CourseClasses 多班级关联)
