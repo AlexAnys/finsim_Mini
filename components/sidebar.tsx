@@ -13,11 +13,9 @@ import {
   Menu,
   CalendarDays,
   ListChecks,
-  MessageSquareText,
   Users,
   Search,
-  Settings2,
-  Activity,
+  SlidersHorizontal,
   ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
@@ -51,12 +49,10 @@ const teacherNav: NavItem[] = [
   { label: "仪表盘", href: "/teacher/dashboard", icon: LayoutDashboard },
   { label: "课程管理", href: "/teacher/courses", icon: BookOpen },
   { label: "数据洞察", href: "/teacher/analytics-v2", icon: BarChart3 },
-  { label: "学生提问", href: "/teacher/study-buddy", icon: MessageSquareText },
   { label: "课表管理", href: "/teacher/schedule", icon: CalendarDays },
   { label: "班级管理", href: "/teacher/groups", icon: Users },
   { label: "AI 助手", href: "/teacher/ai-assistant", icon: Bot },
-  { label: "AI 用量", href: "/teacher/ai-usage", icon: Activity },
-  { label: "AI 设置", href: "/teacher/ai-settings", icon: Settings2 },
+  { label: "AI 工作台", href: "/teacher/ai-workbench", icon: SlidersHorizontal },
 ];
 
 const adminExtraNav: NavItem[] = [
