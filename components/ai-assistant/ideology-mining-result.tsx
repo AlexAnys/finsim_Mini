@@ -5,6 +5,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   FileReportsBlock,
+  ReadBulletList,
+  ReadHeading,
+  ReadParagraph,
   SectionEditor,
   TitleAndSummary,
   linesFromText,
@@ -17,27 +20,43 @@ export function IdeologyMiningResult({
   result,
   patchResult,
   patchSection,
+  viewMode,
 }: ToolResultProps) {
+  const isRead = viewMode === "read";
+
   return (
     <div data-tool="ideologyMining" className="space-y-5">
-      <TitleAndSummary result={result} patchResult={patchResult} />
+      <TitleAndSummary
+        result={result}
+        patchResult={patchResult}
+        viewMode={viewMode}
+      />
 
       <div className="rounded-lg border border-brand/40 bg-brand-soft/50 p-4">
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-brand">
           <Lightbulb className="size-4" />
-          育人目标（一行一条）
+          育人目标{!isRead && "（一行一条）"}
         </div>
-        <Textarea
-          value={result.actionItems.join("\n")}
-          onChange={(event) =>
-            patchResult({ actionItems: linesFromText(event.target.value) })
-          }
-          rows={4}
-          placeholder="例如：引导学生在风险评估中保持理性与审慎；强调诚信与合规的边界。"
-        />
-        <p className="mt-1 text-[11px] text-ink-5">
-          来自 AI 提取，可手动微调；复制时会包含此条。
-        </p>
+        {isRead ? (
+          <ReadBulletList
+            items={result.actionItems}
+            emptyText="（AI 未输出育人目标）"
+          />
+        ) : (
+          <>
+            <Textarea
+              value={result.actionItems.join("\n")}
+              onChange={(event) =>
+                patchResult({ actionItems: linesFromText(event.target.value) })
+              }
+              rows={4}
+              placeholder="例如：引导学生在风险评估中保持理性与审慎；强调诚信与合规的边界。"
+            />
+            <p className="mt-1 text-[11px] text-ink-5">
+              来自 AI 提取，可手动微调；复制时会包含此条。
+            </p>
+          </>
+        )}
       </div>
 
       <FileReportsBlock files={result.fileReports} />
@@ -52,6 +71,7 @@ export function IdeologyMiningResult({
             section={section}
             index={index}
             patchSection={patchSection}
+            viewMode={viewMode}
             labels={{
               heading: "融合点",
               diagnosis: "切入说明",
@@ -63,16 +83,29 @@ export function IdeologyMiningResult({
         ))}
       </div>
 
-      <div className="space-y-2">
-        <Label>需复核事项（一行一条）</Label>
-        <Textarea
-          value={result.cautions.join("\n")}
-          onChange={(event) =>
-            patchResult({ cautions: linesFromText(event.target.value) })
-          }
-          rows={5}
-          placeholder="例如：避免生硬口号；某段案例数据需核实。"
-        />
+      <div className="space-y-1.5">
+        {isRead ? (
+          <>
+            <ReadHeading level={3}>需复核事项</ReadHeading>
+            {result.cautions.length > 0 ? (
+              <ReadBulletList items={result.cautions} />
+            ) : (
+              <ReadParagraph text="" />
+            )}
+          </>
+        ) : (
+          <>
+            <Label>需复核事项（一行一条）</Label>
+            <Textarea
+              value={result.cautions.join("\n")}
+              onChange={(event) =>
+                patchResult({ cautions: linesFromText(event.target.value) })
+              }
+              rows={5}
+              placeholder="例如：避免生硬口号；某段案例数据需核实。"
+            />
+          </>
+        )}
       </div>
     </div>
   );

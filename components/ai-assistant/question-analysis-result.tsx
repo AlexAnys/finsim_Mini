@@ -14,10 +14,15 @@ export function QuestionAnalysisResult({
   result,
   patchResult,
   patchSection,
+  viewMode,
 }: ToolResultProps) {
   return (
     <div data-tool="questionAnalysis" className="space-y-5">
-      <TitleAndSummary result={result} patchResult={patchResult} />
+      <TitleAndSummary
+        result={result}
+        patchResult={patchResult}
+        viewMode={viewMode}
+      />
       <FileReportsBlock files={result.fileReports} />
 
       <div className="space-y-3">
@@ -30,6 +35,7 @@ export function QuestionAnalysisResult({
             section={section}
             index={index}
             patchSection={patchSection}
+            viewMode={viewMode}
             labels={{
               heading: "题目摘要 / 题型",
               diagnosis: "知识点定位",
@@ -40,10 +46,10 @@ export function QuestionAnalysisResult({
         ))}
       </div>
 
-      {/* 不显示 gradingTable */}
       <ActionItemsAndCautions
         result={result}
         patchResult={patchResult}
+        viewMode={viewMode}
         actionLabel="给学生的复盘建议（一行一条）"
       />
     </div>

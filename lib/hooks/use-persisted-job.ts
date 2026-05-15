@@ -52,10 +52,13 @@ export interface PersistedJobInputs {
   enableSearch: boolean;
 }
 
+export type ViewMode = "read" | "edit";
+
 export interface PersistedJobState extends PersistedJobInputs {
   job: PersistedAsyncJob | null;
   result: PersistedAiResult | null;
   originalResult: PersistedAiResult | null;
+  viewMode: ViewMode;
 }
 
 interface StoredEntry extends PersistedJobState {
@@ -81,6 +84,7 @@ const DEFAULT_STATE: PersistedJobState = {
   job: null,
   result: null,
   originalResult: null,
+  viewMode: "read",
 };
 
 function safeParse(raw: string | null): StoredEntry | null {
@@ -113,6 +117,7 @@ function readEntry(toolKey: AiToolKey): PersistedJobState | null {
     job: parsed.job,
     result: parsed.result,
     originalResult: parsed.originalResult,
+    viewMode: parsed.viewMode === "edit" ? "edit" : "read",
   };
 }
 

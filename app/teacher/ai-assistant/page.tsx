@@ -9,6 +9,7 @@ import {
   Copy,
   FileCheck2,
   Loader2,
+  Pencil,
   RotateCcw,
   SearchCheck,
   Settings2,
@@ -83,6 +84,7 @@ const TOOLS: Array<{
 
 export default function AIAssistantPage() {
   const [activeTool, setActiveToolRaw] = useState<ToolKey>("lessonPolish");
+  const [viewMode, setViewMode] = useState<"read" | "edit">("read");
   const [text, setText] = useState("");
   const [teacherRequest, setTeacherRequest] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -109,6 +111,7 @@ export default function AIAssistantPage() {
     setJob(persisted.job);
     setResult(persisted.result);
     setOriginalResult(persisted.originalResult);
+    setViewMode(persisted.viewMode ?? "read");
     // files 不持久（File 无法序列化），切回需要重传
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTool, hydrated]);
@@ -173,9 +176,10 @@ export default function AIAssistantPage() {
       job,
       result,
       originalResult,
+      viewMode,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, teacherRequest, outputStyle, strictness, enableSearch, job, result, originalResult, hydrated]);
+  }, [text, teacherRequest, outputStyle, strictness, enableSearch, job, result, originalResult, viewMode, hydrated]);
 
   const active = useMemo(() => TOOLS.find((tool) => tool.key === activeTool) ?? TOOLS[0], [activeTool]);
   const Icon = active.icon;
@@ -241,6 +245,7 @@ export default function AIAssistantPage() {
         return;
       }
       setJob(json.data.job as AsyncJobSnapshot);
+      setViewMode("read");
       toast.success("已提交后台分析，结果会自动刷新");
     } catch {
       toast.error("网络错误，请稍后重试");
@@ -481,9 +486,31 @@ export default function AIAssistantPage() {
               <div className="space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-ink-4">
-                    结果可直接编辑；复制时会使用当前编辑后的内容。
+                    {viewMode === "read"
+                      ? "默认阅读模式；点「编辑」可直接修改。"
+                      : "结果可直接编辑；复制时会使用当前编辑后的内容。"}
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setViewMode((current) => (current === "read" ? "edit" : "read"))
+                      }
+                    >
+                      {viewMode === "read" ? (
+                        <>
+                          <Pencil className="mr-1.5 size-3.5" />
+                          编辑
+                        </>
+                      ) : (
+                        <>
+                          <BookOpenCheck className="mr-1.5 size-3.5" />
+                          完成阅读
+                        </>
+                      )}
+                    </Button>
                     <Button type="button" variant="outline" size="sm" onClick={resetResult} disabled={!originalResult}>
                       <RotateCcw className="mr-1.5 size-3.5" />
                       复原
@@ -495,7 +522,7 @@ export default function AIAssistantPage() {
                   </div>
                 </div>
 
-                {renderResultByTool(activeTool, result, patchResult, patchSection)}
+                {renderResultByTool(activeTool, result, patchResult, patchSection, viewMode)}
               </div>
             )}
           </CardContent>
@@ -574,8 +601,9 @@ function renderResultByTool(
   result: AiResult,
   patchResult: (patch: Partial<AiResult>) => void,
   patchSection: (index: number, patch: Partial<AiResult["sections"][number]>) => void,
+  viewMode: "read" | "edit",
 ) {
-  const props = { result, patchResult, patchSection };
+  const props = { result, patchResult, patchSection, viewMode };
   switch (toolKey) {
     case "ideologyMining":
       return <IdeologyMiningResult {...props} />;

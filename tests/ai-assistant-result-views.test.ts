@@ -142,3 +142,63 @@ describe("Unit C1-B r1b · result-atoms helpers", () => {
     expect(src).toContain("examplesHighlight");
   });
 });
+
+describe("Unit C1-B r1c · 阅读视图 + 编辑/阅读切换", () => {
+  it("result-atoms 含 ViewMode 类型 + Read 系列原子（ReadHeading / ReadParagraph / ReadBulletList）", () => {
+    const src = readFile("components/ai-assistant/result-atoms.tsx");
+    expect(src).toContain('export type ViewMode = "read" | "edit"');
+    expect(src).toContain("export function ReadHeading");
+    expect(src).toContain("export function ReadParagraph");
+    expect(src).toContain("export function ReadBulletList");
+    // ToolResultProps 含 viewMode 字段
+    expect(src).toMatch(/viewMode:\s*ViewMode/);
+  });
+
+  it("TitleAndSummary / SectionEditor / ActionItemsAndCautions 双模式分支（含 viewMode === \"read\"）", () => {
+    const src = readFile("components/ai-assistant/result-atoms.tsx");
+    const readBranchCount = (src.match(/viewMode === "read"/g) || []).length;
+    expect(readBranchCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("page.tsx 含 viewMode state 默认 read + 编辑/完成阅读 切换 button", () => {
+    const src = readFile("app/teacher/ai-assistant/page.tsx");
+    expect(src).toMatch(/useState<"read" \| "edit">\("read"\)/);
+    expect(src).toContain("setViewMode");
+    expect(src).toContain("编辑");
+    expect(src).toContain("完成阅读");
+    // runTool 成功后切回 read
+    expect(src).toMatch(/setJob\(json\.data\.job[\s\S]*?setViewMode\("read"\)/);
+  });
+
+  it("renderResultByTool 透传 viewMode", () => {
+    const src = readFile("app/teacher/ai-assistant/page.tsx");
+    expect(src).toMatch(/renderResultByTool\([\s\S]*?viewMode\s*\)/);
+    expect(src).toMatch(/const props = \{ result, patchResult, patchSection, viewMode \}/);
+  });
+
+  it("hook PersistedJobState 含 viewMode 字段 + DEFAULT viewMode='read'", () => {
+    const src = readFile("lib/hooks/use-persisted-job.ts");
+    expect(src).toMatch(/viewMode:\s*ViewMode/);
+    expect(src).toMatch(/viewMode:\s*"read"/);
+    // readEntry 兼容老 cache（无 viewMode 字段时 fallback "read"）
+    expect(src).toMatch(/viewMode:\s*parsed\.viewMode === "edit" \? "edit" : "read"/);
+  });
+
+  it("examCheck read mode <details open={isRead}>（read 默认展开，edit 默认折起）", () => {
+    const src = readFile("components/ai-assistant/exam-check-result.tsx");
+    expect(src).toMatch(/open=\{isRead\}/);
+    expect(src).toContain('const isRead = viewMode === "read"');
+  });
+
+  it("4 个 result 组件签名都接收 viewMode（ToolResultProps）", () => {
+    for (const file of [
+      "components/ai-assistant/lesson-polish-result.tsx",
+      "components/ai-assistant/ideology-mining-result.tsx",
+      "components/ai-assistant/question-analysis-result.tsx",
+      "components/ai-assistant/exam-check-result.tsx",
+    ]) {
+      const src = readFile(file);
+      expect(src).toContain("viewMode");
+    }
+  });
+});

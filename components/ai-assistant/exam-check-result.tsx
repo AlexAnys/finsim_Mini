@@ -8,27 +8,37 @@ import {
   ActionItemsAndCautions,
   FileReportsBlock,
   GradingTableBlock,
+  ReadHeading,
+  ReadParagraph,
   SectionEditor,
   type ToolResultProps,
 } from "./result-atoms";
 
-// examCheck: gradingTable 置顶 + 总评简要 + sections 默认折叠
+// examCheck: gradingTable 置顶 + 总评简要 + sections 默认折叠（read mode 默认展开）
 export function ExamCheckResult({
   result,
   patchResult,
   patchSection,
+  viewMode,
 }: ToolResultProps) {
+  const isRead = viewMode === "read";
+
   return (
     <div data-tool="examCheck" className="space-y-5">
-      <div className="space-y-2">
-        <Label>标题</Label>
-        <Input
-          value={result.title}
-          onChange={(event) => patchResult({ title: event.target.value })}
-        />
-      </div>
+      {isRead ? (
+        <h2 className="text-xl font-semibold tracking-tight text-ink md:text-2xl">
+          {result.title || "（未命名）"}
+        </h2>
+      ) : (
+        <div className="space-y-2">
+          <Label>标题</Label>
+          <Input
+            value={result.title}
+            onChange={(event) => patchResult({ title: event.target.value })}
+          />
+        </div>
+      )}
 
-      {/* gradingTable 置顶 */}
       {result.gradingTable.length > 0 ? (
         <div className="space-y-1">
           <div className="text-xs font-semibold text-ink-3">逐题批改结果</div>
@@ -40,20 +50,30 @@ export function ExamCheckResult({
         </div>
       )}
 
-      <div className="space-y-2">
-        <Label>总评（简要）</Label>
-        <Textarea
-          value={result.summary}
-          onChange={(event) => patchResult({ summary: event.target.value })}
-          rows={3}
-        />
-      </div>
+      {isRead ? (
+        <div className="space-y-1.5">
+          <ReadHeading level={3}>总评（简要）</ReadHeading>
+          <ReadParagraph text={result.summary} />
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Label>总评（简要）</Label>
+          <Textarea
+            value={result.summary}
+            onChange={(event) => patchResult({ summary: event.target.value })}
+            rows={3}
+          />
+        </div>
+      )}
 
       <FileReportsBlock files={result.fileReports} />
 
-      {/* sections 默认折起 */}
+      {/* sections：read mode 默认展开；edit mode 默认折起 */}
       {result.sections.length > 0 && (
-        <details className="group rounded-lg border border-line bg-paper p-3">
+        <details
+          className="group rounded-lg border border-line bg-paper p-3"
+          open={isRead}
+        >
           <summary className="flex cursor-pointer items-center justify-between text-sm font-medium text-ink-2">
             <span>逐题详细分析（共 {result.sections.length} 段）</span>
             <ChevronDown className="size-4 text-ink-5 transition-transform group-open:rotate-180" />
@@ -65,6 +85,7 @@ export function ExamCheckResult({
                 section={section}
                 index={index}
                 patchSection={patchSection}
+                viewMode={viewMode}
                 labels={{
                   heading: "题号 / 概要",
                   diagnosis: "诊断",
@@ -80,6 +101,7 @@ export function ExamCheckResult({
       <ActionItemsAndCautions
         result={result}
         patchResult={patchResult}
+        viewMode={viewMode}
         actionLabel="下一步操作（一行一条）"
       />
     </div>

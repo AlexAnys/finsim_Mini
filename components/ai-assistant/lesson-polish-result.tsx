@@ -13,10 +13,15 @@ export function LessonPolishResult({
   result,
   patchResult,
   patchSection,
+  viewMode,
 }: ToolResultProps) {
   return (
     <div data-tool="lessonPolish" className="space-y-5">
-      <TitleAndSummary result={result} patchResult={patchResult} />
+      <TitleAndSummary
+        result={result}
+        patchResult={patchResult}
+        viewMode={viewMode}
+      />
       <FileReportsBlock files={result.fileReports} />
       <div className="space-y-3">
         {result.sections.map((section, index) => (
@@ -25,11 +30,16 @@ export function LessonPolishResult({
             section={section}
             index={index}
             patchSection={patchSection}
+            viewMode={viewMode}
           />
         ))}
       </div>
       <GradingTableBlock rows={result.gradingTable} />
-      <ActionItemsAndCautions result={result} patchResult={patchResult} />
+      <ActionItemsAndCautions
+        result={result}
+        patchResult={patchResult}
+        viewMode={viewMode}
+      />
     </div>
   );
 }
