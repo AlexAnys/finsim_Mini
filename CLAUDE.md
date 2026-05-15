@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 行为底线（不可妥协，所有 session / agent 必须遵守）
+
+**不走捷径 — 任何跳过 / 接受 < 100% acceptance 必须先 ask 用户，结果立刻写进 `.harness/spec.md` + commit。**
+
 ## Project Overview
 
 FinSim is a financial education platform for Chinese university courses. Core loop: teacher creates tasks → students complete them → AI grades → analytics flow back to teacher. All UI text is in Simplified Chinese.
