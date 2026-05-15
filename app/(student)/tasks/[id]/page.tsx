@@ -198,6 +198,7 @@ function renderRunner(
           prompt: task.subjectiveConfig.prompt,
           wordLimit: null,
           allowAttachment: task.subjectiveConfig.allowedAttachmentTypes.length > 0,
+          allowedTypes: task.subjectiveConfig.allowedAttachmentTypes,
           maxAttachments: 5,
           scoringCriteria: task.scoringCriteria.map((c) => ({
             id: c.id,
