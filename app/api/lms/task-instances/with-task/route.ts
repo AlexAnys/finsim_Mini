@@ -2,10 +2,18 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
 import { prisma } from "@/lib/db/prisma";
-import { createPublishedTaskWithInstance } from "@/lib/services/task-instance.service";
+import {
+  createPublishedTaskWithInstance,
+  createPublishedTaskWithInstanceInTransaction,
+} from "@/lib/services/task-instance.service";
+import {
+  getTaskBuildDraft,
+  markTaskBuildDraftPublished,
+} from "@/lib/services/task-build-draft.service";
 import { logAudit } from "@/lib/services/audit.service";
 import { createPublishedTaskWithInstanceSchema } from "@/lib/validators/task.schema";
 import { created, validationError, handleServiceError } from "@/lib/api-utils";
+import { enqueueAsyncJob } from "@/lib/services/async-job.service";
 
 export async function POST(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);
@@ -38,14 +46,65 @@ export async function POST(request: NextRequest) {
       course.classes.some((cc) => cc.classId === data.instance.classId);
     if (!classMatches) throw new Error("CLASS_COURSE_MISMATCH");
 
-    const output = await createPublishedTaskWithInstance(user.id, data);
+    // Unit 10: 若发布请求带 taskBuildDraftId，必须验证 draft.status === "approved"
+    // 手工创建任务（无 draft）不受此约束
+    // 注：scope 校验保留前置（友好错误），真正的 status flip 在 transaction 内做 atomic
+    if (data.taskBuildDraftId) {
+      const draft = await getTaskBuildDraft(data.taskBuildDraftId);
+      if (draft.courseId !== data.instance.courseId) {
+        throw new Error("TASK_BUILD_DRAFT_SCOPE_MISMATCH");
+      }
+    }
+
+    // Codex-P1-r4: atomic publish — 把 draft status flip + create task+instance 包同一 transaction，
+    // 防并发请求两个老师同时 publish 同一 draft 时只有一个 flip 成功但两个 instance 都已持久化。
+    // conditional update `where: { id, status: "approved" }` 让 status 转换在 DB 层面 atomic；
+    // race loser 抛 P2025 → 整个 transaction 回滚 → 不创 instance。
+    let output: Awaited<ReturnType<typeof createPublishedTaskWithInstance>>;
+    let needsTaggerJob = false;
+    if (data.taskBuildDraftId) {
+      output = await prisma.$transaction(async (tx) => {
+        await markTaskBuildDraftPublished(data.taskBuildDraftId!, tx);
+        return createPublishedTaskWithInstanceInTransaction(tx, user.id, data);
+      });
+      // 手工 enqueue tagger job（service wrapper 路径才有，tx-aware 路径需 caller 自行 enqueue）
+      needsTaggerJob =
+        data.task.taskType === "quiz" &&
+        data.task.quizConfig?.mode === "adaptive" &&
+        (data.task.quizQuestions?.length ?? 0) > 0;
+    } else {
+      // 无 draft 路径走老 wrapper（含 enqueue 副作用）
+      output = await createPublishedTaskWithInstance(user.id, data);
+    }
+
     await logAudit({
       action: "taskInstance.createWithTask.publish",
       actorId: user.id,
       targetId: output.instance.id,
       targetType: "TaskInstance",
-      metadata: { taskId: output.task.id },
+      metadata: {
+        taskId: output.task.id,
+        ...(data.taskBuildDraftId && { taskBuildDraftId: data.taskBuildDraftId }),
+      },
     });
+
+    // Phase3-A · Root cause 1: adaptive quiz 自动 enqueue tagger job
+    if (needsTaggerJob) {
+      try {
+        await enqueueAsyncJob({
+          type: "quiz_question_tag",
+          entityType: "task",
+          entityId: output.task.id,
+          input: { taskId: output.task.id },
+          createdBy: user.id,
+        });
+      } catch (err) {
+        console.error(
+          "[with-task] 自动触发 quiz_question_tag 失败（不阻塞）：",
+          err,
+        );
+      }
+    }
 
     return created(output);
   } catch (err) {

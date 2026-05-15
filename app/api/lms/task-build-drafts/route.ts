@@ -19,7 +19,7 @@ const createDraftSchema = z.object({
   taskType: taskTypeSchema,
   title: z.string().trim().max(200).optional(),
   description: z.string().trim().max(5000).nullable().optional(),
-  status: z.enum(["draft", "queued", "processing", "ready", "failed"]).optional(),
+  status: z.enum(["draft", "queued", "processing", "ready", "approved", "failed"]).optional(),
   progress: z.number().min(0).max(100).optional(),
   sourceIds: z.array(z.string().uuid()).max(50).optional(),
   asyncJobId: z.string().uuid().nullable().optional(),
@@ -27,6 +27,22 @@ const createDraftSchema = z.object({
   draftPayload: z.unknown().optional(),
   error: z.string().trim().max(2000).nullable().optional(),
 });
+
+const DRAFT_STATUS_VALUES = [
+  "draft",
+  "queued",
+  "processing",
+  "ready",
+  "approved",
+  "failed",
+  "published",
+] as const;
+
+type DraftStatus = (typeof DRAFT_STATUS_VALUES)[number];
+
+function isDraftStatus(value: string): value is DraftStatus {
+  return (DRAFT_STATUS_VALUES as readonly string[]).includes(value);
+}
 
 export async function GET(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);
@@ -37,9 +53,17 @@ export async function GET(request: NextRequest) {
     const courseId = searchParams.get("courseId");
     if (!courseId) return validationError("缺少 courseId");
 
+    const rawStatus = searchParams.getAll("status").filter(isDraftStatus);
+    const statusFilter =
+      rawStatus.length === 0
+        ? undefined
+        : rawStatus.length === 1
+          ? rawStatus[0]
+          : rawStatus;
+
     const { user } = result.session;
     await assertCourseAccess(courseId, user.id, user.role);
-    const drafts = await listTaskBuildDrafts(courseId);
+    const drafts = await listTaskBuildDrafts(courseId, statusFilter ? { status: statusFilter } : undefined);
     return success(drafts);
   } catch (err) {
     return handleServiceError(err);

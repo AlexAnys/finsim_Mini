@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles, Save, SkipForward, ChevronRight, Paperclip } from "lucide-react";
+import {
+  Loader2,
+  Sparkles,
+  Save,
+  SkipForward,
+  ChevronRight,
+  Paperclip,
+  Undo2,
+} from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -9,9 +17,20 @@ import {
   SheetDescription,
   SheetHeader,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
 interface ScoringCriterion {
   id: string;
@@ -55,7 +74,14 @@ interface GradeEvaluation {
   totalScore?: number;
   maxScore?: number;
   feedback?: string;
-  rubricBreakdown?: Array<{ criterionId: string; score: number; maxScore: number; comment?: string }>;
+  rubricBreakdown?: Array<{
+    criterionId: string;
+    score: number;
+    maxScore: number;
+    comment?: string;
+    // Unit 9: 评分依据
+    evidence?: Array<{ studentText: string; comment: string; unverified?: boolean }>;
+  }>;
   confidence?: number;
 }
 
@@ -87,6 +113,9 @@ export function GradingDrawer({
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
   const [showAi, setShowAi] = useState(showAiSuggestion);
+  // Unit 5b: 撤销批改 confirm
+  const [ungradeOpen, setUngradeOpen] = useState(false);
+  const [ungrading, setUngrading] = useState(false);
 
   useEffect(() => {
     setShowAi(showAiSuggestion);
@@ -159,6 +188,29 @@ export function GradingDrawer({
     }));
   };
 
+  const handleUngrade = async () => {
+    if (!detail) return;
+    setUngrading(true);
+    try {
+      const res = await fetch(`/api/submissions/${detail.id}/ungrade`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "撤销失败");
+        return;
+      }
+      toast.success("已撤销批改");
+      onSaved(detail.id); // 复用 onSaved 回调让外层刷新列表
+      setUngradeOpen(false);
+      onOpenChange(false);
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setUngrading(false);
+    }
+  };
+
   const handleSave = async (afterSave?: "next" | "close") => {
     if (!detail) return;
     setSaving(true);
@@ -192,6 +244,7 @@ export function GradingDrawer({
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
@@ -339,9 +392,39 @@ export function GradingDrawer({
                               </div>
                             </div>
                             {aiScore && showAiSuggestion && showAi && (
-                              <div className="mt-1.5 text-[10.5px] text-sim">
-                                AI 建议 {aiScore.score}/{aiScore.maxScore}
-                                {aiScore.comment && ` · ${aiScore.comment}`}
+                              <div className="mt-1.5 space-y-1">
+                                <div className="text-[10.5px] text-sim">
+                                  AI 建议 {aiScore.score}/{aiScore.maxScore}
+                                  {aiScore.comment && ` · ${aiScore.comment}`}
+                                </div>
+                                {aiScore.evidence && aiScore.evidence.length > 0 && (
+                                  <div className="space-y-1 border-l-2 border-line pl-2">
+                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-5">
+                                      评分依据
+                                    </div>
+                                    {aiScore.evidence.map((ev, i) => (
+                                      <div key={i} className="text-[10.5px] leading-relaxed">
+                                        {ev.studentText ? (
+                                          <div>
+                                            <span className="rounded bg-yellow-50 px-1 text-ink-2">
+                                              「{ev.studentText}」
+                                            </span>
+                                            {ev.unverified && (
+                                              <span className="ml-1 text-[9.5px] text-warn">
+                                                未通过引用校验
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div className="italic text-ink-5">未引用原句</div>
+                                        )}
+                                        {ev.comment && (
+                                          <div className="mt-0.5 text-ink-5">{ev.comment}</div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -372,6 +455,22 @@ export function GradingDrawer({
 
               {/* Footer */}
               <div className="mt-auto flex items-center justify-end gap-2 border-t border-line bg-paper-alt p-3">
+                {detail.status === "graded" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUngradeOpen(true)}
+                    disabled={saving || ungrading}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    {ungrading ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Undo2 className="size-3" />
+                    )}
+                    撤销批改
+                  </Button>
+                )}
                 {onNext && (
                   <Button
                     variant="outline"
@@ -416,6 +515,39 @@ export function GradingDrawer({
         )}
       </SheetContent>
     </Sheet>
+
+    {/* Unit 5b: 撤销批改 confirm dialog */}
+    <AlertDialog
+      open={ungradeOpen}
+      onOpenChange={(open) => !open && !ungrading && setUngradeOpen(false)}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>撤销批改</AlertDialogTitle>
+          <AlertDialogDescription>
+            撤销后此次评分作废，提交回到待批改状态，可重新批改。学生的作答数据 + 之前的 AI 评估草稿都会保留。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={ungrading}>取消</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleUngrade}
+            disabled={ungrading}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {ungrading ? (
+              <>
+                <Loader2 className="size-4 mr-2 animate-spin" />
+                撤销中...
+              </>
+            ) : (
+              "确认撤销"
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 

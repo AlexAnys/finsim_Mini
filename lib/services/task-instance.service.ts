@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter } from "@/lib/services/course.service";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { clampTake } from "@/lib/pagination";
 import { createTaskInTransaction } from "@/lib/services/task.service";
 import type {
@@ -77,46 +78,85 @@ export async function createTaskInstance(createdBy: string, input: CreateTaskIns
   });
 }
 
+/**
+ * Codex-P1-r4: tx-aware 版本 — 让外部 caller 在已开启的 transaction 内复用，
+ * 避免嵌套 $transaction（with-task route 把 draft reserve + create 包同一 tx）。
+ */
+export async function createPublishedTaskWithInstanceInTransaction(
+  tx: Prisma.TransactionClient,
+  createdBy: string,
+  input: CreatePublishedTaskWithInstanceInput,
+) {
+  const task = await createTaskInTransaction(tx, createdBy, input.task);
+  const taskForSnapshot = await tx.task.findUnique({
+    where: { id: task.id },
+    include: taskSnapshotInclude,
+  });
+  if (!taskForSnapshot) throw new Error("TASK_NOT_FOUND");
+  assertTaskReadyForPublish(taskForSnapshot);
+
+  const taskSnapshot = JSON.parse(JSON.stringify(taskForSnapshot)) as Prisma.InputJsonValue;
+  const instance = await tx.taskInstance.create({
+    data: {
+      title: input.instance.title,
+      description: input.instance.description,
+      taskId: task.id,
+      taskType: input.task.taskType,
+      classId: input.instance.classId,
+      groupIds: input.instance.groupIds,
+      courseId: input.instance.courseId,
+      chapterId: input.instance.chapterId,
+      sectionId: input.instance.sectionId,
+      slot: input.instance.slot as "pre" | "in" | "post" | undefined,
+      dueAt: new Date(input.instance.dueAt),
+      publishAt: input.instance.publishAt
+        ? new Date(input.instance.publishAt)
+        : undefined,
+      attemptsAllowed: input.instance.attemptsAllowed,
+      status: "published",
+      publishedAt: new Date(),
+      taskSnapshot,
+      createdBy,
+    },
+  });
+
+  return { task: taskForSnapshot, instance };
+}
+
 export async function createPublishedTaskWithInstance(
   createdBy: string,
   input: CreatePublishedTaskWithInstanceInput,
 ) {
-  return prisma.$transaction(async (tx) => {
-    const task = await createTaskInTransaction(tx, createdBy, input.task);
-    const taskForSnapshot = await tx.task.findUnique({
-      where: { id: task.id },
-      include: taskSnapshotInclude,
-    });
-    if (!taskForSnapshot) throw new Error("TASK_NOT_FOUND");
-    assertTaskReadyForPublish(taskForSnapshot);
+  const output = await prisma.$transaction(async (tx) =>
+    createPublishedTaskWithInstanceInTransaction(tx, createdBy, input),
+  );
 
-    const taskSnapshot = JSON.parse(JSON.stringify(taskForSnapshot)) as Prisma.InputJsonValue;
-    const instance = await tx.taskInstance.create({
-      data: {
-        title: input.instance.title,
-        description: input.instance.description,
-        taskId: task.id,
-        taskType: input.task.taskType,
-        classId: input.instance.classId,
-        groupIds: input.instance.groupIds,
-        courseId: input.instance.courseId,
-        chapterId: input.instance.chapterId,
-        sectionId: input.instance.sectionId,
-        slot: input.instance.slot as "pre" | "in" | "post" | undefined,
-        dueAt: new Date(input.instance.dueAt),
-        publishAt: input.instance.publishAt
-          ? new Date(input.instance.publishAt)
-          : undefined,
-        attemptsAllowed: input.instance.attemptsAllowed,
-        status: "published",
-        publishedAt: new Date(),
-        taskSnapshot,
+  // Phase3-A · Root cause 1: 任务发布后若是 adaptive quiz，自动 enqueue tagger job
+  // （createTask 已有同款；本路径 createPublishedTaskWithInstance 之前漏触发，学生进 adaptive
+  //  task 时 < 50% tagged → fallback "知识点诊断暂未启用"，演示卡死）
+  if (
+    input.task.taskType === "quiz" &&
+    input.task.quizConfig?.mode === "adaptive" &&
+    (input.task.quizQuestions?.length ?? 0) > 0
+  ) {
+    try {
+      const { enqueueAsyncJob } = await import("./async-job.service");
+      await enqueueAsyncJob({
+        type: "quiz_question_tag",
+        entityType: "task",
+        entityId: output.task.id,
+        input: { taskId: output.task.id },
         createdBy,
-      },
-    });
+      });
+    } catch (err) {
+      console.error(
+        "[createPublishedTaskWithInstance] 自动触发 quiz_question_tag 失败（不阻塞）：",
+        err,
+      );
+    }
+  }
 
-    return { task: taskForSnapshot, instance };
-  });
+  return output;
 }
 
 export async function publishTaskInstance(instanceId: string, createdBy: string) {
@@ -233,9 +273,87 @@ export async function updateTaskInstance(
 }
 
 export async function deleteTaskInstance(instanceId: string, createdBy: string) {
-  const existing = await prisma.taskInstance.findUnique({ where: { id: instanceId } });
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, status: true, createdBy: true, courseId: true, title: true },
+  });
   if (!existing || !(await isAuthorizedForInstance(existing, createdBy))) {
     throw new Error("FORBIDDEN");
   }
-  return prisma.taskInstance.delete({ where: { id: instanceId } });
+  if (existing.status !== "draft" && existing.status !== "closed") {
+    throw new Error("TASK_INSTANCE_NOT_DELETABLE");
+  }
+  const submissionCount = await prisma.submission.count({
+    where: { taskInstanceId: instanceId },
+  });
+  if (submissionCount > 0) {
+    throw new Error("INSTANCE_HAS_SUBMISSIONS");
+  }
+  const deleted = await prisma.taskInstance.delete({ where: { id: instanceId } });
+  await logAuditForced({
+    action: "task_instance.delete",
+    actorId: createdBy,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { title: existing.title, previousStatus: existing.status },
+  });
+  return deleted;
+}
+
+/**
+ * Reopen a closed task instance. Status closed -> published. 写 audit。
+ * 用于"误关后挽回"场景，是任务实例状态机第三态。
+ */
+export async function reopenTaskInstance(instanceId: string, actorId: string) {
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, status: true, createdBy: true, courseId: true, title: true },
+  });
+  if (!existing || !(await isAuthorizedForInstance(existing, actorId))) {
+    throw new Error("FORBIDDEN");
+  }
+  if (existing.status !== "closed") {
+    throw new Error("TASK_INSTANCE_NOT_REOPENABLE");
+  }
+  const updated = await prisma.taskInstance.update({
+    where: { id: instanceId },
+    data: { status: "published" },
+  });
+  await logAuditForced({
+    action: "task_instance.reopen",
+    actorId,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { title: existing.title, previousStatus: "closed" },
+  });
+  return updated;
+}
+
+/**
+ * Close a published task instance. Status published -> closed. 写 audit。
+ * 关闭后学生 assertTaskInstanceReadable 会拒绝读取（403），已提交的 submission 仍可通过 /grades 查看。
+ */
+export async function closeTaskInstance(instanceId: string, actorId: string) {
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: { id: true, status: true, createdBy: true, courseId: true, title: true },
+  });
+  if (!existing || !(await isAuthorizedForInstance(existing, actorId))) {
+    throw new Error("FORBIDDEN");
+  }
+  if (existing.status !== "published") {
+    throw new Error("TASK_INSTANCE_NOT_CLOSEABLE");
+  }
+  const updated = await prisma.taskInstance.update({
+    where: { id: instanceId },
+    data: { status: "closed" },
+  });
+  await logAuditForced({
+    action: "task_instance.close",
+    actorId,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { title: existing.title, previousStatus: "published" },
+  });
+  return updated;
 }

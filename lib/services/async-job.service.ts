@@ -314,6 +314,17 @@ async function performAsyncJob(job: AsyncJob): Promise<JsonInput | undefined> {
         updateAsyncJobProgress(job.id, progress).then(() => undefined),
       );
     }
+    case "quiz_question_tag": {
+      const taskId = readInputString(job, "taskId") || job.entityId;
+      if (!taskId) throw new Error("TASK_NOT_FOUND");
+      await updateAsyncJobProgress(job.id, 20);
+      const { tagQuizQuestions } = await import("@/lib/services/quiz-question-tagger.service");
+      const summary = await tagQuizQuestions(taskId, job.createdBy);
+      await updateAsyncJobProgress(job.id, 95);
+      return summary as unknown as JsonInput;
+    }
+    case "data_insight_advice":
+      throw new Error("ASYNC_JOB_HANDLER_NOT_IMPLEMENTED");
   }
 }
 

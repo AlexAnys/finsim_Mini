@@ -29,6 +29,10 @@ export interface PriorityTask {
   studentStatus: "todo" | "submitted" | "grading" | "graded" | "failed" | "overdue";
   attemptsUsed?: number | null;
   questionCount?: number | null;
+  /** Unit 3: 关联 instance.status，graded + closed 时 [结果] 按钮跳 grades?focus= */
+  instanceStatus?: "published" | "closed" | "draft" | "archived" | null;
+  /** Unit 3: 最近一次提交 ID，graded + closed 状态下用作 grades 页 focus 参数 */
+  latestSubmissionId?: string | null;
 }
 
 interface PriorityTasksProps {
@@ -85,6 +89,14 @@ const FILTERS = [
 type TaskFilter = (typeof FILTERS)[number]["key"];
 
 function taskHref(task: PriorityTask): string {
+  // Unit 3: closed 实例 + 已批改 → 进 /grades 直接 focus 到这条提交
+  if (
+    task.instanceStatus === "closed" &&
+    task.studentStatus === "graded" &&
+    task.latestSubmissionId
+  ) {
+    return `/grades?focus=${task.latestSubmissionId}`;
+  }
   return task.taskType === "simulation"
     ? `/sim/${task.id}`
     : `/tasks/${task.id}`;
@@ -143,15 +155,28 @@ export function PriorityTasks({ tasks }: PriorityTasksProps) {
         </div>
       </header>
 
-      <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+      <div className="space-y-2">
         {filteredTasks.length === 0 ? (
           <div className="rounded-xl border border-line bg-surface py-6">
             <p className="text-center text-sm text-ink-4">当前筛选下暂无任务</p>
           </div>
         ) : (
-          filteredTasks.map((task) => <TaskRow key={task.id} task={task} />)
+          filteredTasks
+            .slice(0, 5)
+            .map((task) => <TaskRow key={task.id} task={task} />)
         )}
       </div>
+      {/* Unit 14: 折叠 — 显示前 5 项后给"查看全部"链接到 /tasks */}
+      {filteredTasks.length > 5 && (
+        <div className="mt-2 flex justify-end">
+          <Link
+            href="/tasks"
+            className="text-[12px] text-brand hover:underline"
+          >
+            查看全部 {filteredTasks.length} 项 →
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

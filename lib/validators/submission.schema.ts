@@ -127,6 +127,26 @@ export const createSimulationSubmissionSchema = z.object({
 });
 
 // 创建提交 - 测验
+// Unit 8: adaptive 模式终态时携带的薄弱知识点报告
+const masteryReportSchema = z
+  .object({
+    totalQuestions: z.number(),
+    correctCount: z.number(),
+    knowledgePoints: z.array(
+      z.object({
+        tag: z.string(),
+        ability: z.number(),
+        confidence: z.number(),
+        questionsAnswered: z.number(),
+        classification: z.enum(["薄弱", "一般", "掌握"]),
+      }),
+    ),
+    weakestTopics: z.array(z.string()),
+    recommendation: z.string(),
+  })
+  .optional()
+  .nullable();
+
 export const createQuizSubmissionSchema = z.object({
   taskType: z.literal("quiz"),
   taskId: z.string().uuid(),
@@ -135,6 +155,7 @@ export const createQuizSubmissionSchema = z.object({
   startedAt: z.string().datetime().optional(),
   finishedAt: z.string().datetime().optional(),
   durationSeconds: z.number().int().min(0).optional(),
+  masteryReport: masteryReportSchema,
 });
 
 // 创建提交 - 主观题

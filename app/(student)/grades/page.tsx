@@ -7,7 +7,8 @@
 // - D1 防作弊：保留 PR-SIM-1c 的 analysisStatus 派生（pending / analyzed_unreleased / released），
 //   仅 released 行展示分数 / feedback / rubric；其它两态走 chip + 等待文案。
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 // PR-SIM-1c · D1 防作弊：
@@ -50,8 +51,11 @@ export default function StudentGradesPage() {
   const [rows, setRows] = useState<GradeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const focusId = searchParams.get("focus");
   const [tab, setTab] = useState<GradesTabKey>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const focusRowRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +110,23 @@ export default function StudentGradesPage() {
     };
   }, []);
 
+  // Unit 3: dashboard "结果" 按钮可带 ?focus=<submissionId>，让对应行高亮 + 滚动到视图内
+  // 纯派生：selectedId（用户点击）优先于 focusId（URL 来源）。用户点其他行后 focusId 自然失效。
+  const effectiveSelectedId =
+    selectedId ??
+    (focusId && rows.some((r) => r.id === focusId) ? focusId : null);
+
+  // focus 行进入视图（仅 URL focus 初次匹配且用户未点击时滚动）
+  useEffect(() => {
+    if (!focusId) return;
+    if (selectedId !== null) return; // 用户已点击，不再自动滚动
+    if (!rows.some((r) => r.id === focusId)) return;
+    const f = requestAnimationFrame(() => {
+      focusRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(f);
+  }, [focusId, selectedId, rows]);
+
   const header = useMemo(() => buildHeaderStats(rows), [rows]);
   const byType = useMemo(() => buildByTypeStats(rows), [rows]);
   const counts = useMemo(() => buildTabCounts(rows), [rows]);
@@ -124,12 +145,12 @@ export default function StudentGradesPage() {
   // 使用纯派生（避免 useEffect setState 的级联渲染告警）
   const selectedRow = useMemo<GradeRow | null>(() => {
     if (visibleRows.length === 0) return null;
-    if (selectedId != null) {
-      const found = visibleRows.find((r) => r.id === selectedId);
+    if (effectiveSelectedId != null) {
+      const found = visibleRows.find((r) => r.id === effectiveSelectedId);
       if (found) return found;
     }
     return visibleRows[0];
-  }, [visibleRows, selectedId]);
+  }, [visibleRows, effectiveSelectedId]);
 
   if (loading) {
     return (
@@ -187,14 +208,16 @@ export default function StudentGradesPage() {
                   sub.analysisStatus === "released" && sub.score !== null;
                 const trendDelta =
                   isReleased && sub.evaluation ? trendMap[sub.id] ?? null : null;
+                const isFocus = sub.id === focusId;
                 return (
-                  <SubmissionRow
-                    key={sub.id}
-                    row={sub}
-                    selected={selectedRow?.id === sub.id}
-                    onSelect={setSelectedId}
-                    trendDelta={trendDelta}
-                  />
+                  <div key={sub.id} ref={isFocus ? focusRowRef : undefined}>
+                    <SubmissionRow
+                      row={sub}
+                      selected={selectedRow?.id === sub.id}
+                      onSelect={setSelectedId}
+                      trendDelta={trendDelta}
+                    />
+                  </div>
                 );
               })
             )}

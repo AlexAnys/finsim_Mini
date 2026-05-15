@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { getStorage, validateFile } from "@/lib/services/storage.service";
-import { created, validationError, serverError } from "@/lib/api-utils";
+import { created, validationError, validationErrorWithCode, serverError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
   const result = await requireAuth();
@@ -18,7 +18,9 @@ export async function POST(request: NextRequest) {
     const allowedTypes = ["image", "pdf", "word"];
     const validation = validateFile(file.type, file.size, allowedTypes);
     if (!validation.valid) {
-      return validationError(validation.error!);
+      return validation.code
+        ? validationErrorWithCode(validation.code, validation.error!)
+        : validationError(validation.error!);
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());

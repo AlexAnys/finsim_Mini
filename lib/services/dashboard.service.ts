@@ -190,9 +190,9 @@ export async function getStudentDashboard(studentId: string, classId: string) {
       },
       orderBy: { createdAt: "desc" },
     }),
-    // 已发布的任务实例（按 TaskInstance.classId 精确匹配本班，避免跨班泄露）
+    // Unit 3: 包含已发布 + 已关闭的本班任务实例。closed 状态稍后过滤为"我有 submission"
     prisma.taskInstance.findMany({
-      where: { classId, status: "published" },
+      where: { classId, status: { in: ["published", "closed"] } },
       include: {
         task: { select: { id: true, taskName: true, taskType: true } },
         course: { select: { id: true, courseTitle: true } },
@@ -242,8 +242,18 @@ export async function getStudentDashboard(studentId: string, classId: string) {
     }),
   ]);
 
+  // Unit 3: closed 任务实例仅当本人有 submission 时保留（隐私 + 体验，避免列表混入未参与的已结束任务）
+  const mySubInstanceIds = new Set(
+    mySubmissions
+      .map((s) => s.taskInstanceId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+  const visibleTaskInstances = taskInstances.filter((ti) =>
+    ti.status === "published" || (ti.status === "closed" && mySubInstanceIds.has(ti.id)),
+  );
+
   // 为每个任务实例计算学生状态
-  const taskWithStatus = taskInstances.map((ti) => {
+  const taskWithStatus = visibleTaskInstances.map((ti) => {
     const subs = mySubmissions.filter((s) => s.taskInstanceId === ti.id);
     const latestSub = subs[0];
     const now = new Date();
@@ -272,6 +282,7 @@ export async function getStudentDashboard(studentId: string, classId: string) {
       attemptsAllowed: ti.attemptsAllowed,
       latestScore: latestSub?.status === "graded" ? latestSub.score : null,
       latestMaxScore: latestSub?.status === "graded" ? latestSub.maxScore : null,
+      latestSubmissionId: latestSub?.id ?? null,
     };
   });
 

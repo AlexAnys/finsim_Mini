@@ -70,10 +70,21 @@ export function validateFile(
   contentType: string,
   fileSize: number,
   allowedTypes: string[]
-): { valid: boolean; error?: string } {
+): { valid: boolean; error?: string; code?: string } {
   const maxSize = 20 * 1024 * 1024; // 20MB
   if (fileSize > maxSize) {
     return { valid: false, error: "文件大小不能超过 20MB" };
+  }
+
+  // Phase3-B: 旧版 .doc (OLE2) 单独识别，返回友好提示 + 错误码 LEGACY_DOC_UNSUPPORTED。
+  // 不引入 antiword/libreoffice 依赖；用户转 .docx 后即可上传。
+  if (contentType === "application/msword") {
+    return {
+      valid: false,
+      error:
+        "暂不支持旧版 .doc 格式，请先在 Word/Pages 里另存为 .docx 后再上传（操作步骤：文件 → 另存为 → 选 .docx）",
+      code: "LEGACY_DOC_UNSUPPORTED",
+    };
   }
 
   const allowed = allowedTypes.flatMap((t) => ALLOWED_TYPES[t] || []);

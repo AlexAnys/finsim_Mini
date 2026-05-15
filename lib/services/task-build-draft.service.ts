@@ -1,5 +1,6 @@
 import { Prisma, SlotType, TaskBuildDraftStatus, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { logAudit } from "@/lib/services/audit.service";
 
 export interface TaskBuildDraftInput {
   courseId: string;
@@ -15,12 +16,23 @@ export interface TaskBuildDraftInput {
   asyncJobId?: string | null;
   missingFields?: string[];
   draftPayload?: Prisma.InputJsonValue;
+  aiPayload?: Prisma.InputJsonValue;
+  editedPayload?: Prisma.InputJsonValue;
   error?: string | null;
 }
 
-export async function listTaskBuildDrafts(courseId: string) {
+export async function listTaskBuildDrafts(
+  courseId: string,
+  filters?: { status?: TaskBuildDraftStatus | TaskBuildDraftStatus[] },
+) {
+  const statusFilter = filters?.status;
   const drafts = await prisma.taskBuildDraft.findMany({
-    where: { courseId },
+    where: {
+      courseId,
+      ...(statusFilter && {
+        status: Array.isArray(statusFilter) ? { in: statusFilter } : statusFilter,
+      }),
+    },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
 
@@ -68,6 +80,8 @@ export async function createTaskBuildDraft(
       asyncJobId: input.asyncJobId || null,
       missingFields: input.missingFields ?? [],
       draftPayload: input.draftPayload ?? Prisma.JsonNull,
+      aiPayload: input.aiPayload ?? Prisma.JsonNull,
+      editedPayload: input.editedPayload ?? Prisma.JsonNull,
       error: normalizeOptionalText(input.error),
       createdBy,
     },
@@ -136,12 +150,78 @@ export async function updateTaskBuildDraft(
   if (input.draftPayload !== undefined) {
     data.draftPayload = input.draftPayload ?? Prisma.JsonNull;
   }
+  if (input.aiPayload !== undefined) {
+    data.aiPayload = input.aiPayload ?? Prisma.JsonNull;
+  }
+  if (input.editedPayload !== undefined) {
+    data.editedPayload = input.editedPayload ?? Prisma.JsonNull;
+  }
   if (input.error !== undefined) data.error = normalizeOptionalText(input.error);
 
   return prisma.taskBuildDraft.update({
     where: { id: draftId },
     data,
   });
+}
+
+export async function approveTaskBuildDraft(draftId: string, actorId: string) {
+  const draft = await prisma.taskBuildDraft.findUnique({
+    where: { id: draftId },
+    select: { id: true, status: true, courseId: true, title: true },
+  });
+  if (!draft) throw new Error("TASK_BUILD_DRAFT_NOT_FOUND");
+  if (draft.status !== "ready") {
+    throw new Error("TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL");
+  }
+
+  const updated = await prisma.taskBuildDraft.update({
+    where: { id: draftId },
+    data: {
+      status: "approved",
+      approvedAt: new Date(),
+      approvedBy: actorId,
+    },
+  });
+
+  await logAudit({
+    action: "task_draft.approve",
+    actorId,
+    targetId: draftId,
+    targetType: "TaskBuildDraft",
+    metadata: { courseId: draft.courseId, title: draft.title },
+  });
+
+  return updated;
+}
+
+/**
+ * Codex-P1-r4: conditional atomic update — `where: { id, status: "approved" }`
+ * 让 status 转换在 DB 层面 atomic。失败（draft 不存在 / 已被其他请求 flip）
+ * 时 Prisma 抛 P2025；我们映射为 NOT_APPROVED_FOR_PUBLISH（统一文案，
+ * race loser 也得到同一错误，不需要区分"不存在 vs 状态变了"）。
+ *
+ * 支持 optional tx 参数：with-task route 把 draft reserve + create 包同一
+ * transaction，防止部分提交（额外 instance 持久化但 draft 状态没 flip）。
+ */
+export async function markTaskBuildDraftPublished(
+  draftId: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  try {
+    return await client.taskBuildDraft.update({
+      where: { id: draftId, status: "approved" },
+      data: { status: "published" },
+    });
+  } catch (err) {
+    // P2025: Record to update not found（id 不存在 或 status 不是 approved）
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2025"
+    ) {
+      throw new Error("TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH");
+    }
+    throw err;
+  }
 }
 
 export async function deleteTaskBuildDraft(draftId: string) {

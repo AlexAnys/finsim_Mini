@@ -3,6 +3,8 @@ import { requireRole } from "@/lib/auth/guards";
 import { assertContentBlockWritable } from "@/lib/auth/resource-access";
 import { updateContentBlock, deleteContentBlock } from "@/lib/services/course.service";
 import { logAuditForced } from "@/lib/services/audit.service";
+import { getCourseActorRole } from "@/lib/auth/actor-role";
+import { prisma } from "@/lib/db/prisma";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -33,6 +35,15 @@ export async function PATCH(
     const { user } = result.session;
     await assertContentBlockWritable(id, user);
 
+    // Unit 5c: actor role
+    const cbRec = await prisma.contentBlock.findUnique({
+      where: { id },
+      select: { courseId: true },
+    });
+    const actorRole = cbRec
+      ? await getCourseActorRole(cbRec.courseId, user.id, user.role)
+      : "none";
+
     const block = await updateContentBlock(id, {
       payload: parsed.data.payload as
         | import("@prisma/client").Prisma.InputJsonValue
@@ -49,6 +60,7 @@ export async function PATCH(
         fields: Object.keys(parsed.data).filter(
           (k) => parsed.data[k as keyof typeof parsed.data] !== undefined,
         ),
+        actorRole,
       },
     });
     return success(block);
@@ -69,6 +81,14 @@ export async function DELETE(
     const { user } = result.session;
     await assertContentBlockWritable(id, user);
 
+    const cbRec = await prisma.contentBlock.findUnique({
+      where: { id },
+      select: { courseId: true },
+    });
+    const actorRole = cbRec
+      ? await getCourseActorRole(cbRec.courseId, user.id, user.role)
+      : "none";
+
     await deleteContentBlock(id);
     // PR-FIX-1 UX5: 安全敏感删除强制 audit
     await logAuditForced({
@@ -76,6 +96,7 @@ export async function DELETE(
       actorId: user.id,
       targetId: id,
       targetType: "contentBlock",
+      metadata: { actorRole },
     });
     return success({ id });
   } catch (err) {

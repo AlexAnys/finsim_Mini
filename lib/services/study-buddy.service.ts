@@ -5,6 +5,7 @@ import {
   assertTaskInstanceReadable,
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { getKnowledgeSourcesForStudyBuddy } from "@/lib/services/course-knowledge-source.service";
 
 type UserLike = { id: string; role: string; classId?: string | null };
@@ -17,13 +18,17 @@ type StudyBuddyMessageRecord = {
     fileName: string;
     scopeLevel: string;
     scopeLabel: string;
+    /** Unit 6: 持久化素材摘录（300 字截断），UI hover popover 用 */
+    excerpt?: string;
   }>;
 };
 
 export async function createPost(data: {
   user: UserLike;
-  taskId: string;
+  // Unit 6: 自由问支持 — taskId optional
+  taskId?: string;
   taskInstanceId?: string;
+  courseId?: string;
   title: string;
   question: string;
   mode: "socratic" | "direct";
@@ -33,22 +38,65 @@ export async function createPost(data: {
   const isPreview = Boolean(data.isPreview);
   if (data.user.role !== "student" && !isPreview) throw new Error("FORBIDDEN");
   if (data.user.role === "student" && isPreview) throw new Error("FORBIDDEN");
+
+  // Unit 6: 三种模式
+  //   1. taskInstanceId 提供 → 任务实例相关；从 instance.courseId 反推
+  //   2. taskId 提供 → 任务模板相关；从 task 反推任意一个实例的 courseId
+  //   3. 都没有 → 自由问；可选 courseId（学生选课程或留空）
+  let resolvedCourseId: string | undefined = data.courseId;
+
   if (data.taskInstanceId) {
     await assertTaskInstanceReadable(data.taskInstanceId, data.user);
     const instance = await prisma.taskInstance.findUnique({
       where: { id: data.taskInstanceId },
-      select: { taskId: true },
+      select: { taskId: true, courseId: true },
     });
     if (!instance) throw new Error("INSTANCE_NOT_FOUND");
-    if (instance.taskId !== data.taskId) throw new Error("FORBIDDEN");
-  } else {
+    if (data.taskId && instance.taskId !== data.taskId) {
+      throw new Error("FORBIDDEN");
+    }
+    // Codex-P1-2 r2: 强制使用 instance.courseId（可能为 null），不 fallback 到 client supplied data.courseId
+    resolvedCourseId = instance.courseId ?? undefined;
+    if (!data.taskId) data = { ...data, taskId: instance.taskId };
+  } else if (data.taskId) {
     await assertTaskReadable(data.taskId, data.user);
+    // Codex-P1-2 r2: 强制覆盖 client 传入的 courseId — 防 bogus courseId 让 generateReply 加载跨课程 KS。
+    // Codex-P1-r3: 加 classId scope — task 复用多班场景下，确保反推的 instance.courseId
+    // 来自学生自己班级，不会拿到别班 instance 的 courseId。
+    const userClassId = data.user.classId;
+    if (!userClassId) throw new Error("FORBIDDEN");
+    const anyInst = await prisma.taskInstance.findFirst({
+      where: { taskId: data.taskId, classId: userClassId },
+      select: { courseId: true },
+    });
+    if (!anyInst) throw new Error("FORBIDDEN");
+    resolvedCourseId = anyInst.courseId ?? undefined;
+  } else if (data.courseId) {
+    // Codex-P1-2: 自由问 + courseId → 校验学生属于该 course 的某 class（防跨课程 KS 泄漏）
+    // 学生 classId 必须 = Course.classId OR ∈ CourseClass.classId (CourseClasses 多班级关联)
+    const userClassId = data.user.classId;
+    if (!userClassId) throw new Error("FORBIDDEN");
+    const course = await prisma.course.findFirst({
+      where: {
+        id: data.courseId,
+        OR: [
+          { classId: userClassId },
+          { classes: { some: { classId: userClassId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!course) {
+      throw new Error("COURSE_ACCESS_DENIED");
+    }
   }
+  // 自由问（taskId / taskInstanceId 都没 + courseId 未传）：仅学生角色可发；courseId=null 持久化（admin-bin 兜底场景）
 
   const post = await prisma.studyBuddyPost.create({
     data: {
       studentId: data.user.id,
-      taskId: data.taskId,
+      taskId: data.taskId ?? null,
+      courseId: resolvedCourseId ?? null,
       taskInstanceId: data.taskInstanceId,
       title: data.title,
       question: data.question,
@@ -83,6 +131,7 @@ async function generateReply(postId: string, userId: string) {
           createdBy: true,
         },
       },
+      course: { select: { id: true, courseTitle: true } },
     },
   });
   if (!post) return;
@@ -94,18 +143,22 @@ async function generateReply(postId: string, userId: string) {
 
   const task = post.task;
   const taskInstance = post.taskInstance;
+  // Unit 6: courseId 优先级 — taskInstance > post.courseId（自由问）
+  const effectiveCourseId = taskInstance?.courseId ?? post.courseId ?? null;
   const materialSources = await getKnowledgeSourcesForStudyBuddy({
-    courseId: taskInstance?.courseId,
+    courseId: effectiveCourseId,
     chapterId: taskInstance?.chapterId,
     sectionId: taskInstance?.sectionId,
     taskId: taskInstance?.taskId ?? post.taskId,
     taskInstanceId: post.taskInstanceId,
   });
+  // Unit 6: referencedSources 持久化 excerpt（300 字截断），UI hover popover 用
   const referencedSources = materialSources.map((source) => ({
     id: source.id,
     fileName: source.fileName,
     scopeLevel: source.scopeLevel,
     scopeLabel: source.scopeLabel,
+    excerpt: (source.excerpt ?? "").slice(0, 300),
   }));
   const taskContext = task?.simulationConfig?.studyBuddyContext || "";
   const materialContext = materialSources
@@ -117,36 +170,51 @@ async function generateReply(postId: string, userId: string) {
       return `素材 ${index + 1}（${source.scopeLabel}）: ${source.fileName}\n${tags}${summary}摘录: ${source.excerpt}`;
     })
     .join("\n\n");
+  const courseTitle = taskInstance?.course?.courseTitle ?? post.course?.courseTitle ?? null;
   const scopeLine = [
-    taskInstance?.course?.courseTitle,
+    courseTitle,
     taskInstance?.chapter?.title,
     taskInstance?.section?.title,
     taskInstance?.title,
   ].filter(Boolean).join(" / ");
+  const isFreeForm = !post.taskId && !post.taskInstanceId;
+  const hasMaterial = materialContext.length > 0;
 
   try {
+    // Unit 6: AI 绝不拒答 — 无素材时明示 fallback 策略
+    const fallbackInstructions = isFreeForm
+      ? `这是一个自由提问（不绑定具体任务）。${courseTitle ? `学生选择了关联课程: ${courseTitle}。` : ""}请基于课程概要或通用金融常识回答；如有疑问范围超出课程，可解释相关基础概念。`
+      : `这是一个任务相关提问。${scopeLine ? `范围: ${scopeLine}。` : ""}请围绕该任务或课程内容回答。`;
+    const materialInstructions = hasMaterial
+      ? `优先使用下方教师补充课程素材；如素材不直接覆盖问题，再用通用金融知识补充并明确推断边界。`
+      : `未引用具体素材：当前问题范围内未匹配到教师上传的素材。请基于课程概要 / 章节名 / 通用金融常识回答，并在回复开头明确标注"未引用具体素材，以下基于通用知识"。`;
+
     const reply = await aiService.aiGenerateText(
       "studyBuddyReply",
       userId,
       `你是一位耐心的金融课程学习辅导助手。
 ${modePrompt}
-${scopeLine ? `当前学习范围: ${scopeLine}` : ""}
+${fallbackInstructions}
 ${taskContext ? `任务背景资料:\n${taskContext}` : ""}
-${materialContext ? `教师补充课程素材:\n${materialContext}` : ""}
-任务: ${task?.taskName || ""}
+${hasMaterial ? `教师补充课程素材:\n${materialContext}` : ""}
+${task?.taskName ? `任务: ${task.taskName}` : ""}
 
 规则：
 1. 不要使用 Markdown 符号（如 **、#、-、*），如需列点请每条独立换行并用数字编号（如 1. 2. 3.）。
 2. 注意上下文连贯，回答追问时参考之前的对话内容。
-3. 优先使用教师补充课程素材和任务背景资料，资料不足时再使用通用知识，并明确说明推断边界。
-4. 围绕课程内容与任务目标展开，不要发散到无关话题。`,
+3. ${materialInstructions}
+4. 绝不拒答 — 任何金融教学相关问题都应给出有教育价值的回答；只在问题完全偏离学习范畴时温和引导回到学习主题。
+5. 围绕课程内容展开，不要发散到无关话题。`,
       `对话历史:\n${messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n")}\n\n请回复：`,
       {
-        settingsUserId: taskInstance?.createdBy || task.creatorId || userId,
+        settingsUserId: taskInstance?.createdBy || task?.creatorId || userId,
         metadata: {
           studyBuddyPostId: postId,
           taskId: post.taskId,
           taskInstanceId: post.taskInstanceId,
+          courseId: effectiveCourseId,
+          isFreeForm,
+          hasMaterial,
           preview: post.isPreview,
         },
       },
@@ -224,6 +292,8 @@ export async function listStudyBuddyPosts(
       ...(filters.taskId && { taskId: filters.taskId }),
       ...(filters.taskInstanceId && { taskInstanceId: filters.taskInstanceId }),
       isPreview: Boolean(filters.preview),
+      // Unit 5b: 默认过滤隐藏的 post（hidePost 软删）
+      hiddenAt: null,
       ...(user.role === "student" && { studentId: user.id, isPreview: false }),
       ...(user.role !== "student" && filters.preview && { studentId: user.id }),
     },
@@ -232,6 +302,52 @@ export async function listStudyBuddyPosts(
     },
     orderBy: { createdAt: "desc" },
     take,
+  });
+}
+
+/**
+ * Unit 5b: 软删 Study Buddy post（隐藏）
+ * - 学生：仅能 hide 自己的 post
+ * - 老师：仅能 hide 自己创建的 task 下的 post（Unit 5c 协作上扬不含 SB hide）
+ * - admin：任意
+ * 已 hidden 的 post 重复调用是 idempotent（不写第二条 audit）
+ */
+export async function hideStudyBuddyPost(postId: string, user: UserLike) {
+  const post = await prisma.studyBuddyPost.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      studentId: true,
+      taskId: true,
+      hiddenAt: true,
+      task: { select: { creatorId: true } },
+    },
+  });
+  if (!post) throw new Error("STUDY_BUDDY_POST_NOT_FOUND");
+  if (post.hiddenAt) return; // idempotent
+
+  if (user.role === "student") {
+    if (post.studentId !== user.id) throw new Error("FORBIDDEN");
+  } else if (user.role === "teacher") {
+    // Unit 6: 自由问 (post.task null) 仅 admin 可 hide；非自由问按 task.creatorId 判断
+    if (!post.task || post.task.creatorId !== user.id) {
+      throw new Error("FORBIDDEN");
+    }
+  } // admin: pass through
+
+  await prisma.studyBuddyPost.update({
+    where: { id: postId },
+    data: { hiddenAt: new Date(), hiddenBy: user.id },
+  });
+  await logAuditForced({
+    action: "study_buddy_post.hide",
+    actorId: user.id,
+    targetId: postId,
+    targetType: "StudyBuddyPost",
+    metadata: {
+      studentId: post.studentId,
+      byOwner: user.id === post.studentId,
+    },
   });
 }
 

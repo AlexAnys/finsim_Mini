@@ -224,21 +224,33 @@ export default function StudentDashboardPage() {
       }
     }
 
-    return candidates
-      .sort((a, b) => a.sortKey - b.sortKey)
-      .slice(0, 5)
-      .map((slot) => ({
-        id: slot.id,
-        courseId: slot.courseId,
-        courseTitle: slot.courseTitle,
-        dateLabel: slot.dateLabel,
-        dayLabel: slot.dayLabel,
-        timeLabel: slot.timeLabel,
-        classroom: slot.classroom,
-        teacherName: slot.teacherName,
-        inProgress: slot.inProgress,
-        href: slot.href,
-      }));
+    candidates.sort((a, b) => a.sortKey - b.sortKey);
+
+    // 去重：DB 中存在视觉上等价的 slot 行（同一课程或同一标题/时间/日期）时
+    // 仪表盘只显示一条，避免学生看到"10:00 个人理财规划"重复 3 行。
+    const seen = new Set<string>();
+    const deduped: typeof candidates = [];
+    for (const slot of candidates) {
+      const primaryKey = slot.id;
+      const visualKey = `${slot.courseTitle}|${slot.timeLabel}|${slot.dateLabel}`;
+      if (seen.has(primaryKey) || seen.has(visualKey)) continue;
+      seen.add(primaryKey);
+      seen.add(visualKey);
+      deduped.push(slot);
+    }
+
+    return deduped.slice(0, 5).map((slot) => ({
+      id: slot.id,
+      courseId: slot.courseId,
+      courseTitle: slot.courseTitle,
+      dateLabel: slot.dateLabel,
+      dayLabel: slot.dayLabel,
+      timeLabel: slot.timeLabel,
+      classroom: slot.classroom,
+      teacherName: slot.teacherName,
+      inProgress: slot.inProgress,
+      href: slot.href,
+    }));
   }, [data]);
 
   const priorityTasks = useMemo<PriorityTask[]>(() => {
@@ -286,6 +298,14 @@ export default function StudentDashboardPage() {
             ? t.studentStatus
             : "todo",
         questionCount: null,
+        instanceStatus:
+          t.status === "published" ||
+          t.status === "closed" ||
+          t.status === "draft" ||
+          t.status === "archived"
+            ? t.status
+            : null,
+        latestSubmissionId: (t.latestSubmissionId as string | null) ?? null,
       }));
   }, [data]);
 

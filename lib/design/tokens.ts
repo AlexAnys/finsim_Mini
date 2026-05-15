@@ -75,7 +75,15 @@ const TAG_KEYS: readonly TagColorKey[] = [
   "tagF",
 ];
 
-export function courseColorForId(id: string): TagColorKey {
+/**
+ * Unit 6 r2: 源头 null-guard。原因：
+ * - 自由问 SB post 可同时 taskId=null + courseId=null（Unit 6 加 courseId 字段后）
+ * - 调用方常用 `${a.id ?? b.id}` pattern，两者皆 null 时传 null 进来
+ * - 之前 `id.length` 直接炸（CLAUDE.md L168 经典 "tsc 不报 runtime null deref"）
+ * 返回默认 "tagA" 是无 seed 时的合理 fallback（保色稳定）。
+ */
+export function courseColorForId(id: string | null | undefined): TagColorKey {
+  if (!id) return "tagA";
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
     hash = (hash * 31 + id.charCodeAt(i)) >>> 0;

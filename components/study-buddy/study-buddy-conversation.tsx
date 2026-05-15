@@ -20,6 +20,9 @@ interface StudyBuddyConversationProps {
   onSendFollowUp: () => void;
   isSendingFollowUp: boolean;
   onCreateNew: () => void;
+  // Unit 5b: 删除（隐藏）按钮回调
+  onDelete?: (id: string, title: string) => void;
+  deletingPostId?: string | null;
 }
 
 export function StudyBuddyConversation({
@@ -30,6 +33,8 @@ export function StudyBuddyConversation({
   onSendFollowUp,
   isSendingFollowUp,
   onCreateNew,
+  onDelete,
+  deletingPostId,
 }: StudyBuddyConversationProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +67,11 @@ export function StudyBuddyConversation({
 
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-paper">
-      <StudyBuddyConversationHeader post={post} />
+      <StudyBuddyConversationHeader
+        post={post}
+        onDelete={onDelete}
+        deleting={!!deletingPostId && deletingPostId === post.id}
+      />
 
       {/* Messages 滚动区 */}
       <div className="flex-1 overflow-y-auto px-6 pb-4 pt-6 lg:px-8">

@@ -31,6 +31,11 @@ export function validationError(message: string, details?: unknown) {
   return error("VALIDATION_ERROR", message, 400, details);
 }
 
+// Phase3-B: 上传 / 校验失败但需要前端按 error.code 分支提示时用此 helper。
+export function validationErrorWithCode(code: string, message: string, status = 400) {
+  return error(code, message, status);
+}
+
 export function serverError(message = "服务器内部错误") {
   return error("INTERNAL_ERROR", message, 500);
 }
@@ -54,6 +59,8 @@ export function handleServiceError(err: unknown) {
     switch (err.message) {
       case "FORBIDDEN":
         return forbidden();
+      case "COURSE_ACCESS_DENIED":
+        return error("COURSE_ACCESS_DENIED", "你不在该课程的班级，无法关联此课程", 403);
       case "COURSE_NOT_FOUND":
         return notFound("课程不存在");
       case "CLASS_NOT_FOUND":
@@ -93,6 +100,18 @@ export function handleServiceError(err: unknown) {
         return notFound("任务草稿不存在");
       case "TASK_BUILD_DRAFT_SCOPE_MISMATCH":
         return error("TASK_BUILD_DRAFT_SCOPE_MISMATCH", "任务草稿不属于当前课程", 400);
+      case "TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL":
+        return error(
+          "TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL",
+          "只有 AI 已就绪（ready 状态）的草稿可以批准",
+          400,
+        );
+      case "TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH":
+        return error(
+          "TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH",
+          "草稿尚未审核通过，请先在审核页批准 AI 原稿",
+          400,
+        );
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
       case "FILE_NOT_FOUND":
@@ -131,11 +150,59 @@ export function handleServiceError(err: unknown) {
         return error("MAX_ATTEMPTS_REACHED", "已达到最大提交次数", 400);
       case "INVALID_STATUS":
         return error("INVALID_STATUS", "任务状态不正确", 400);
+      case "TASK_INSTANCE_NOT_DELETABLE":
+        return error("TASK_INSTANCE_NOT_DELETABLE", "只有草稿或已关闭的实例可以删除，请先关闭实例", 400);
+      case "TASK_INSTANCE_NOT_REOPENABLE":
+        return error("TASK_INSTANCE_NOT_REOPENABLE", "只有已关闭的实例可以重新开放", 400);
+      case "TASK_INSTANCE_NOT_CLOSEABLE":
+        return error("TASK_INSTANCE_NOT_CLOSEABLE", "只有已发布的实例可以关闭", 400);
+      case "INSTANCE_HAS_SUBMISSIONS":
+        return error("INSTANCE_HAS_SUBMISSIONS", "该实例已有学生提交，无法删除", 400);
+      case "TASK_INSTANCE_DRAFT_NOT_VISIBLE":
+        return error("TASK_INSTANCE_DRAFT_NOT_VISIBLE", "任务尚未开放", 403);
+      case "TASK_INSTANCE_CLOSED_NO_SUBMISSION":
+        return error("TASK_INSTANCE_CLOSED_NO_SUBMISSION", "任务已结束，且未提交过作答", 403);
+      case "TASK_HAS_INSTANCES":
+        return error(
+          "TASK_HAS_INSTANCES",
+          "该任务已发布过实例，无法删除。请先到「任务实例」中删除所有实例后再试。",
+          400,
+        );
+      case "COURSE_HAS_INSTANCES":
+        return error(
+          "COURSE_HAS_INSTANCES",
+          "该课程下仍有任务实例，无法删除。请先关闭并删除所有实例后再试。",
+          400,
+        );
+      case "COURSE_HAS_CHAPTERS":
+        return error(
+          "COURSE_HAS_CHAPTERS",
+          "该课程下仍有章节内容，无法删除。请先清空所有章节后再试。",
+          400,
+        );
+      case "SUBMISSION_NOT_GRADED_YET":
+        return error("SUBMISSION_NOT_GRADED_YET", "该提交尚未批改，无法撤销", 400);
+      case "STUDY_BUDDY_POST_NOT_FOUND":
+        return notFound("Study Buddy 帖子不存在");
+      case "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM":
+        return error(
+          "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM",
+          "这是其他老师上传的素材，请确认后再删除",
+          400,
+        );
+      case "TASK_HAS_GRADED_SUBMISSIONS":
+        return error(
+          "TASK_HAS_GRADED_SUBMISSIONS",
+          "该任务已有已批改的提交，直接修改可能影响分数解读。请确认后继续，或复制为新任务再修改。",
+          400,
+        );
       case "RATE_LIMIT_EXCEEDED":
         return NextResponse.json(
           { success: false, error: { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" } },
           { status: 429 }
         );
+      case "AI_FEATURE_COOLDOWN":
+        return error("AI_FEATURE_COOLDOWN", "请稍后再试（60 秒内仅可重新生成 1 次）", 429);
       case "AI_PROVIDER_NOT_CONFIGURED":
         return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
       case "AI_PROVIDER_NOT_FOUND":

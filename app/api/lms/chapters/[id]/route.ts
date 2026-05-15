@@ -3,6 +3,8 @@ import { requireRole } from "@/lib/auth/guards";
 import { assertChapterWritable } from "@/lib/auth/resource-access";
 import { updateChapter, deleteChapter } from "@/lib/services/course.service";
 import { logAuditForced } from "@/lib/services/audit.service";
+import { getCourseActorRole } from "@/lib/auth/actor-role";
+import { prisma } from "@/lib/db/prisma";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -33,6 +35,15 @@ export async function PATCH(
     const { user } = result.session;
     await assertChapterWritable(id, user);
 
+    // Unit 5c: 查 course 推断 actorRole
+    const chRec = await prisma.chapter.findUnique({
+      where: { id },
+      select: { courseId: true },
+    });
+    const actorRole = chRec
+      ? await getCourseActorRole(chRec.courseId, user.id, user.role)
+      : "none";
+
     const chapter = await updateChapter(id, parsed.data);
     // PR-FIX-1 UX5: 安全敏感写入强制 audit
     await logAuditForced({
@@ -40,7 +51,7 @@ export async function PATCH(
       actorId: user.id,
       targetId: id,
       targetType: "chapter",
-      metadata: { fields: Object.keys(parsed.data) },
+      metadata: { fields: Object.keys(parsed.data), actorRole },
     });
     return success(chapter);
   } catch (err) {
@@ -60,6 +71,15 @@ export async function DELETE(
     const { user } = result.session;
     await assertChapterWritable(id, user);
 
+    // Unit 5c: 查 course 推断 actorRole（先于 deleteChapter，避免 chapter 被删后查不到）
+    const chRec = await prisma.chapter.findUnique({
+      where: { id },
+      select: { courseId: true },
+    });
+    const actorRole = chRec
+      ? await getCourseActorRole(chRec.courseId, user.id, user.role)
+      : "none";
+
     await deleteChapter(id);
     // PR-FIX-1 UX5: 安全敏感删除强制 audit
     await logAuditForced({
@@ -67,6 +87,7 @@ export async function DELETE(
       actorId: user.id,
       targetId: id,
       targetType: "chapter",
+      metadata: { actorRole },
     });
     return success({ id });
   } catch (err) {

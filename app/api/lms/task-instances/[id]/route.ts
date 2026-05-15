@@ -12,11 +12,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const { id } = await params;
     const { user } = result.session;
-    await assertTaskInstanceReadable(id, {
-      id: user.id,
-      role: user.role,
-      classId: user.classId,
-    });
+    await assertTaskInstanceReadable(
+      id,
+      {
+        id: user.id,
+        role: user.role,
+        classId: user.classId,
+      },
+      // Unit 3: 学生回看自己 closed 任务的题目/对话只读详情
+      { allowClosedWithOwnSubmission: user.role === "student" },
+    );
     const instance = await getTaskInstanceById(id);
     if (!instance) return notFound("任务实例不存在");
     return success(instance);

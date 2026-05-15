@@ -17,6 +17,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { QuizRunner } from "@/components/quiz/quiz-runner";
+import { resolveTaskForRunner } from "@/lib/utils/task-snapshot";
+import { QuizAdaptiveRunner } from "@/components/quiz/quiz-adaptive-runner";
 import { SubjectiveRunner } from "@/components/subjective/subjective-runner";
 import { NotFoundState, ForbiddenState } from "@/components/states";
 
@@ -115,8 +117,12 @@ function getUnavailableReason(task: TaskInstanceDetail["task"]) {
   return "该任务尚未完成配置，暂时不能作答。";
 }
 
-function renderRunner(instance: TaskInstanceDetail, isPreview: boolean, userId: string) {
-  const { task } = instance;
+function renderRunner(
+  instance: TaskInstanceDetail,
+  task: TaskInstanceDetail["task"],
+  isPreview: boolean,
+  userId: string,
+) {
 
   // Simulation tasks are handled by the full-page /sim/[id] route
   // The redirect happens in the useEffect below
@@ -125,17 +131,30 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean, userId: 
   }
 
   if (task.taskType === "quiz" && task.quizConfig) {
+    // Unit 8: adaptive 模式走专用 runner（动态拉题 + 末尾雷达图）
+    if (task.quizConfig.mode === "adaptive") {
+      return (
+        <QuizAdaptiveRunner
+          taskId={task.id}
+          taskInstanceId={instance.id}
+          userId={userId}
+          taskName={instance.title || task.taskName}
+          taskSubtitle="测验 · 自适应"
+          isPreview={isPreview}
+        />
+      );
+    }
     return (
       <QuizRunner
         taskId={task.id}
         taskInstanceId={instance.id}
         userId={userId}
         taskName={instance.title || task.taskName}
-        taskSubtitle={`测验 · ${task.quizConfig.mode === "adaptive" ? "练习模式" : "考试模式"}`}
+        taskSubtitle={`测验 · 考试模式`}
         isPreview={isPreview}
         taskConfig={{
           timeLimit: task.quizConfig.timeLimitMinutes,
-          mode: task.quizConfig.mode === "adaptive" ? "practice" : "exam",
+          mode: "exam",
           shuffleQuestions: false,
           showResult: task.quizConfig.showCorrectAnswer,
           questions: task.quizQuestions
@@ -179,6 +198,7 @@ function renderRunner(instance: TaskInstanceDetail, isPreview: boolean, userId: 
           prompt: task.subjectiveConfig.prompt,
           wordLimit: null,
           allowAttachment: task.subjectiveConfig.allowedAttachmentTypes.length > 0,
+          allowedTypes: task.subjectiveConfig.allowedAttachmentTypes,
           maxAttachments: 5,
           scoringCriteria: task.scoringCriteria.map((c) => ({
             id: c.id,
@@ -270,12 +290,35 @@ export default function StudentTaskPage() {
   }
 
   if (error) {
+    // Unit 3: 区分 3 种 Forbidden case 给具体文案
+    if (error.code === "TASK_INSTANCE_DRAFT_NOT_VISIBLE") {
+      return (
+        <ForbiddenState
+          title="任务尚未开放"
+          description="教师还没有发布这个任务，等教师发布后再来作答。"
+          primaryAction={{ label: "返回作业列表", href: "/tasks" }}
+          secondaryAction={{ label: "查看课程", href: "/courses" }}
+          fullPage={false}
+        />
+      );
+    }
+    if (error.code === "TASK_INSTANCE_CLOSED_NO_SUBMISSION") {
+      return (
+        <ForbiddenState
+          title="任务已结束"
+          description="这个任务已经关闭，且你之前没有提交过作答。"
+          primaryAction={{ label: "返回作业列表", href: "/tasks" }}
+          secondaryAction={{ label: "查看课程", href: "/courses" }}
+          fullPage={false}
+        />
+      );
+    }
     if (error.code === "FORBIDDEN") {
       return (
         <ForbiddenState
-          title="你还不能进入这个任务"
-          description={error.message || "这个任务可能不属于你所在的班级。"}
-          primaryAction={{ label: "返回作业列表", href: "/dashboard" }}
+          title="你不在该任务班级"
+          description="这个任务不属于你所在的班级。如有疑问，请联系任课教师。"
+          primaryAction={{ label: "返回作业列表", href: "/tasks" }}
           secondaryAction={{ label: "查看课程", href: "/courses" }}
           fullPage={false}
         />
@@ -285,7 +328,7 @@ export default function StudentTaskPage() {
       <NotFoundState
         title="任务不存在"
         description={error.message || "你访问的任务实例不存在或已被删除。"}
-        primaryAction={{ label: "返回作业列表", href: "/dashboard" }}
+        primaryAction={{ label: "返回作业列表", href: "/tasks" }}
         secondaryAction={{ label: "查看课程", href: "/courses" }}
         fullPage={false}
       />
@@ -294,7 +337,12 @@ export default function StudentTaskPage() {
 
   if (!instance) return null;
 
-  const Icon = taskTypeIcons[instance.task.taskType] || FileText;
+  // Unit 17: 学生 runner 数据优先读 instance.taskSnapshot（publish 时刻冻结的快照）。
+  // 教师改 task 模板后，已发布的 instance 不应让学生看到新题。
+  const { task: resolvedTask, fromSnapshot } = resolveTaskForRunner(instance);
+  void fromSnapshot; // reserved for Phase 4+ UI hint "本任务版本：发布时锁定"
+
+  const Icon = taskTypeIcons[resolvedTask.taskType] || FileText;
   const isOverdue = new Date() > new Date(instance.dueAt);
 
   return (
@@ -305,8 +353,22 @@ export default function StudentTaskPage() {
           仪表盘
         </Link>
         <ChevronRight className="size-4" />
-        <span className="text-foreground">{instance.title || instance.task.taskName}</span>
+        <span className="text-foreground">{instance.title || resolvedTask.taskName}</span>
       </div>
+
+      {/* Unit 3: 已关闭实例 - 只读提示横幅 */}
+      {instance.status === "closed" && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="font-medium">任务已结束 · 只读模式</div>
+          <div className="mt-1 text-amber-700">
+            这个任务已关闭，不能再提交新的作答。你可以在此回看题目，或前往
+            <Link href="/grades" className="ml-1 font-medium underline hover:text-amber-900">
+              「我的成绩」
+            </Link>
+            查看你之前的提交与评分。
+          </div>
+        </div>
+      )}
 
       {/* Task Header */}
       <Card>
@@ -317,11 +379,11 @@ export default function StudentTaskPage() {
             </div>
             <div className="flex-1">
               <CardTitle className="text-xl">
-                {instance.title || instance.task.taskName}
+                {instance.title || resolvedTask.taskName}
               </CardTitle>
               <div className="flex items-center gap-3 mt-2">
                 <Badge variant="outline">
-                  {taskTypeLabels[instance.task.taskType] || instance.task.taskType}
+                  {taskTypeLabels[resolvedTask.taskType] || resolvedTask.taskType}
                 </Badge>
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Clock className="size-3" />
@@ -353,7 +415,7 @@ export default function StudentTaskPage() {
       {/* 等 session 解析完成才挂 runner — runner 的 localStorage draft key 必须含
           userId 才能避免同浏览器多账号串数据。 */}
       {userId ? (
-        renderRunner(instance, isPreview, userId)
+        renderRunner(instance, resolvedTask, isPreview, userId)
       ) : (
         <div className="flex items-center justify-center py-10">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />

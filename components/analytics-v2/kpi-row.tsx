@@ -189,13 +189,20 @@ function KpiCard({
 
   if (onClick) {
     return (
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        }}
         className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg w-full"
       >
         {inner}
-      </button>
+      </div>
     );
   }
   return inner;

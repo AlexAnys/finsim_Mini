@@ -333,6 +333,7 @@ export function TaskWizardModal({
   const [teacherBrief, setTeacherBrief] = useState("");
   const [draftSourceLabel, setDraftSourceLabel] = useState("");
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [editingDraftStatus, setEditingDraftStatus] = useState<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<AsyncJobSnapshot | null>(null);
   const [questionBankWorking, setQuestionBankWorking] = useState<"import" | "checkOptimize" | null>(null);
@@ -342,6 +343,7 @@ export function TaskWizardModal({
     if (!open || !initialDraft) return;
     const payload = normalizeInitialDraftPayload(initialDraft.draftPayload);
     setEditingDraftId(initialDraft.id);
+    setEditingDraftStatus(initialDraft.status ?? null);
     setActiveJobId(initialDraft.asyncJobId ?? initialDraft.asyncJob?.id ?? null);
     setActiveJob(initialDraft.asyncJob ?? null);
     if (initialDraft.asyncJob?.status === "queued" || initialDraft.asyncJob?.status === "running") {
@@ -426,6 +428,7 @@ export function TaskWizardModal({
     setTeacherBrief("");
     setDraftSourceLabel("");
     setEditingDraftId(null);
+    setEditingDraftStatus(null);
     setActiveJobId(null);
     setActiveJob(null);
     setQuestionBankWorking(null);
@@ -523,6 +526,7 @@ export function TaskWizardModal({
     const draft = json.data as InitialTaskBuildDraft;
     const payload = normalizeInitialDraftPayload(draft.draftPayload);
     setEditingDraftId(draft.id);
+    setEditingDraftStatus(draft.status ?? null);
     setActiveJobId(draft.asyncJobId ?? draft.asyncJob?.id ?? null);
     setActiveJob(draft.asyncJob ?? null);
     setSelectedSourceIds(draft.sourceIds ?? payload?.selectedSourceIds ?? []);
@@ -944,6 +948,11 @@ export function TaskWizardModal({
 
   async function handleSubmit() {
     if (!context) return;
+    // Unit 10: 若该 wizard 关联的 draft 状态是 ready（AI 已生成但未批准），拦截发布
+    if (editingDraftId && editingDraftStatus === "ready") {
+      toast.error("草稿还未审核，请先点击「审核」批准 AI 原稿后再发布。");
+      return;
+    }
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = {
@@ -1071,6 +1080,10 @@ export function TaskWizardModal({
               ? new Date(form.dueAt).toISOString()
               : new Date(Date.now() + 14 * 86400000).toISOString(),
           },
+          // Unit 10: 只有已批准的 draft 才传 ID，后端会把该 draft 标 published + 写 audit
+          ...(editingDraftId && editingDraftStatus === "approved"
+            ? { taskBuildDraftId: editingDraftId }
+            : {}),
         }),
       });
       const json = await res.json();

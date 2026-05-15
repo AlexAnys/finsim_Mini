@@ -64,6 +64,8 @@ export async function GET(request: NextRequest) {
     }>();
 
     for (const post of posts) {
+      // Unit 6: 跳过自由问（无 task）— analytics 按 task 分组，自由问应在老师管理页另算
+      if (!post.task || !post.taskId) continue;
       const chapter = post.taskInstance?.chapter;
       const section = post.taskInstance?.section;
       const key = [
@@ -114,7 +116,7 @@ export async function GET(request: NextRequest) {
           "你是一位教学诊断助手。请基于学生 Study Buddy 提问做聚类总结，不要编造未出现的问题。",
           `课程 Study Buddy 提问如下：\n${posts
             .slice(0, 120)
-            .map((post, index) => `${index + 1}. ${post.taskInstance?.chapter?.title || "未绑定章节"} / ${post.taskInstance?.section?.title || "未绑定小节"} / ${post.taskInstance?.title || post.task.taskName}: ${post.question}`)
+            .map((post, index) => `${index + 1}. ${post.taskInstance?.chapter?.title || "未绑定章节"} / ${post.taskInstance?.section?.title || "未绑定小节"} / ${(post.taskInstance?.title || post.task?.taskName) ?? "自由问"}: ${post.question}`)
             .join("\n")}\n\n请输出 JSON：{"keyQuestions":[],"knowledgeGaps":[],"teachingSuggestions":[]}`,
           summarySchema,
           1,

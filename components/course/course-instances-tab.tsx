@@ -7,12 +7,29 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  RotateCcw,
   Send,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -78,6 +95,11 @@ export function CourseInstancesTab({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{
+    id: string;
+    title: string;
+    action: "close" | "delete";
+  } | null>(null);
 
   const fetchInstances = useCallback(async () => {
     setLoading(true);
@@ -124,6 +146,68 @@ export function CourseInstancesTab({
             ? "已关闭"
             : "状态已更新",
       );
+      await fetchInstances();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleCloseConfirmed(id: string) {
+    setConfirm(null);
+    setActionLoading(id);
+    try {
+      const res = await fetch(`/api/lms/task-instances/${id}/close`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "关闭失败");
+        return;
+      }
+      toast.success("已关闭");
+      await fetchInstances();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleReopen(id: string) {
+    setActionLoading(id);
+    try {
+      const res = await fetch(`/api/lms/task-instances/${id}/reopen`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "重新开放失败");
+        return;
+      }
+      toast.success("已重新开放");
+      await fetchInstances();
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleDeleteConfirmed(id: string) {
+    setConfirm(null);
+    setActionLoading(id);
+    try {
+      const res = await fetch(`/api/lms/task-instances/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("已删除");
       await fetchInstances();
     } catch {
       toast.error("网络错误，请稍后重试");
@@ -243,7 +327,13 @@ export function CourseInstancesTab({
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleStatusChange(inst.id, "closed")}
+                          onClick={() =>
+                            setConfirm({
+                              id: inst.id,
+                              title: inst.title,
+                              action: "close",
+                            })
+                          }
                           disabled={actionLoading === inst.id}
                           className="text-orange-600 hover:text-orange-700"
                         >
@@ -255,6 +345,79 @@ export function CourseInstancesTab({
                           关闭
                         </Button>
                       )}
+                      {inst.status === "closed" && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleReopen(inst.id)}
+                            disabled={actionLoading === inst.id}
+                            className="text-green-600 hover:text-green-700"
+                          >
+                            {actionLoading === inst.id ? (
+                              <Loader2 className="size-3 animate-spin mr-1" />
+                            ) : (
+                              <RotateCcw className="size-3 mr-1" />
+                            )}
+                            重新开放
+                          </Button>
+                          {inst._count.submissions > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled
+                                    className="text-destructive opacity-50"
+                                  >
+                                    <Trash2 className="size-3 mr-1" />
+                                    删除
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                已有学生提交，无法删除
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setConfirm({
+                                  id: inst.id,
+                                  title: inst.title,
+                                  action: "delete",
+                                })
+                              }
+                              disabled={actionLoading === inst.id}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="size-3 mr-1" />
+                              删除
+                            </Button>
+                          )}
+                        </>
+                      )}
+                      {inst.status === "draft" && inst._count.submissions === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setConfirm({
+                              id: inst.id,
+                              title: inst.title,
+                              action: "delete",
+                            })
+                          }
+                          disabled={actionLoading === inst.id}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="size-3 mr-1" />
+                          删除
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -263,6 +426,50 @@ export function CourseInstancesTab({
           </Table>
         </Card>
       )}
+
+      <AlertDialog
+        open={confirm !== null}
+        onOpenChange={(open) => !open && setConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirm?.action === "close" ? "关闭任务实例" : "删除任务实例"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirm?.action === "close"
+                ? `关闭「${confirm.title}」后，学生无法继续答题，已提交的答卷仍可在「成绩」中回看。`
+                : `删除「${confirm?.title ?? ""}」后无法恢复，且该实例下若有讨论 / 报告等数据将一并清除。确认删除？`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!actionLoading}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!confirm) return;
+                if (confirm.action === "close") {
+                  void handleCloseConfirmed(confirm.id);
+                } else {
+                  void handleDeleteConfirmed(confirm.id);
+                }
+              }}
+              disabled={!!actionLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {actionLoading ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  {confirm?.action === "close" ? "关闭中..." : "删除中..."}
+                </>
+              ) : confirm?.action === "close" ? (
+                "确认关闭"
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

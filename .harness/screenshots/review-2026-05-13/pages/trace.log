@@ -1,0 +1,29 @@
+=== Pages e2e review 2026-05-13T10:54:47.665Z ===
+[10:54:49.417] unauth /dashboard → 1285ms → http://localhost:3000/login
+[10:54:50.688] unauth /teacher/dashboard → 1259ms → http://localhost:3000/login
+[10:54:52.672] unauth /grades → 1981ms → http://localhost:3000/login
+[10:54:55.086] login student1@finsim.edu.cn → 1819ms → http://localhost:3000/dashboard
+[10:54:56.169] student-dash → 1081ms
+[10:54:56.317] student-dash still loading? 0
+[10:54:58.356] login student1@finsim.edu.cn → 1025ms → http://localhost:3000/dashboard
+[10:54:59.274] student→teacher-dash → 899ms → http://localhost:3000/teacher/dashboard
+[10:54:59.358] student-on-teacher forbidden marker found: 2
+[10:55:02.130] login student1@finsim.edu.cn → 1163ms → http://localhost:3000/dashboard
+[10:55:03.233] bad-task-id → 1103ms
+[10:55:03.304] bad-task-id body snippet: 灵析 搜索... ⌘K 学习空间 仪表盘 我的课程 我的成绩 课表管理 张  张三  学生  学生 / 任务中心 AI 助手 张  任务实例不存在
+[10:55:05.256] login student1@finsim.edu.cn → 957ms → http://localhost:3000/dashboard
+[10:55:06.207] student-grades → 950ms
+[10:55:08.093] login teacher1@finsim.edu.cn → 1437ms → http://localhost:3000/teacher/dashboard
+[10:55:08.913] teacher /teacher/dashboard → 820ms
+[10:55:11.218] teacher /teacher/tasks → 2217ms
+[10:55:13.420] teacher /teacher/instances → 2119ms
+[10:55:15.417] login teacher1@finsim.edu.cn → 1494ms → http://localhost:3000/teacher/dashboard
+[10:55:17.471] signout → 1020ms → http://localhost:3000/login
+[10:55:19.383] login student1@finsim.edu.cn → 1519ms → http://localhost:3000/dashboard
+[10:55:20.171] student LS keys: []
+[10:55:20.171] student SS keys: []
+[10:55:21.007] student on teacher-tasks → http://localhost:3000/teacher/tasks
+[10:55:22.824] login teacher1@finsim.edu.cn → 1350ms → http://localhost:3000/teacher/dashboard
+[10:55:24.928] sim/bad-id preview → http://localhost:3000/sim/00000000-0000-0000-0000-000000000000?preview=true
+[10:55:26.781] login student1@finsim.edu.cn → 1397ms → http://localhost:3000/dashboard
+[10:55:29.013] student-dash errors=0

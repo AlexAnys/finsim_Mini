@@ -7,7 +7,7 @@ vi.mock("@/lib/db/prisma", () => ({
     course: { findUnique: vi.fn(), findFirst: vi.fn() },
     courseTeacher: { findUnique: vi.fn() },
     class: { findUnique: vi.fn() },
-    submission: { findUnique: vi.fn() },
+    submission: { findUnique: vi.fn(), findFirst: vi.fn() },
     attachment: { findFirst: vi.fn() },
     importJob: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
@@ -57,7 +57,7 @@ describe("assertTaskInstanceReadable", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("student on non-published instance throws FORBIDDEN", async () => {
+  it("Unit 3: student on draft instance throws TASK_INSTANCE_DRAFT_NOT_VISIBLE", async () => {
     mk(prisma.taskInstance.findUnique).mockResolvedValue({
       classId: "class-A",
       courseId: "c1",
@@ -70,7 +70,76 @@ describe("assertTaskInstanceReadable", () => {
         role: "student",
         classId: "class-A",
       }),
+    ).rejects.toThrow("TASK_INSTANCE_DRAFT_NOT_VISIBLE");
+  });
+
+  it("Unit 3: student on closed instance (no opts) throws FORBIDDEN", async () => {
+    mk(prisma.taskInstance.findUnique).mockResolvedValue({
+      classId: "class-A",
+      courseId: "c1",
+      createdBy: "t1",
+      status: "closed",
+    });
+    await expect(
+      assertTaskInstanceReadable("ti-1", {
+        id: "s1",
+        role: "student",
+        classId: "class-A",
+      }),
     ).rejects.toThrow("FORBIDDEN");
+    // 关键：不应该查 submission，因为 opt 未开
+    expect(prisma.submission.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("Unit 3: student on closed instance + opts + has own submission → passes", async () => {
+    mk(prisma.taskInstance.findUnique).mockResolvedValue({
+      classId: "class-A",
+      courseId: "c1",
+      createdBy: "t1",
+      status: "closed",
+    });
+    mk(prisma.submission.findFirst).mockResolvedValue({ id: "sub-1" });
+    await expect(
+      assertTaskInstanceReadable(
+        "ti-1",
+        { id: "s1", role: "student", classId: "class-A" },
+        { allowClosedWithOwnSubmission: true },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("Unit 3: student on closed instance + opts + NO own submission → TASK_INSTANCE_CLOSED_NO_SUBMISSION", async () => {
+    mk(prisma.taskInstance.findUnique).mockResolvedValue({
+      classId: "class-A",
+      courseId: "c1",
+      createdBy: "t1",
+      status: "closed",
+    });
+    mk(prisma.submission.findFirst).mockResolvedValue(null);
+    await expect(
+      assertTaskInstanceReadable(
+        "ti-1",
+        { id: "s1", role: "student", classId: "class-A" },
+        { allowClosedWithOwnSubmission: true },
+      ),
+    ).rejects.toThrow("TASK_INSTANCE_CLOSED_NO_SUBMISSION");
+  });
+
+  it("Unit 3: student cross-class on closed instance + opts → FORBIDDEN (跨班优先于 closed)", async () => {
+    mk(prisma.taskInstance.findUnique).mockResolvedValue({
+      classId: "class-A",
+      courseId: "c1",
+      createdBy: "t1",
+      status: "closed",
+    });
+    await expect(
+      assertTaskInstanceReadable(
+        "ti-1",
+        { id: "s1", role: "student", classId: "class-Z" },
+        { allowClosedWithOwnSubmission: true },
+      ),
+    ).rejects.toThrow("FORBIDDEN");
+    expect(prisma.submission.findFirst).not.toHaveBeenCalled();
   });
 
   it("student cross-class throws FORBIDDEN", async () => {

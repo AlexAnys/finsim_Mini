@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
-import { created, handleServiceError, validationError } from "@/lib/api-utils";
+import { created, handleServiceError, validationError, validationErrorWithCode } from "@/lib/api-utils";
 import { getStorage, validateFile } from "@/lib/services/storage.service";
 import { createAndProcessCourseKnowledgeSource } from "@/lib/services/course-knowledge-source.service";
 
@@ -54,7 +54,11 @@ export async function POST(
     await assertCourseAccess(courseId, user.id, user.role);
 
     const validation = validateFile(file.type, file.size, ["document"]);
-    if (!validation.valid) return validationError(validation.error!);
+    if (!validation.valid) {
+      return validation.code
+        ? validationErrorWithCode(validation.code, validation.error!)
+        : validationError(validation.error!);
+    }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const storage = getStorage();

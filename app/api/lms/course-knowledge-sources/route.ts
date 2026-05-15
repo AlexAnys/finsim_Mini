@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
-import { created, handleServiceError, success, validationError } from "@/lib/api-utils";
+import { created, handleServiceError, success, validationError, validationErrorWithCode } from "@/lib/api-utils";
 import { getStorage, validateFile } from "@/lib/services/storage.service";
 import {
   assertKnowledgeSourceScope,
@@ -81,7 +81,11 @@ export async function POST(request: NextRequest) {
     await assertKnowledgeSourceScope({ courseId, chapterId, sectionId, taskId, taskInstanceId });
 
     const validation = validateFile(file.type, file.size, ["document"]);
-    if (!validation.valid) return validationError(validation.error!);
+    if (!validation.valid) {
+      return validation.code
+        ? validationErrorWithCode(validation.code, validation.error!)
+        : validationError(validation.error!);
+    }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const storage = getStorage();
@@ -115,11 +119,13 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return validationError("缺少素材 id");
+    const force = searchParams.get("force") === "true";
 
     const deleted = await deleteCourseKnowledgeSource({
       id,
       userId: result.session.user.id,
       role: result.session.user.role,
+      force,
     });
     return success(deleted);
   } catch (err) {

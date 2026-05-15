@@ -143,6 +143,7 @@ enum AsyncJobType {
   ai_work_assistant
   analytics_recompute
   data_insight_advice
+  quiz_question_tag
 }
 
 enum TaskBuildDraftStatus {
@@ -150,6 +151,7 @@ enum TaskBuildDraftStatus {
   queued
   processing
   ready
+  approved
   failed
   published
 }
@@ -262,6 +264,7 @@ model Course {
   classes        CourseClass[] @relation("CourseClasses")
   knowledgeSources CourseKnowledgeSource[]
   taskBuildDrafts TaskBuildDraft[]
+  studyBuddyPosts StudyBuddyPost[]
 
   @@index([classId])
   @@index([createdBy])
@@ -488,6 +491,8 @@ model QuizQuestion {
   difficulty       Int?
   explanation      String?          @db.Text
   order            Int
+  // Unit 8: 知识点标签（AI 离线打标，用于 adaptive 模式按知识点诊断）
+  knowledgeTagIds  String[]         @default([])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -650,7 +655,10 @@ model Attachment {
 model StudyBuddyPost {
   id               String           @id @default(uuid())
   studentId        String
-  taskId           String
+  // Unit 6: taskId nullable — 支持自由问（无关联任务）
+  taskId           String?
+  // Unit 6: courseId 字段 — 自由问可选挂课程；任务相关由 service 自动写入
+  courseId         String?
   taskInstanceId   String?
   title            String           @db.VarChar(500)
   question         String           @db.Text
@@ -661,17 +669,23 @@ model StudyBuddyPost {
   aiReply          String?          @db.Text
   replyGeneratedAt DateTime?
   messages         Json?
+  // Unit 5b: 软删字段 — hidePost 设置 hiddenAt / hiddenBy；list 默认过滤 hiddenAt: null
+  hiddenAt         DateTime?
+  hiddenBy         String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
   student      User          @relation("StudentStudyBuddy", fields: [studentId], references: [id])
-  task         Task          @relation(fields: [taskId], references: [id])
+  task         Task?         @relation(fields: [taskId], references: [id])
+  course       Course?       @relation(fields: [courseId], references: [id])
   taskInstance TaskInstance?  @relation(fields: [taskInstanceId], references: [id])
 
   @@index([studentId])
   @@index([taskId])
+  @@index([courseId])
   @@index([taskInstanceId])
   @@index([isPreview])
+  @@index([hiddenAt])
 }
 
 // ============================================
@@ -944,6 +958,10 @@ model TaskBuildDraft {
   asyncJobId    String?              @db.VarChar(120)
   missingFields String[]             @default([])
   draftPayload  Json?
+  aiPayload     Json?
+  editedPayload Json?
+  approvedAt    DateTime?
+  approvedBy    String?
   error         String?              @db.Text
   createdBy     String
   createdAt     DateTime             @default(now())
@@ -975,6 +993,10 @@ model AiRun {
   promptHash    String?     @db.VarChar(120)
   inputSize     Int?
   outputSize    Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  costEstUSD    Decimal?    @db.Decimal(10, 6)
+  summary       String?     @db.VarChar(200)
   latencyMs     Int?
   error         String?     @db.Text
   metadata      Json?

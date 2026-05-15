@@ -57,6 +57,8 @@ interface SubjectiveTaskConfig {
   scoringCriteria?: ScoringCriterion[];
   requirements?: string[];
   rubricVisible?: boolean;
+  // Unit 12: 教师配置的允许附件类型（小写、不含点，如 ["pdf","jpg"]）
+  allowedTypes?: string[];
   // Compat: accept wrapped format from page
   description?: string;
   allowTextAnswer?: boolean;
@@ -96,7 +98,15 @@ function buildDraftKey(userId: string, isPreview: boolean, taskInstanceId: strin
 }
 const AUTO_SAVE_INTERVAL = 30_000;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "jpg", "jpeg", "png", "xlsx"];
+export const DEFAULT_ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "jpg", "jpeg", "png", "xlsx"];
+export const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "heic"]);
+
+export function normalizeAllowedTypes(input: string[] | undefined): string[] {
+  if (!input || input.length === 0) return DEFAULT_ALLOWED_EXTENSIONS;
+  return input
+    .map((t) => t.replace(/^\./, "").toLowerCase().trim())
+    .filter(Boolean);
+}
 
 // ---------- Helpers ----------
 
@@ -143,6 +153,9 @@ export function SubjectiveRunner({
   const wordLimit = config.wordLimit ?? null;
   const allowAttachment = config.allowAttachment ?? config.allowFileUpload ?? true;
   const maxAttachments = config.maxAttachments ?? config.maxFiles ?? 5;
+  // Unit 12: 优先用教师配置的 allowedTypes，否则 fallback 到默认全集
+  const effectiveAllowedTypes = normalizeAllowedTypes(config.allowedTypes);
+  const acceptHasImage = effectiveAllowedTypes.some((t) => IMAGE_EXTENSIONS.has(t));
   const scoringCriteria = config.scoringCriteria ?? [];
   const requirements = config.requirements
     ?? (config.description ? config.description.split("\n").filter(Boolean) : undefined);
@@ -226,11 +239,11 @@ export function SubjectiveRunner({
     setTimeout(() => setIsSavingDraft(false), 1500);
   }
 
-  // File validation
+  // File validation (Unit 12: 用 effectiveAllowedTypes 替代常量)
   function validateFile(file: File): string | null {
     const ext = file.name.split(".").pop()?.toLowerCase();
-    if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) {
-      return `不支持的文件类型：${file.name}。允许的类型：${ALLOWED_EXTENSIONS.join(", ")}`;
+    if (!ext || !effectiveAllowedTypes.includes(ext)) {
+      return `不支持的文件类型：${file.name}。允许的类型：${effectiveAllowedTypes.join(", ")}`;
     }
     if (file.size > MAX_FILE_SIZE) {
       return `文件过大：${file.name}（${formatFileSize(file.size)}）。最大允许 20MB`;
@@ -547,7 +560,7 @@ export function SubjectiveRunner({
                   </CardTitle>
                   <span className="text-muted-foreground text-xs">
                     {files.length}/{maxAttachments} 个文件 | 支持：
-                    {ALLOWED_EXTENSIONS.join(", ")} | 单文件最大 20MB
+                    {effectiveAllowedTypes.join(", ")} | 单文件最大 20MB
                   </span>
                 </div>
               </CardHeader>
@@ -574,7 +587,9 @@ export function SubjectiveRunner({
                       type="file"
                       className="hidden"
                       multiple
-                      accept={ALLOWED_EXTENSIONS.map((e) => `.${e}`).join(",")}
+                      accept={effectiveAllowedTypes.map((e) => `.${e}`).join(",")}
+                      // Unit 12: 仅 accept 含 image 时加 capture，移动端唤起相机；桌面浏览器忽略
+                      {...(acceptHasImage ? { capture: "environment" as const } : {})}
                       onChange={(e) => {
                         handleAddFiles(e.target.files);
                         e.target.value = "";

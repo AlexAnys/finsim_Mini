@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
 import { assertSubmissionReadable } from "@/lib/auth/resource-access";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { clampPage, clampTake } from "@/lib/pagination";
 
 type UserLike = { id: string; role: string; classId?: string | null };
@@ -128,6 +129,12 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
         },
       });
     } else if (input.taskType === "quiz") {
+      // Unit 8: adaptive 模式可在 input.masteryReport 携带本次诊断报告，
+      // 先写入 QuizSubmission.evaluation.adaptiveMasteryReport，等 grader
+      // 计算 totalScore/feedback 时 merge 进同一 evaluation Json。
+      const initialEvaluation = input.masteryReport
+        ? { adaptiveMasteryReport: input.masteryReport }
+        : undefined;
       await tx.quizSubmission.create({
         data: {
           submissionId: submission.id,
@@ -135,6 +142,7 @@ export async function createSubmission(studentId: string, input: CreateSubmissio
           startedAt: input.startedAt ? new Date(input.startedAt) : undefined,
           finishedAt: input.finishedAt ? new Date(input.finishedAt) : undefined,
           durationSeconds: input.durationSeconds,
+          evaluation: initialEvaluation as Prisma.InputJsonValue | undefined,
         },
       });
     } else if (input.taskType === "subjective") {
@@ -325,6 +333,47 @@ export async function resetSubmissionForRetry(submissionId: string) {
     }
 
     return submission;
+  });
+}
+
+/**
+ * Unit 5b: 撤销批改（graded -> submitted）
+ * - 仅 graded submission 可被撤销，否则 SUBMISSION_NOT_GRADED_YET
+ * - 清 score / maxScore / gradedAt / releasedAt
+ * - **保留** evaluation + conceptTags（与 resetSubmissionForRetry 不同 — 老师参考价值）
+ * - audit log submission.ungrade
+ */
+export async function ungradeSubmission(submissionId: string, actorId: string) {
+  const existing = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    select: { id: true, status: true, taskId: true, taskInstanceId: true, studentId: true },
+  });
+  if (!existing) throw new Error("SUBMISSION_NOT_FOUND");
+  if (existing.status !== "graded") {
+    throw new Error("SUBMISSION_NOT_GRADED_YET");
+  }
+
+  await prisma.submission.update({
+    where: { id: submissionId },
+    data: {
+      status: "submitted",
+      score: null,
+      maxScore: null,
+      gradedAt: null,
+      releasedAt: null,
+    },
+  });
+
+  await logAuditForced({
+    action: "submission.ungrade",
+    actorId,
+    targetId: submissionId,
+    targetType: "Submission",
+    metadata: {
+      studentId: existing.studentId,
+      taskInstanceId: existing.taskInstanceId,
+      previousStatus: "graded",
+    },
   });
 }
 

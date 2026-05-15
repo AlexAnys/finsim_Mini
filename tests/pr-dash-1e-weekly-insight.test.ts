@@ -25,11 +25,14 @@ vi.mock("@/lib/db/prisma", () => ({
   prisma: {
     submission: { findMany: vi.fn() },
     scheduleSlot: { findMany: vi.fn() },
+    aiRun: { findFirst: vi.fn() },
   },
 }));
 
 vi.mock("@/lib/services/ai.service", () => ({
   aiGenerateJSON: vi.fn(),
+  getProviderForFeature: vi.fn(() => ({ provider: { name: "qwen" }, model: "qwen-plus" })),
+  getRuntimeSetting: vi.fn(() => null),
 }));
 
 import { prisma } from "@/lib/db/prisma";
@@ -158,7 +161,26 @@ describe("computeUpcomingOccurrences", () => {
 
 describe("generateWeeklyInsight cache + force", () => {
   function setupHappyPathMocks() {
-    mk(prisma.submission.findMany).mockResolvedValue([]);
+    // Unit 15: service 现在对 0 submissions short-circuit 不调 AI；
+    // 测试 cache/force 路径需至少 1 submission 才会走 AI。
+    mk(prisma.submission.findMany).mockResolvedValue([
+      {
+        id: "s-happy",
+        score: 90,
+        maxScore: 100,
+        student: { id: "u-happy", name: "happy" },
+        task: { id: "t-happy", taskName: "T", taskType: "simulation" },
+        taskInstance: {
+          class: { id: "cl-happy", name: "happy班" },
+          course: { id: "co-happy", courseTitle: "happy 课" },
+          chapter: null,
+          section: null,
+        },
+        simulationSubmission: { conceptTags: [], evaluation: null },
+        quizSubmission: null,
+        subjectiveSubmission: null,
+      },
+    ]);
     mk(prisma.scheduleSlot.findMany).mockResolvedValue([]);
     mk(aiGenerateJSON).mockResolvedValue({
       weakConceptsByCourse: [],
@@ -255,6 +277,37 @@ describe("generateWeeklyInsight cache + force", () => {
     expect(userPrompt).toContain("理财");
     expect(userPrompt).toContain("学生在复利环节理解不够深入");
   });
+
+  it("returns modelUsed + durationMs on AI success (Unit 7 meta footer)", async () => {
+    setupHappyPathMocks();
+    const r = await generateWeeklyInsight("teacher-meta-1");
+    expect(r.modelUsed).toBe("qwen:qwen-plus");
+    expect(r.durationMs).not.toBeNull();
+    expect(r.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("returns durationMs even when AI fails (modelUsed null)", async () => {
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+    mk(prisma.scheduleSlot.findMany).mockResolvedValue([]);
+    mk(aiGenerateJSON).mockRejectedValue(new Error("AI_PROVIDER_NOT_CONFIGURED: qwen"));
+
+    const r = await generateWeeklyInsight("teacher-meta-2");
+    expect(r.modelUsed).toBeNull();
+    expect(r.durationMs).not.toBeNull();
+    expect(r.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("cached result preserves modelUsed + durationMs from original generation", async () => {
+    setupHappyPathMocks();
+    const r1 = await generateWeeklyInsight("teacher-meta-3");
+    expect(r1.cached).toBe(false);
+    expect(r1.modelUsed).toBe("qwen:qwen-plus");
+
+    const r2 = await generateWeeklyInsight("teacher-meta-3");
+    expect(r2.cached).toBe(true);
+    expect(r2.modelUsed).toBe("qwen:qwen-plus");
+    expect(r2.durationMs).toBe(r1.durationMs);
+  });
 });
 
 // ============================================
@@ -301,7 +354,7 @@ describe("GET /api/lms/weekly-insight", () => {
     expect(res.status).toBe(403);
   });
 
-  it("returns 200 with payload for teacher", async () => {
+  it("returns 200 with payload for teacher (0 submissions → Unit 15 emptyState 不调 AI)", async () => {
     mk(requireRole).mockResolvedValue({
       session: { user: { id: "teacher-1", role: "teacher" } },
       error: null,
@@ -320,16 +373,40 @@ describe("GET /api/lms/weekly-insight", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.data.payload.highlightSummary).toBe("本周教学需关注 demo");
+    // Unit 15: 0 submissions short-circuit，AI 未被调用
     expect(json.data.submissionCount).toBe(0);
+    expect(json.data.payload.emptyState).toBe(true);
+    expect(json.data.payload.highlightSummary).toContain("尚无");
+    // AI 不应被调用
+    expect(mk(aiGenerateJSON)).not.toHaveBeenCalled();
   });
 
-  it("force=true bypasses cache when teacher hits twice", async () => {
+  it("first force=true bypasses cache and calls AI; 2nd force=true within 60s returns 429 (Unit 11 throttle)", async () => {
+    const { __clearAiThrottleState } = await import("@/lib/services/ai-throttle.service");
+    __clearAiThrottleState();
     mk(requireRole).mockResolvedValue({
       session: { user: { id: "teacher-1", role: "teacher" } },
       error: null,
     });
-    mk(prisma.submission.findMany).mockResolvedValue([]);
+    // Unit 15: service 现在对 0 submissions short-circuit；force throttle 测试需 ≥1 sub 让 AI 真被调
+    mk(prisma.submission.findMany).mockResolvedValue([
+      {
+        id: "s-throttle",
+        score: 90,
+        maxScore: 100,
+        student: { id: "u", name: "n" },
+        task: { id: "t", taskName: "T", taskType: "simulation" },
+        taskInstance: {
+          class: { id: "c", name: "c" },
+          course: { id: "co", courseTitle: "co" },
+          chapter: null,
+          section: null,
+        },
+        simulationSubmission: { conceptTags: [], evaluation: null },
+        quizSubmission: null,
+        subjectiveSubmission: null,
+      },
+    ]);
     mk(prisma.scheduleSlot.findMany).mockResolvedValue([]);
     mk(aiGenerateJSON).mockResolvedValue({
       weakConceptsByCourse: [],
@@ -339,12 +416,19 @@ describe("GET /api/lms/weekly-insight", () => {
       highlightSummary: "x",
     });
 
-    const req1 = new Request("http://localhost/api/lms/weekly-insight");
-    await weeklyInsightGET(req1 as unknown as Parameters<typeof weeklyInsightGET>[0]);
-    const req2 = new Request("http://localhost/api/lms/weekly-insight?force=true");
-    await weeklyInsightGET(req2 as unknown as Parameters<typeof weeklyInsightGET>[0]);
+    // First force=true call: should bypass cache and call AI
+    const req1 = new Request("http://localhost/api/lms/weekly-insight?force=true");
+    const res1 = await weeklyInsightGET(req1 as unknown as Parameters<typeof weeklyInsightGET>[0]);
+    expect(res1.status).toBe(200);
+    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(1);
 
-    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(2);
+    // 2nd force=true within 60s → 429 throttle
+    const req2 = new Request("http://localhost/api/lms/weekly-insight?force=true");
+    const res2 = await weeklyInsightGET(req2 as unknown as Parameters<typeof weeklyInsightGET>[0]);
+    expect(res2.status).toBe(429);
+    const body2 = await res2.json();
+    expect(body2.error?.code).toBe("AI_FEATURE_COOLDOWN");
+    expect(mk(aiGenerateJSON)).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -89,16 +89,26 @@ export function StudyBuddyMessageBubble({
               引用上下文
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {contextSources.slice(0, 4).map((source) => (
-                <span
-                  key={source.id}
-                  className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5"
-                  title={source.fileName}
-                >
-                  <span className="shrink-0 text-brand">{source.scopeLabel}</span>
-                  <span className="truncate">{source.fileName}</span>
-                </span>
-              ))}
+              {contextSources.slice(0, 4).map((source) => {
+                // Unit 6: excerpt 持久化 — hover 显示 excerpt
+                const excerpt = (source as { excerpt?: string }).excerpt;
+                const tipText = excerpt
+                  ? `${source.fileName}
+
+摘录：${excerpt}`
+                  : source.fileName;
+                return (
+                  <span
+                    key={source.id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 cursor-help"
+                    title={tipText}
+                  >
+                    <span className="shrink-0 text-brand">{source.scopeLabel}</span>
+                    <span className="truncate">{source.fileName}</span>
+                    {excerpt && <BookOpen className="size-[11px] shrink-0 text-ink-5" />}
+                  </span>
+                );
+              })}
               {contextSources.length > 4 && (
                 <span className="rounded-full border border-line bg-surface px-2 py-0.5">
                   +{contextSources.length - 4}

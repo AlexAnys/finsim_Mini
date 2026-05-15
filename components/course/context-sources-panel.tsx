@@ -7,6 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface KnowledgeSourceItem {
   id: string;
@@ -73,6 +83,8 @@ export function ContextSourcesPanel({
   const [uploading, setUploading] = useState(false);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Unit 16: 协作者删 owner 素材二次 confirm 用 AlertDialog 替代 window.confirm
+  const [confirmOwnerSourceId, setConfirmOwnerSourceId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const buildParams = useCallback(() => {
@@ -132,7 +144,15 @@ export function ContextSourcesPanel({
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "素材上传失败");
+        // Phase3-B: 旧 .doc 格式特殊提示 + description (sonner 支持)
+        if (json.error?.code === "LEGACY_DOC_UNSUPPORTED") {
+          toast.error("暂不支持 .doc 旧版格式", {
+            description: json.error.message,
+            duration: 8000,
+          });
+        } else {
+          toast.error(json.error?.message || "素材上传失败");
+        }
         return;
       }
       toast.success("素材已保存，后台正在识别");
@@ -162,14 +182,24 @@ export function ContextSourcesPanel({
     }
   }
 
-  async function handleDelete(sourceId: string) {
+  async function handleDelete(sourceId: string, force = false) {
     setDeletingId(sourceId);
     try {
-      const res = await fetch(`/api/lms/course-knowledge-sources/${sourceId}`, {
-        method: "DELETE",
-      });
+      const url = force
+        ? `/api/lms/course-knowledge-sources/${sourceId}?force=true`
+        : `/api/lms/course-knowledge-sources/${sourceId}`;
+      const res = await fetch(url, { method: "DELETE" });
       const json = await res.json();
       if (!json.success) {
+        // Unit 5c: 协作者删 owner 上传素材，服务端返回 KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM
+        // Unit 16: window.confirm → AlertDialog（与 Unit 13 协作老师移除同款 state pattern）
+        if (
+          json.error?.code === "KNOWLEDGE_SOURCE_OWNER_REQUIRES_CONFIRM" &&
+          !force
+        ) {
+          setConfirmOwnerSourceId(sourceId);
+          return;
+        }
         toast.error(json.error?.message || "素材删除失败");
         return;
       }
@@ -334,6 +364,37 @@ export function ContextSourcesPanel({
           )}
         </CardContent>
       </Card>
+
+      {/* Unit 16: 协作者删 owner 上传素材二次 confirm — 替代 window.confirm */}
+      <AlertDialog
+        open={confirmOwnerSourceId !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmOwnerSourceId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除其他老师上传的素材</AlertDialogTitle>
+            <AlertDialogDescription>
+              这是其他老师上传的素材，确认删除？删除后无法恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (confirmOwnerSourceId) {
+                  await handleDelete(confirmOwnerSourceId, true);
+                }
+                setConfirmOwnerSourceId(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

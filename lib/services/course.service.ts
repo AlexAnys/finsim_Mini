@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { logAuditForced } from "@/lib/services/audit.service";
 import { Prisma } from "@prisma/client";
 import { clampTake } from "@/lib/pagination";
 import type { SlotType, ContentBlockType } from "@prisma/client";
@@ -93,6 +94,8 @@ export async function getCoursesByTeacher(
           teacher: { select: { id: true, name: true, email: true } },
         },
       },
+      // Unit 5a: 列表卡片需要 chapter/instance count 来判断"是否可删"+ dialog 预览
+      _count: { select: { chapters: true, taskInstances: true } },
     },
     orderBy: { createdAt: "desc" },
     take: clampTake(options.take, 100, 200),
@@ -413,3 +416,46 @@ export async function reorderContentBlocks(
     )
   );
 }
+
+/**
+ * Unit 5a: 删除课程（硬删 + 拒删条件 + audit）
+ * - owner-only：createdBy === userId 才允许（Unit 5c 协作权限上扬不含删除）
+ * - 拒删：chapters > 0 → COURSE_HAS_CHAPTERS / taskInstances > 0 → COURSE_HAS_INSTANCES
+ *
+ * Cascade 影响（schema 现状）：
+ * - CourseTeacher / CourseClass / Announcement / ScheduleSlot / CourseKnowledgeSource / TaskBuildDraft
+ *   实测目前不是全部 onDelete: Cascade —— 拒章节/拒实例已经把绝大多数复杂依赖兜住。
+ * - 仅当 chapter/instance 都 = 0 时才允许删。
+ */
+export async function deleteCourse(courseId: string, userId: string) {
+  const existing = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, courseTitle: true, createdBy: true },
+  });
+  if (!existing) throw new Error("COURSE_NOT_FOUND");
+  if (existing.createdBy !== userId) throw new Error("FORBIDDEN");
+
+  const instanceCount = await prisma.taskInstance.count({ where: { courseId } });
+  if (instanceCount > 0) {
+    const err = new Error("COURSE_HAS_INSTANCES") as Error & { instanceCount?: number };
+    err.instanceCount = instanceCount;
+    throw err;
+  }
+
+  const chapterCount = await prisma.chapter.count({ where: { courseId } });
+  if (chapterCount > 0) {
+    const err = new Error("COURSE_HAS_CHAPTERS") as Error & { chapterCount?: number };
+    err.chapterCount = chapterCount;
+    throw err;
+  }
+
+  await prisma.course.delete({ where: { id: courseId } });
+  await logAuditForced({
+    action: "course.delete",
+    actorId: userId,
+    targetId: courseId,
+    targetType: "Course",
+    metadata: { title: existing.courseTitle },
+  });
+}
+

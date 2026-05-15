@@ -11,8 +11,15 @@ import {
   Check,
   Loader2,
   Send,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface InstanceHeaderData {
   id: string;
@@ -31,8 +38,11 @@ export interface InstanceHeaderData {
 export interface InstanceHeaderProps {
   instance: InstanceHeaderData;
   actionLoading: boolean;
+  submissionCount?: number;
   onPublish: () => void;
   onClose: () => void;
+  onReopen: () => void;
+  onDelete: () => void;
   onExport: () => void;
   onRemind: () => void;
   onStartGrading: () => void;
@@ -73,8 +83,11 @@ const slotLabels: Record<string, string> = {
 export function InstanceHeader({
   instance,
   actionLoading,
+  submissionCount = 0,
   onPublish,
   onClose,
+  onReopen,
+  onDelete,
   onExport,
   onRemind,
   onStartGrading,
@@ -207,6 +220,66 @@ export function InstanceHeader({
                 开始批改
               </Button>
             </>
+          )}
+          {instance.status === "closed" && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onReopen}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="size-3" />
+                )}
+                重新开放
+              </Button>
+              {submissionCount > 0 ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="text-destructive opacity-50"
+                      >
+                        <Trash2 className="size-3" />
+                        删除实例
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    已有学生提交，无法删除
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onDelete}
+                  disabled={actionLoading}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="size-3" />
+                  删除实例
+                </Button>
+              )}
+            </>
+          )}
+          {instance.status === "draft" && submissionCount === 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDelete}
+              disabled={actionLoading}
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="size-3" />
+              删除实例
+            </Button>
           )}
         </div>
       </div>

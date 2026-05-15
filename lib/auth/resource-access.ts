@@ -19,10 +19,18 @@ type UserLike = { id: string; role: string; classId?: string | null };
  * Assert readability of a TaskInstance. Teacher: via owning course (owner /
  * collab) or createdBy. Student: classId must match instance.classId and the
  * instance must be published. Admin: bypass.
+ *
+ * Unit 3 加 opts.allowClosedWithOwnSubmission：当学生有本人 submission 时，对
+ * closed 实例放行只读访问（仅 GET 详情用，提交/聊天/eval 路径保持 strict）。
+ * 错误码细分让前端能渲染区分性的 Forbidden 文案：
+ * - TASK_INSTANCE_DRAFT_NOT_VISIBLE: 任务未发布
+ * - TASK_INSTANCE_CLOSED_NO_SUBMISSION: 任务已关闭且学生无提交
+ * - FORBIDDEN: 跨班 / 无 classId 等
  */
 export async function assertTaskInstanceReadable(
   instanceId: string,
   user: UserLike,
+  opts: { allowClosedWithOwnSubmission?: boolean } = {},
 ): Promise<void> {
   if (user.role === "admin") return;
   const inst = await prisma.taskInstance.findUnique({
@@ -40,8 +48,18 @@ export async function assertTaskInstanceReadable(
   if (user.role === "student") {
     if (!user.classId) throw new Error("FORBIDDEN");
     if (inst.classId !== user.classId) throw new Error("FORBIDDEN");
-    if (inst.status !== "published") throw new Error("FORBIDDEN");
-    return;
+    if (inst.status === "published") return;
+    if (inst.status === "draft") throw new Error("TASK_INSTANCE_DRAFT_NOT_VISIBLE");
+    if (inst.status === "closed" && opts.allowClosedWithOwnSubmission) {
+      const hasOwnSub = await prisma.submission.findFirst({
+        where: { taskInstanceId: instanceId, studentId: user.id },
+        select: { id: true },
+      });
+      if (hasOwnSub) return;
+      throw new Error("TASK_INSTANCE_CLOSED_NO_SUBMISSION");
+    }
+    // closed without opt-in, archived, etc.
+    throw new Error("FORBIDDEN");
   }
 
   // teacher path
