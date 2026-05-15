@@ -166,3 +166,5 @@ timestamp	unit	round	verdict	cost_usd	description	git_commit
 2026-05-15T05:18:11Z	A1-iw	r1a	BUILD	builder	Unit A1 r1a (service+API+validator) done: PATCH /snapshot route + discriminated union schema + deep-merge service + 17 vitest; tsc clean; eslint clean
 2026-05-15T05:22:13Z	A1-iw	r1a	PASS	0.6	service + API + validator PASS（acc 6/6 + tsc 0 new + vitest 1030/1030 0 regression）	917ec88
 2026-05-15T05:26:04Z	A1-iw	r1b	BUILD	builder	Unit A1 r1b (overview Sheet + 3 form + AlertDialog 已批改警告) build done: 19 vitest; tsc clean; eslint clean. A1 unit complete.
+2026-05-15T05:29:46Z	A1-iw	r1b	PASS	0.7	UI Sheet + graded 警告 PASS（acc 8/8 + tsc 0 new + vitest 1049/1049 0 regression）；A1 整 unit 收官；worktree 3 unit 全 done	9c4b957
+2026-05-15T08:55:07Z	e2e-iw	r1	PASS	0.8	Playwright 真浏览器 E2E 3/3 PASS（A2 标题 + A1 Sheet + C1-B 切页保状态）；molly@:3001；0 DB 污染	9c4b957
