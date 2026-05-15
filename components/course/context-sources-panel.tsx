@@ -132,7 +132,15 @@ export function ContextSourcesPanel({
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "素材上传失败");
+        // Phase3-B: 旧 .doc 格式特殊提示 + description (sonner 支持)
+        if (json.error?.code === "LEGACY_DOC_UNSUPPORTED") {
+          toast.error("暂不支持 .doc 旧版格式", {
+            description: json.error.message,
+            duration: 8000,
+          });
+        } else {
+          toast.error(json.error?.message || "素材上传失败");
+        }
         return;
       }
       toast.success("素材已保存，后台正在识别");

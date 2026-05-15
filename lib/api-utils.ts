@@ -31,6 +31,11 @@ export function validationError(message: string, details?: unknown) {
   return error("VALIDATION_ERROR", message, 400, details);
 }
 
+// Phase3-B: 上传 / 校验失败但需要前端按 error.code 分支提示时用此 helper。
+export function validationErrorWithCode(code: string, message: string, status = 400) {
+  return error(code, message, status);
+}
+
 export function serverError(message = "服务器内部错误") {
   return error("INTERNAL_ERROR", message, 500);
 }

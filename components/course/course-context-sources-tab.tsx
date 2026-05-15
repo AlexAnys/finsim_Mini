@@ -221,7 +221,14 @@ export function CourseContextSourcesTab({
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "素材上传解析失败");
+        if (json.error?.code === "LEGACY_DOC_UNSUPPORTED") {
+          toast.error("暂不支持 .doc 旧版格式", {
+            description: json.error.message,
+            duration: 8000,
+          });
+        } else {
+          toast.error(json.error?.message || "素材上传解析失败");
+        }
         return;
       }
       const source = json.data as KnowledgeSourceItem;

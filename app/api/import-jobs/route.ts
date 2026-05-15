@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { createImportJob } from "@/lib/services/import-job.service";
 import { getStorage, validateFile } from "@/lib/services/storage.service";
-import { created, validationError, handleServiceError } from "@/lib/api-utils";
+import { created, validationError, validationErrorWithCode, handleServiceError } from "@/lib/api-utils";
 
 export async function POST(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);
@@ -22,7 +22,9 @@ export async function POST(request: NextRequest) {
 
     const validation = validateFile(file.type, file.size, ["document"]);
     if (!validation.valid) {
-      return validationError(validation.error!);
+      return validation.code
+        ? validationErrorWithCode(validation.code, validation.error!)
+        : validationError(validation.error!);
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());

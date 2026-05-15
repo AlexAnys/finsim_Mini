@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { created, handleServiceError, validationError } from "@/lib/api-utils";
+import { created, handleServiceError, validationError, validationErrorWithCode } from "@/lib/api-utils";
 import { enqueueAsyncJob } from "@/lib/services/async-job.service";
 import { getStorage, validateFile } from "@/lib/services/storage.service";
 import { workAssistantToolKeys, type WorkAssistantToolKey } from "@/lib/services/ai-work-assistant.service";
@@ -29,7 +29,11 @@ export async function POST(request: NextRequest) {
     const savedFiles = [];
     for (const file of files.slice(0, 12)) {
       const validation = validateFile(file.type, file.size, ["document"]);
-      if (!validation.valid) return validationError(validation.error!);
+      if (!validation.valid) {
+      return validation.code
+        ? validationErrorWithCode(validation.code, validation.error!)
+        : validationError(validation.error!);
+    }
       const buffer = Buffer.from(await file.arrayBuffer());
       const { filePath } = await storage.save(buffer, file.name, file.type);
       savedFiles.push({
