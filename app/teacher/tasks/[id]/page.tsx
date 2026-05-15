@@ -406,6 +406,11 @@ export default function TaskDetailPage() {
       setEditing(false);
       setLoading(true);
       fetchTask();
+      // Unit-FB1: 闭环 — 若来自 instance 页（returnTo 参数），保存后自动回去
+      const returnTo = searchParams.get("returnTo");
+      if (returnTo && returnTo.startsWith("/teacher/")) {
+        router.push(returnTo);
+      }
     } catch {
       toast.error("网络错误，请稍后重试");
     } finally {
@@ -664,6 +669,12 @@ export default function TaskDetailPage() {
                 variant="outline"
                 onClick={() => {
                   setEditing(false);
+                  // Unit-FB1: 闭环 — 取消编辑时若来自 instance 页自动回去
+                  const returnTo = searchParams.get("returnTo");
+                  if (returnTo && returnTo.startsWith("/teacher/")) {
+                    router.push(returnTo);
+                    return;
+                  }
                   // Reset edit values
                   setEditName(task.taskName);
                   setEditRequirements(task.requirements || "");

@@ -47,6 +47,7 @@ import {
   type NormalizedSubmission,
 } from "@/components/instance-detail/submissions-utils";
 import { ContextSourcesPanel } from "@/components/course/context-sources-panel";
+import { TaskConfigSummary } from "@/components/teacher/task-config-summary";
 
 interface InstanceDetail {
   id: string;
@@ -726,6 +727,13 @@ export default function InstanceDetailPage() {
       </div>
 
       <div className="px-6 py-6 md:px-10 md:py-6">
+        {/* Unit-FB1: 任务配置折叠卡 — 仅 overview tab 展示，避免其他 tab 噪声 */}
+        {tab === "overview" && instance.task?.id && (
+          <TaskConfigSummary
+            taskId={instance.task.id}
+            returnTo={`/teacher/instances/${instance.id}`}
+          />
+        )}
         {tab === "overview" && (
           <OverviewTab
             instance={{
