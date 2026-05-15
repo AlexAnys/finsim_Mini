@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { QuizRunner } from "@/components/quiz/quiz-runner";
+import { resolveTaskForRunner } from "@/lib/utils/task-snapshot";
 import { QuizAdaptiveRunner } from "@/components/quiz/quiz-adaptive-runner";
 import { SubjectiveRunner } from "@/components/subjective/subjective-runner";
 import { NotFoundState, ForbiddenState } from "@/components/states";
@@ -116,8 +117,12 @@ function getUnavailableReason(task: TaskInstanceDetail["task"]) {
   return "该任务尚未完成配置，暂时不能作答。";
 }
 
-function renderRunner(instance: TaskInstanceDetail, isPreview: boolean, userId: string) {
-  const { task } = instance;
+function renderRunner(
+  instance: TaskInstanceDetail,
+  task: TaskInstanceDetail["task"],
+  isPreview: boolean,
+  userId: string,
+) {
 
   // Simulation tasks are handled by the full-page /sim/[id] route
   // The redirect happens in the useEffect below
@@ -331,7 +336,12 @@ export default function StudentTaskPage() {
 
   if (!instance) return null;
 
-  const Icon = taskTypeIcons[instance.task.taskType] || FileText;
+  // Unit 17: 学生 runner 数据优先读 instance.taskSnapshot（publish 时刻冻结的快照）。
+  // 教师改 task 模板后，已发布的 instance 不应让学生看到新题。
+  const { task: resolvedTask, fromSnapshot } = resolveTaskForRunner(instance);
+  void fromSnapshot; // reserved for Phase 4+ UI hint "本任务版本：发布时锁定"
+
+  const Icon = taskTypeIcons[resolvedTask.taskType] || FileText;
   const isOverdue = new Date() > new Date(instance.dueAt);
 
   return (
@@ -342,7 +352,7 @@ export default function StudentTaskPage() {
           仪表盘
         </Link>
         <ChevronRight className="size-4" />
-        <span className="text-foreground">{instance.title || instance.task.taskName}</span>
+        <span className="text-foreground">{instance.title || resolvedTask.taskName}</span>
       </div>
 
       {/* Unit 3: 已关闭实例 - 只读提示横幅 */}
@@ -368,11 +378,11 @@ export default function StudentTaskPage() {
             </div>
             <div className="flex-1">
               <CardTitle className="text-xl">
-                {instance.title || instance.task.taskName}
+                {instance.title || resolvedTask.taskName}
               </CardTitle>
               <div className="flex items-center gap-3 mt-2">
                 <Badge variant="outline">
-                  {taskTypeLabels[instance.task.taskType] || instance.task.taskType}
+                  {taskTypeLabels[resolvedTask.taskType] || resolvedTask.taskType}
                 </Badge>
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Clock className="size-3" />
@@ -404,7 +414,7 @@ export default function StudentTaskPage() {
       {/* 等 session 解析完成才挂 runner — runner 的 localStorage draft key 必须含
           userId 才能避免同浏览器多账号串数据。 */}
       {userId ? (
-        renderRunner(instance, isPreview, userId)
+        renderRunner(instance, resolvedTask, isPreview, userId)
       ) : (
         <div className="flex items-center justify-center py-10">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />

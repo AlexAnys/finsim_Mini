@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
 import { SimulationRunner } from "@/components/simulation/simulation-runner";
 import { NotFoundState, ForbiddenState } from "@/components/states";
+import { resolveTaskForRunner } from "@/lib/utils/task-snapshot";
 
 interface ScoringCriterion {
   id: string;
@@ -142,8 +143,11 @@ export default function SimulationPage() {
     );
   }
 
-  const { task } = instance;
-  const simConfig = task.simulationConfig;
+  // Unit 17: 学生 runner 优先读 instance.taskSnapshot（publish 时刻冻结）。
+  const { task, fromSnapshot } = resolveTaskForRunner(instance);
+  void fromSnapshot;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const simConfig = (task as any).simulationConfig;
   if (!simConfig) return null;
 
   return (
