@@ -7,6 +7,7 @@ import type {
   CreatePublishedTaskWithInstanceInput,
   CreateTaskInstanceInput,
   UpdateTaskInstanceInput,
+  UpdateTaskInstanceSnapshotInput,
 } from "@/lib/validators/task.schema";
 import type { Prisma } from "@prisma/client";
 
@@ -356,4 +357,86 @@ export async function closeTaskInstance(instanceId: string, actorId: string) {
     metadata: { title: existing.title, previousStatus: "published" },
   });
   return updated;
+}
+
+// Unit A1: 教师在 overview 改 instance 的 taskSnapshot（学生看到的配置）。
+// - auth: 仅 createdBy 或课程协作教师
+// - 校验 patch.taskType 必须等于 instance.taskType（防止跨类型篡改）
+// - taskSnapshot 是 Json 字段，deep-merge 顶层键；不允许覆盖 id / taskType / taskName
+// - 返回 { instance, gradedCount }：UI 根据 graded 数显示警告
+export async function updateTaskInstanceSnapshot(
+  instanceId: string,
+  createdBy: string,
+  patch: UpdateTaskInstanceSnapshotInput,
+) {
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id: instanceId },
+    select: {
+      id: true,
+      createdBy: true,
+      courseId: true,
+      taskType: true,
+      taskSnapshot: true,
+    },
+  });
+  if (!existing) throw new Error("INSTANCE_NOT_FOUND");
+  if (!(await isAuthorizedForInstance(existing, createdBy))) {
+    throw new Error("FORBIDDEN");
+  }
+  if (existing.taskType !== patch.taskType) {
+    throw new Error("TASK_TYPE_MISMATCH");
+  }
+
+  // Deep-merge patch 顶层键到现有 snapshot，守 id / taskType / taskName 不变
+  const currentSnapshot = (existing.taskSnapshot ?? {}) as Record<string, unknown>;
+  const mergedSnapshot: Record<string, unknown> = { ...currentSnapshot };
+
+  if (patch.taskType === "simulation") {
+    if (patch.simulationConfig !== undefined) {
+      const currentSim = (currentSnapshot.simulationConfig ?? {}) as Record<string, unknown>;
+      mergedSnapshot.simulationConfig = { ...currentSim, ...patch.simulationConfig };
+    }
+    if (patch.scoringCriteria !== undefined) {
+      mergedSnapshot.scoringCriteria = patch.scoringCriteria;
+    }
+    if (patch.allocationSections !== undefined) {
+      mergedSnapshot.allocationSections = patch.allocationSections;
+    }
+  } else if (patch.taskType === "quiz") {
+    if (patch.quizConfig !== undefined) {
+      const currentQuiz = (currentSnapshot.quizConfig ?? {}) as Record<string, unknown>;
+      mergedSnapshot.quizConfig = { ...currentQuiz, ...patch.quizConfig };
+    }
+    if (patch.quizQuestions !== undefined) {
+      mergedSnapshot.quizQuestions = patch.quizQuestions;
+    }
+    if (patch.scoringCriteria !== undefined) {
+      mergedSnapshot.scoringCriteria = patch.scoringCriteria;
+    }
+  } else if (patch.taskType === "subjective") {
+    if (patch.subjectiveConfig !== undefined) {
+      const currentSub = (currentSnapshot.subjectiveConfig ?? {}) as Record<string, unknown>;
+      mergedSnapshot.subjectiveConfig = { ...currentSub, ...patch.subjectiveConfig };
+    }
+    if (patch.scoringCriteria !== undefined) {
+      mergedSnapshot.scoringCriteria = patch.scoringCriteria;
+    }
+  }
+
+  // 守不变字段：强制保留原 id / taskType / taskName（即便 currentSnapshot 里有）
+  if (currentSnapshot.id !== undefined) mergedSnapshot.id = currentSnapshot.id;
+  if (currentSnapshot.taskType !== undefined) mergedSnapshot.taskType = currentSnapshot.taskType;
+  if (currentSnapshot.taskName !== undefined) mergedSnapshot.taskName = currentSnapshot.taskName;
+
+  const [updated, gradedCount] = await prisma.$transaction([
+    prisma.taskInstance.update({
+      where: { id: instanceId },
+      data: { taskSnapshot: mergedSnapshot as Prisma.InputJsonValue },
+    }),
+    prisma.submission.count({
+      where: { taskInstanceId: instanceId, status: "graded" },
+    }),
+  ]);
+
+  return { instance: updated, gradedCount };
 }
