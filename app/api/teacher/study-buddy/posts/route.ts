@@ -11,6 +11,14 @@ import { prisma } from "@/lib/db/prisma";
  * - 默认按 createdAt desc
  * - 支持 ?scope=all|pending|answered 过滤
  * - 默认过滤 hiddenAt: null + isPreview: false
+ *
+ * Codex-P1-r4: 删除 task-level fallback over-match
+ *   `{ task: { taskInstances: { some: { courseId } } } }` 会在 task 复用多课程时
+ *   把别课程的 post 拉进来（task 同时有 courseA + courseB 实例 → 老师只有 courseA
+ *   权限也能看到 courseB 的 post，含学生身份）。
+ *   Unit 6 之后 createPost 强制反推 resolvedCourseId 持久化（service r2+r3 已修），
+ *   所有新 post 必有 courseId；老 task-bound post 都有 taskInstanceId
+ *   (task-bound 必经 instance 上下文)，第 1 条 taskInstance.courseId filter 覆盖。
  */
 export async function GET(request: NextRequest) {
   const result = await requireRole(["teacher", "admin"]);
@@ -50,10 +58,9 @@ export async function GET(request: NextRequest) {
         isPreview: false,
         ...statusFilter,
         OR: [
-          // task-bound：通过 taskInstance.courseId 或 task.taskInstances any
+          // task-bound：通过 taskInstance.courseId
           { taskInstance: { courseId: { in: courseIds } } },
-          { task: { taskInstances: { some: { courseId: { in: courseIds } } } } },
-          // free-form：直接通过 courseId 关联
+          // free-form 或 Unit 6 后 task-bound 反推：直接通过 post.courseId
           { courseId: { in: courseIds } },
         ],
       },

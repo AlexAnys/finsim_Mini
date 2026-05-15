@@ -78,46 +78,58 @@ export async function createTaskInstance(createdBy: string, input: CreateTaskIns
   });
 }
 
+/**
+ * Codex-P1-r4: tx-aware 版本 — 让外部 caller 在已开启的 transaction 内复用，
+ * 避免嵌套 $transaction（with-task route 把 draft reserve + create 包同一 tx）。
+ */
+export async function createPublishedTaskWithInstanceInTransaction(
+  tx: Prisma.TransactionClient,
+  createdBy: string,
+  input: CreatePublishedTaskWithInstanceInput,
+) {
+  const task = await createTaskInTransaction(tx, createdBy, input.task);
+  const taskForSnapshot = await tx.task.findUnique({
+    where: { id: task.id },
+    include: taskSnapshotInclude,
+  });
+  if (!taskForSnapshot) throw new Error("TASK_NOT_FOUND");
+  assertTaskReadyForPublish(taskForSnapshot);
+
+  const taskSnapshot = JSON.parse(JSON.stringify(taskForSnapshot)) as Prisma.InputJsonValue;
+  const instance = await tx.taskInstance.create({
+    data: {
+      title: input.instance.title,
+      description: input.instance.description,
+      taskId: task.id,
+      taskType: input.task.taskType,
+      classId: input.instance.classId,
+      groupIds: input.instance.groupIds,
+      courseId: input.instance.courseId,
+      chapterId: input.instance.chapterId,
+      sectionId: input.instance.sectionId,
+      slot: input.instance.slot as "pre" | "in" | "post" | undefined,
+      dueAt: new Date(input.instance.dueAt),
+      publishAt: input.instance.publishAt
+        ? new Date(input.instance.publishAt)
+        : undefined,
+      attemptsAllowed: input.instance.attemptsAllowed,
+      status: "published",
+      publishedAt: new Date(),
+      taskSnapshot,
+      createdBy,
+    },
+  });
+
+  return { task: taskForSnapshot, instance };
+}
+
 export async function createPublishedTaskWithInstance(
   createdBy: string,
   input: CreatePublishedTaskWithInstanceInput,
 ) {
-  const output = await prisma.$transaction(async (tx) => {
-    const task = await createTaskInTransaction(tx, createdBy, input.task);
-    const taskForSnapshot = await tx.task.findUnique({
-      where: { id: task.id },
-      include: taskSnapshotInclude,
-    });
-    if (!taskForSnapshot) throw new Error("TASK_NOT_FOUND");
-    assertTaskReadyForPublish(taskForSnapshot);
-
-    const taskSnapshot = JSON.parse(JSON.stringify(taskForSnapshot)) as Prisma.InputJsonValue;
-    const instance = await tx.taskInstance.create({
-      data: {
-        title: input.instance.title,
-        description: input.instance.description,
-        taskId: task.id,
-        taskType: input.task.taskType,
-        classId: input.instance.classId,
-        groupIds: input.instance.groupIds,
-        courseId: input.instance.courseId,
-        chapterId: input.instance.chapterId,
-        sectionId: input.instance.sectionId,
-        slot: input.instance.slot as "pre" | "in" | "post" | undefined,
-        dueAt: new Date(input.instance.dueAt),
-        publishAt: input.instance.publishAt
-          ? new Date(input.instance.publishAt)
-          : undefined,
-        attemptsAllowed: input.instance.attemptsAllowed,
-        status: "published",
-        publishedAt: new Date(),
-        taskSnapshot,
-        createdBy,
-      },
-    });
-
-    return { task: taskForSnapshot, instance };
-  });
+  const output = await prisma.$transaction(async (tx) =>
+    createPublishedTaskWithInstanceInTransaction(tx, createdBy, input),
+  );
 
   // Phase3-A · Root cause 1: 任务发布后若是 adaptive quiz，自动 enqueue tagger job
   // （createTask 已有同款；本路径 createPublishedTaskWithInstance 之前漏触发，学生进 adaptive

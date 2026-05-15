@@ -108,11 +108,7 @@ describe("approveTaskBuildDraft", () => {
 });
 
 describe("markTaskBuildDraftPublished", () => {
-  it("transitions approved → published", async () => {
-    mk(prisma.taskBuildDraft.findUnique).mockResolvedValue({
-      id: "draft-1",
-      status: "approved",
-    });
+  it("transitions approved → published via conditional atomic update", async () => {
     mk(prisma.taskBuildDraft.update).mockResolvedValue({
       id: "draft-1",
       status: "published",
@@ -120,26 +116,38 @@ describe("markTaskBuildDraftPublished", () => {
 
     const r = await markTaskBuildDraftPublished("draft-1");
     expect(r.status).toBe("published");
+    // Codex-P1-r4: conditional update — where 包含 status:"approved" 防并发竞态
     expect(prisma.taskBuildDraft.update).toHaveBeenCalledWith({
-      where: { id: "draft-1" },
+      where: { id: "draft-1", status: "approved" },
       data: { status: "published" },
     });
   });
 
-  it("rejects publishing a ready (non-approved) draft", async () => {
-    mk(prisma.taskBuildDraft.findUnique).mockResolvedValue({
-      id: "draft-2",
-      status: "ready",
-    });
+  it("rejects publishing a non-approved draft (P2025 mapped to NOT_APPROVED)", async () => {
+    // Prisma 找不到符合 where {id, status:"approved"} 的记录 → 抛 P2025
+    const { Prisma } = await import("@prisma/client");
+    mk(prisma.taskBuildDraft.update).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record to update not found", {
+        code: "P2025",
+        clientVersion: "x",
+      }),
+    );
     await expect(markTaskBuildDraftPublished("draft-2")).rejects.toThrow(
       "TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH",
     );
   });
 
-  it("rejects publishing when draft does not exist", async () => {
-    mk(prisma.taskBuildDraft.findUnique).mockResolvedValue(null);
+  it("rejects publishing when draft does not exist (same error as non-approved)", async () => {
+    const { Prisma } = await import("@prisma/client");
+    mk(prisma.taskBuildDraft.update).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record to update not found", {
+        code: "P2025",
+        clientVersion: "x",
+      }),
+    );
+    // Codex-P1-r4: 不区分"不存在 vs 状态变了"，race loser 和 not-found 都得到统一错误
     await expect(markTaskBuildDraftPublished("missing")).rejects.toThrow(
-      "TASK_BUILD_DRAFT_NOT_FOUND",
+      "TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH",
     );
   });
 });
