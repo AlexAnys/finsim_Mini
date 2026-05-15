@@ -247,6 +247,25 @@ export default function InstanceDetailPage() {
     [instanceId]
   );
 
+  // Unit A2 · 标题 inline 编辑
+  const handleTitleSave = useCallback(
+    async (nextTitle: string) => {
+      const res = await fetch(`/api/lms/task-instances/${instanceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: nextTitle }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "保存失败");
+        throw new Error(json.error?.code || "TITLE_SAVE_FAILED");
+      }
+      setInstance((prev) => (prev ? { ...prev, title: nextTitle } : prev));
+      toast.success("标题已更新");
+    },
+    [instanceId]
+  );
+
   // PR-SIM-1b · D1 单条公布 / 撤回
   const handleReleaseSubmission = useCallback(
     async (submissionId: string, released: boolean) => {
@@ -706,6 +725,7 @@ export default function InstanceDetailPage() {
         onExport={exportGrades}
         onRemind={handleRemind}
         onStartGrading={handleStartGrading}
+        onTitleSave={handleTitleSave}
       />
 
       <div className="bg-surface px-6 pt-4 pb-2 md:px-10">
