@@ -164,3 +164,5 @@ timestamp	unit	round	verdict	cost_usd	description	git_commit
 2026-05-15T05:08:31Z	C1-B-iw	r1c	BUILD	builder	Unit C1-B r1c (阅读视图 + 编辑切换) build done: 5 atoms 文件 + page + hook 加 viewMode 字段; 7 new vitest (18 total); tsc clean; eslint clean. C1-B unit complete.
 2026-05-15T05:12:52Z	C1-B-iw	r1c	PASS	0.7	阅读视图 + 编辑切换 PASS（acc 10/10 + tsc 0 new + vitest 1013/1013 0 regression）；Unit C1-B 整体收官	81a2bca
 2026-05-15T05:18:11Z	A1-iw	r1a	BUILD	builder	Unit A1 r1a (service+API+validator) done: PATCH /snapshot route + discriminated union schema + deep-merge service + 17 vitest; tsc clean; eslint clean
+2026-05-15T05:22:13Z	A1-iw	r1a	PASS	0.6	service + API + validator PASS（acc 6/6 + tsc 0 new + vitest 1030/1030 0 regression）	917ec88
+2026-05-15T05:26:04Z	A1-iw	r1b	BUILD	builder	Unit A1 r1b (overview Sheet + 3 form + AlertDialog 已批改警告) build done: 19 vitest; tsc clean; eslint clean. A1 unit complete.

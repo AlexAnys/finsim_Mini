@@ -42,6 +42,7 @@ import {
   ReleaseConfigCard,
   type ReleaseMode,
 } from "@/components/instance-detail/release-config-card";
+import { SnapshotEditSheet } from "@/components/instance-detail/snapshot-edit-sheet";
 import {
   normalizeSubmission,
   type NormalizedSubmission,
@@ -70,6 +71,7 @@ interface InstanceDetail {
     taskType: string;
     scoringCriteria?: Array<{ id: string; name: string; maxPoints: number }>;
   };
+  taskSnapshot?: Record<string, unknown> | null;
   class: { id: string; name: string };
   course?: { id: string; courseTitle: string } | null;
   chapter?: { id: string; title: string } | null;
@@ -148,6 +150,9 @@ export default function InstanceDetailPage() {
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
+
+  // Unit A1 r1b · 实例配置编辑 Sheet
+  const [snapshotSheetOpen, setSnapshotSheetOpen] = useState(false);
 
   // Discussion state
   const [posts, setPosts] = useState<DiscussionPost[]>([]);
@@ -265,6 +270,17 @@ export default function InstanceDetailPage() {
     },
     [instanceId]
   );
+
+  // Unit A1 r1b · 打开/关闭 SnapshotEditSheet + 保存后刷新
+  const handleSnapshotSaved = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/lms/task-instances/${instanceId}`);
+      const json = await res.json();
+      if (json.success) setInstance(json.data);
+    } catch {
+      // silent; UI 仍可关闭 Sheet
+    }
+  }, [instanceId]);
 
   // PR-SIM-1b · D1 单条公布 / 撤回
   const handleReleaseSubmission = useCallback(
@@ -769,6 +785,7 @@ export default function InstanceDetailPage() {
             onRemind={handleRemind}
             onStartGrading={handleStartGrading}
             onPreviewStudent={handlePreviewStudent}
+            onEditSnapshot={() => setSnapshotSheetOpen(true)}
           />
         )}
 
@@ -1057,6 +1074,23 @@ export default function InstanceDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <SnapshotEditSheet
+        open={snapshotSheetOpen}
+        onOpenChange={setSnapshotSheetOpen}
+        instanceId={instanceId}
+        taskType={
+          (instance.task.taskType as
+            | "simulation"
+            | "quiz"
+            | "subjective") ?? "simulation"
+        }
+        snapshot={instance.taskSnapshot ?? null}
+        gradedCount={stats.graded}
+        onSaved={() => {
+          void handleSnapshotSaved();
+        }}
+      />
 
       <GradingDrawer
         open={drawerOpen}
