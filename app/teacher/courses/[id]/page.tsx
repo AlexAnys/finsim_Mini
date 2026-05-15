@@ -293,6 +293,11 @@ export default function TeacherCourseDetailPage() {
   const [teacherDialogOpen, setTeacherDialogOpen] = useState(false);
   const [teacherEmail, setTeacherEmail] = useState("");
   const [addingTeacher, setAddingTeacher] = useState(false);
+  // Unit 13: 移除协作教师二次 confirm
+  const [removeTeacherTarget, setRemoveTeacherTarget] = useState<{
+    teacherId: string;
+    name: string;
+  } | null>(null);
 
   // ---------- Inline UI state ----------
 
@@ -1165,7 +1170,13 @@ export default function TeacherCourseDetailPage() {
           setEditingSemesterDate(true);
         }}
         onRemoveClass={handleRemoveClass}
-        onRemoveTeacher={handleRemoveTeacher}
+        onRemoveTeacher={(teacherId) => {
+          const target = courseTeachers.find((t) => t.teacherId === teacherId);
+          setRemoveTeacherTarget({
+            teacherId,
+            name: target?.teacher.name ?? '老师',
+          });
+        }}
         semesterBadge={
           editingSemesterDate ? (
             <span className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-[3px] text-[11px] text-white/90">
@@ -1479,6 +1490,47 @@ export default function TeacherCourseDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Unit 13: 现有协作教师列表 */}
+            <div className="space-y-2">
+              <Label className="text-[12.5px] text-ink-3">
+                已添加 {courseTeachers.length} 位协作教师
+              </Label>
+              {courseTeachers.length === 0 ? (
+                <p className="rounded-md border border-dashed border-line bg-paper-alt px-3 py-2 text-[12px] text-ink-5">
+                  尚无协作教师，可在下方输入邮箱添加。
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {courseTeachers.map((ct) => (
+                    <li
+                      key={ct.id}
+                      className="flex items-center justify-between rounded-md border border-line bg-paper px-2.5 py-1.5"
+                    >
+                      <div className="min-w-0 flex-1 truncate">
+                        <span className="text-[12.5px] font-medium text-ink-2">
+                          {ct.teacher.name}
+                        </span>
+                        <span className="ml-2 text-[11px] text-ink-4">
+                          {ct.teacher.email}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRemoveTeacherTarget({
+                            teacherId: ct.teacherId,
+                            name: ct.teacher.name,
+                          })
+                        }
+                        className="ml-2 shrink-0 rounded-md px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/10"
+                      >
+                        移除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <div className="space-y-2">
               <Label htmlFor="teacherEmail">教师邮箱 *</Label>
               <Input
@@ -1511,6 +1563,39 @@ export default function TeacherCourseDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unit 13: 移除协作教师二次 confirm */}
+      <AlertDialog
+        open={removeTeacherTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTeacherTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>移除协作教师</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定将{" "}
+              <b>{removeTeacherTarget?.name ?? ""}</b>{" "}
+              老师移出本课程协作？移除后该老师将立即失去访问与编辑权限。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (removeTeacherTarget) {
+                  await handleRemoveTeacher(removeTeacherTarget.teacherId);
+                }
+                setRemoveTeacherTarget(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              确认移除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Edit Course Dialog */}
       <Dialog

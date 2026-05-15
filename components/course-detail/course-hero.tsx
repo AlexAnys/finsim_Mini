@@ -25,13 +25,13 @@ interface CourseHeroProps {
   taskBadgeCount?: number;
 }
 
+// Unit 13: 隐藏 discussion + resources tab（学生端 "该视图将在后续版本中上线" 占位文案不上线了）。
+// 保留 CourseDetailTabKey type 含全部 keys，避免 page useState 类型 break。
 const TABS: Array<{ key: CourseDetailTabKey; label: string }> = [
   { key: "content", label: "内容" },
   { key: "tasks", label: "任务" },
   { key: "grades", label: "成绩" },
   { key: "announcements", label: "公告" },
-  { key: "discussion", label: "讨论" },
-  { key: "resources", label: "资源" },
 ];
 
 export function CourseHero({
