@@ -196,7 +196,19 @@ export async function getSubmissions(filters: {
       where,
       include: {
         student: { select: { id: true, name: true, email: true } },
-        task: { select: { id: true, taskName: true, taskType: true } },
+        task: {
+          select: {
+            id: true,
+            taskName: true,
+            taskType: true,
+            // PR-15 bug 6a: 学生 /grades 评估面板用 criterion.name 显示维度名，
+            // 而非 evaluation.rubricBreakdown[].criterionId (CUID); 排序与 grading.service 一致
+            scoringCriteria: {
+              select: { id: true, name: true, maxPoints: true, order: true },
+              orderBy: { order: 'asc' },
+            },
+          },
+        },
         simulationSubmission: true,
         quizSubmission: true,
         subjectiveSubmission: { include: { attachments: true } },

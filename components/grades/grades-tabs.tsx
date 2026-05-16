@@ -22,7 +22,7 @@ const TABS: { key: GradesTabKey; label: string }[] = [
 
 export function GradesTabs({ active, counts, onChange }: GradesTabsProps) {
   return (
-    <div className="flex items-center gap-1 border-b border-line px-[18px] py-3.5">
+    <div className="flex flex-wrap items-center gap-1 border-b border-line px-3 py-3.5 sm:px-[18px]">
       {TABS.map((t) => {
         const isActive = active === t.key;
         return (
@@ -42,7 +42,7 @@ export function GradesTabs({ active, counts, onChange }: GradesTabsProps) {
           </button>
         );
       })}
-      <div className="ml-auto text-[11.5px] text-ink-5">按提交时间降序</div>
+      <div className="ml-auto hidden text-[11.5px] text-ink-5 sm:block">按提交时间降序</div>
     </div>
   );
 }

@@ -297,16 +297,25 @@ export default function TaskBuildDraftReviewPage() {
             <p>
               本草稿没有 AI 原稿快照（可能是旧草稿或未经过 AI 生成）。点击「直接批准」绕过左右对照，把草稿标记为已批准。
             </p>
-            {canApprove && (
-              <Button onClick={handleApproveAll} disabled={approving}>
-                {approving ? (
-                  <Loader2 className="mr-1 size-4 animate-spin" />
-                ) : (
-                  <ShieldCheck className="mr-1 size-4" />
-                )}
-                直接批准
+            <div className="flex flex-wrap items-center gap-2">
+              {canApprove && (
+                <Button onClick={handleApproveAll} disabled={approving}>
+                  {approving ? (
+                    <Loader2 className="mr-1 size-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="mr-1 size-4" />
+                  )}
+                  直接批准
+                </Button>
+              )}
+              {/* PR-15 bug 2: 无 AI 路径也补上返回按钮 */}
+              <Button asChild variant="outline">
+                <Link href={`/teacher/courses/${draft.courseId}`}>
+                  <ArrowLeft className="mr-1 size-4" />
+                  返回课程
+                </Link>
               </Button>
-            )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -393,16 +402,25 @@ export default function TaskBuildDraftReviewPage() {
               <p className="text-xs text-ink-3">
                 如需拒绝整份草稿：返回课程页删除草稿即可（拒绝 = 不操作 + 删除）。
               </p>
-              {canApprove && (
-                <Button onClick={handleApproveAll} disabled={approving}>
-                  {approving ? (
-                    <Loader2 className="mr-1 size-4 animate-spin" />
-                  ) : (
-                    <ShieldCheck className="mr-1 size-4" />
-                  )}
-                  批准全部并允许发布
+              <div className="flex flex-wrap items-center gap-2">
+                {/* PR-15 bug 2: 重复顶部返回入口 — 长字段对比滚动后顶部按钮看不到 */}
+                <Button asChild variant="outline">
+                  <Link href={`/teacher/courses/${draft.courseId}`}>
+                    <ArrowLeft className="mr-1 size-4" />
+                    返回课程
+                  </Link>
                 </Button>
-              )}
+                {canApprove && (
+                  <Button onClick={handleApproveAll} disabled={approving}>
+                    {approving ? (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="mr-1 size-4" />
+                    )}
+                    批准全部并允许发布
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

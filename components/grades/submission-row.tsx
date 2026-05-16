@@ -98,10 +98,10 @@ export function SubmissionRow({ row, selected, onSelect, trendDelta }: Submissio
       type="button"
       onClick={() => onSelect(row.id)}
       aria-pressed={selected}
-      className={`grid w-full grid-cols-[1fr_70px_90px] items-center gap-3 border-b border-line-2 py-3.5 text-left transition-colors hover:bg-paper-alt/60 ${
+      className={`grid w-full grid-cols-[1fr_60px_36px] items-center gap-2 border-b border-line-2 py-3.5 text-left transition-colors hover:bg-paper-alt/60 sm:grid-cols-[1fr_70px_90px] sm:gap-3 ${
         selected
-          ? "border-l-[3px] border-l-brand bg-paper-alt pl-[15px] pr-[18px]"
-          : "border-l-[3px] border-l-transparent px-[18px]"
+          ? "border-l-[3px] border-l-brand bg-paper-alt pl-[9px] pr-3 sm:pl-[15px] sm:pr-[18px]"
+          : "border-l-[3px] border-l-transparent px-3 sm:px-[18px]"
       }`}
     >
       {/* 左：chip + course + title + 时间 */}

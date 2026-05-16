@@ -126,7 +126,7 @@ export const createPublishedTaskWithInstanceSchema = z.object({
     taskId: true,
     taskType: true,
   }),
-  // Unit 10: 关联 TaskBuildDraft；带此字段时强制要求 draft.status === "approved"，发布后 draft 转 published
+  // PR-15 bug 1: 关联 TaskBuildDraft；带此字段时 draft.status 必须为 draft/ready/approved 之一，发布后 draft 原子 flip 为 published
   taskBuildDraftId: z.string().uuid().optional(),
 });
 

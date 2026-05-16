@@ -49,6 +49,7 @@ import {
 } from "@/components/instance-detail/submissions-utils";
 import { ContextSourcesPanel } from "@/components/course/context-sources-panel";
 import { TaskConfigSummary } from "@/components/teacher/task-config-summary";
+import { StudyBuddyMini } from "@/components/instance-detail/study-buddy-mini";
 
 interface InstanceDetail {
   id: string;
@@ -771,22 +772,31 @@ export default function InstanceDetailPage() {
           />
         )}
         {tab === "overview" && (
-          <OverviewTab
-            instance={{
-              id: instance.id,
-              title: instance.title,
-              description: instance.description,
-              taskType: instance.task.taskType,
-              dueAt: instance.dueAt,
-              publishedAt: instance.publishedAt,
-              createdAt: instance.createdAt,
-            }}
-            stats={stats}
-            onRemind={handleRemind}
-            onStartGrading={handleStartGrading}
-            onPreviewStudent={handlePreviewStudent}
-            onEditSnapshot={() => setSnapshotSheetOpen(true)}
-          />
+          <>
+            <OverviewTab
+              instance={{
+                id: instance.id,
+                title: instance.title,
+                description: instance.description,
+                taskType: instance.task.taskType,
+                dueAt: instance.dueAt,
+                publishedAt: instance.publishedAt,
+                createdAt: instance.createdAt,
+              }}
+              stats={stats}
+              onRemind={handleRemind}
+              onStartGrading={handleStartGrading}
+              onPreviewStudent={handlePreviewStudent}
+              onEditSnapshot={() => setSnapshotSheetOpen(true)}
+            />
+            {/* PR-15 bug 4: Study Buddy mini 模块 */}
+            <div className="mt-5">
+              <StudyBuddyMini
+                taskInstanceId={instance.id}
+                courseId={instance.course?.id ?? null}
+              />
+            </div>
+          </>
         )}
 
         {tab === "submissions" && (

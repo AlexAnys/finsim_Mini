@@ -47,6 +47,8 @@ function makeRow(partial: Partial<GradeRow>): GradeRow {
     instanceTitle: partial.instanceTitle ?? "实例标题",
     courseName: partial.courseName ?? null,
     courseId: partial.courseId ?? null,
+    scoringCriteria: partial.scoringCriteria ?? null,
+    transcript: partial.transcript ?? null,
   };
 }
 
@@ -262,3 +264,177 @@ describe("PR-STU-1 · joinSubmissions 客户端 join", () => {
     expect(rows[0].courseName).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// PR-15 bug 6 · joinSubmissions 新增字段：scoringCriteria + transcript
+// ─────────────────────────────────────────────────────────────
+
+describe("PR-15 bug 6 · scoringCriteria join (criterion CUID → name 映射真源)", () => {
+  it("task.scoringCriteria 数组透传成 row.scoringCriteria", () => {
+    const raw: RawSubmissionLite[] = [
+      {
+        id: "s-1",
+        taskId: "t-1",
+        taskInstanceId: "ti-1",
+        taskType: "simulation",
+        status: "graded",
+        score: 80,
+        maxScore: 100,
+        evaluation: null,
+        submittedAt: "2026-05-01T00:00:00Z",
+        gradedAt: "2026-05-01T01:00:00Z",
+        releasedAt: "2026-05-01T02:00:00Z",
+        analysisStatus: "released",
+        task: {
+          id: "t-1",
+          taskName: "客户访谈",
+          scoringCriteria: [
+            { id: "c1", name: "沟通能力", maxPoints: 40, order: 0 },
+            { id: "c2", name: "专业知识", maxPoints: 60, order: 1 },
+          ],
+        },
+      },
+    ];
+    const rows = joinSubmissions(raw, []);
+    expect(rows[0].scoringCriteria).toHaveLength(2);
+    expect(rows[0].scoringCriteria?.[0]).toEqual({
+      id: "c1",
+      name: "沟通能力",
+      maxPoints: 40,
+    });
+  });
+
+  it("task.scoringCriteria 缺失 → row.scoringCriteria=null（panel 自动 fallback 到 CUID 显示）", () => {
+    const raw: RawSubmissionLite[] = [
+      {
+        id: "s-1",
+        taskId: "t-1",
+        taskInstanceId: "ti-1",
+        taskType: "simulation",
+        status: "submitted",
+        score: null,
+        maxScore: null,
+        evaluation: null,
+        submittedAt: "2026-05-01T00:00:00Z",
+        gradedAt: null,
+      },
+    ];
+    const rows = joinSubmissions(raw, []);
+    expect(rows[0].scoringCriteria).toBeNull();
+  });
+});
+
+describe("PR-15 bug 6 · transcript defensive filter (Json schema drift 防爆)", () => {
+  it("正常 transcript：role+text 全合法 → 透传 + 字段子集", () => {
+    const raw: RawSubmissionLite[] = [
+      {
+        id: "s-1",
+        taskId: "t-1",
+        taskInstanceId: "ti-1",
+        taskType: "simulation",
+        status: "graded",
+        score: 80,
+        maxScore: 100,
+        evaluation: null,
+        submittedAt: "2026-05-01T00:00:00Z",
+        gradedAt: "2026-05-01T01:00:00Z",
+        releasedAt: "2026-05-01T02:00:00Z",
+        analysisStatus: "released",
+        simulationSubmission: {
+          // @ts-expect-error 测试用 raw Json shape — joiner 应防御性接受
+          transcript: [
+            { id: "m1", role: "ai", text: "你好，我想咨询理财", timestamp: "2026-05-01T00:01:00Z", mood: "NEUTRAL" },
+            { id: "m2", role: "student", text: "好的，我建议分散投资" },
+          ],
+        },
+      },
+    ];
+    const rows = joinSubmissions(raw, []);
+    expect(rows[0].transcript).toHaveLength(2);
+    expect(rows[0].transcript?.[0]).toMatchObject({
+      role: "ai",
+      text: "你好，我想咨询理财",
+      timestamp: "2026-05-01T00:01:00Z",
+    });
+    // mood 字段不在 GradeRow.transcript 类型里 (defensive subset)
+    expect((rows[0].transcript?.[0] as Record<string, unknown>).mood).toBeUndefined();
+  });
+
+  it("过滤掉非法 role 与缺 text 的消息（schema drift 防爆）", () => {
+    const raw: RawSubmissionLite[] = [
+      {
+        id: "s-1",
+        taskId: "t-1",
+        taskInstanceId: "ti-1",
+        taskType: "simulation",
+        status: "graded",
+        score: 80,
+        maxScore: 100,
+        evaluation: null,
+        submittedAt: "2026-05-01T00:00:00Z",
+        gradedAt: "2026-05-01T01:00:00Z",
+        releasedAt: "2026-05-01T02:00:00Z",
+        analysisStatus: "released",
+        simulationSubmission: {
+          // @ts-expect-error 测试用 raw Json shape
+          transcript: [
+            { id: "m1", role: "ai", text: "合法" },
+            { id: "m2", role: "system", text: "未来枚举值" }, // 过滤
+            { id: "m3", role: "student", text: null }, // 过滤
+            { id: "m4", role: "student" }, // 过滤
+            null, // 过滤
+            { id: "m5", role: "student", text: "OK" },
+          ],
+        },
+      },
+    ];
+    const rows = joinSubmissions(raw, []);
+    expect(rows[0].transcript).toHaveLength(2);
+    expect(rows[0].transcript?.map((m) => m.text)).toEqual(["合法", "OK"]);
+  });
+
+  it("transcript 缺失 → null（panel 不渲染对话 section）", () => {
+    const raw: RawSubmissionLite[] = [
+      {
+        id: "s-1",
+        taskId: "t-1",
+        taskInstanceId: "ti-1",
+        taskType: "simulation",
+        status: "submitted",
+        score: null,
+        maxScore: null,
+        evaluation: null,
+        submittedAt: "2026-05-01T00:00:00Z",
+        gradedAt: null,
+      },
+    ];
+    const rows = joinSubmissions(raw, []);
+    expect(rows[0].transcript).toBeNull();
+  });
+
+  it("transcript 非数组 → null（防 schema drift 把 array 改成 object）", () => {
+    const raw: RawSubmissionLite[] = [
+      {
+        id: "s-1",
+        taskId: "t-1",
+        taskInstanceId: "ti-1",
+        taskType: "simulation",
+        status: "graded",
+        score: 80,
+        maxScore: 100,
+        evaluation: null,
+        submittedAt: "2026-05-01T00:00:00Z",
+        gradedAt: "2026-05-01T01:00:00Z",
+        releasedAt: "2026-05-01T02:00:00Z",
+        analysisStatus: "released",
+        simulationSubmission: {
+          // @ts-expect-error 测试用故意非法 shape
+          transcript: { messages: [] },
+        },
+      },
+    ];
+    const rows = joinSubmissions(raw, []);
+    expect(rows[0].transcript).toBeNull();
+  });
+});
+

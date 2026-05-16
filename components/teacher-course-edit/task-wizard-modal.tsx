@@ -1080,8 +1080,12 @@ export function TaskWizardModal({
               ? new Date(form.dueAt).toISOString()
               : new Date(Date.now() + 14 * 86400000).toISOString(),
           },
-          // Unit 10: 只有已批准的 draft 才传 ID，后端会把该 draft 标 published + 写 audit
-          ...(editingDraftId && editingDraftStatus === "approved"
+          // PR-15 bug 1 修法：放宽 — 只要 editingDraftId 存在就传，后端会原子 flip
+          // (draft/ready/approved) → published + 写 audit。修复 "wizard 发布后 draft 残留" bug。
+          // queued/processing/failed 状态不传（异步还在跑 / 失败需先 retry）。
+          ...(editingDraftId &&
+          editingDraftStatus &&
+          ["draft", "ready", "approved"].includes(editingDraftStatus)
             ? { taskBuildDraftId: editingDraftId }
             : {}),
         }),
@@ -1366,15 +1370,27 @@ export function TaskWizardModal({
             )}
 
             {/* Footer nav */}
-            <div className="flex items-center justify-between rounded-[10px] border border-line bg-surface px-4 py-3.5">
-              <Button
-                variant="outline"
-                onClick={prevStep}
-                disabled={step === 0 || submitting || savingDraft}
-              >
-                <ChevronLeft className="size-3.5 mr-1" />
-                上一步
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-line bg-surface px-4 py-3.5">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={prevStep}
+                  disabled={step === 0 || submitting || savingDraft}
+                >
+                  <ChevronLeft className="size-3.5 mr-1" />
+                  上一步
+                </Button>
+                {/* PR-15 bug 2: 显式取消按钮 — 顶部 X 取消可能被滚出，底部 footer 保证常驻可见 */}
+                <Button
+                  variant="ghost"
+                  onClick={handleClose}
+                  disabled={submitting}
+                  aria-label="取消并退出"
+                >
+                  <X className="size-3.5 mr-1" />
+                  取消
+                </Button>
+              </div>
               <span className="text-xs text-ink-5 tabular-nums">
                 {step + 1} / {WIZARD_STEPS.length} ·{" "}
                 {WIZARD_STEPS[step].label}

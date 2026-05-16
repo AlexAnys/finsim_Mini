@@ -26,6 +26,7 @@ import {
   approveTaskBuildDraft,
   listTaskBuildDrafts,
   markTaskBuildDraftPublished,
+  markTaskBuildDraftPublishedFromWizard,
 } from "@/lib/services/task-build-draft.service";
 
 const mk = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
@@ -177,5 +178,66 @@ describe("listTaskBuildDrafts with status filter", () => {
       where: { courseId: "course-1" },
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     });
+  });
+});
+
+
+describe("markTaskBuildDraftPublishedFromWizard (PR-15 bug 1)", () => {
+  it("transitions a ready draft → published (wizard 一步发布契约测试)", async () => {
+    mk(prisma.taskBuildDraft.update).mockResolvedValue({
+      id: "draft-r1",
+      status: "published",
+    });
+
+    const r = await markTaskBuildDraftPublishedFromWizard("draft-r1");
+    expect(r.status).toBe("published");
+    expect(prisma.taskBuildDraft.update).toHaveBeenCalledWith({
+      where: { id: "draft-r1", status: { in: ["draft", "ready", "approved"] } },
+      data: { status: "published" },
+    });
+  });
+
+  it("transitions a draft (no AI) → published (wizard 一步发布)", async () => {
+    mk(prisma.taskBuildDraft.update).mockResolvedValue({
+      id: "draft-d1",
+      status: "published",
+    });
+    const r = await markTaskBuildDraftPublishedFromWizard("draft-d1");
+    expect(r.status).toBe("published");
+  });
+
+  it("transitions approved → published (兼容审核+发布两阶段)", async () => {
+    mk(prisma.taskBuildDraft.update).mockResolvedValue({
+      id: "draft-a1",
+      status: "published",
+    });
+    const r = await markTaskBuildDraftPublishedFromWizard("draft-a1");
+    expect(r.status).toBe("published");
+  });
+
+  it("rejects publishing when status is not in (draft/ready/approved) — e.g. already published", async () => {
+    const { Prisma } = await import("@prisma/client");
+    mk(prisma.taskBuildDraft.update).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record to update not found", {
+        code: "P2025",
+        clientVersion: "x",
+      }),
+    );
+    await expect(markTaskBuildDraftPublishedFromWizard("draft-x")).rejects.toThrow(
+      "TASK_BUILD_DRAFT_NOT_FOUND_OR_PUBLISHED",
+    );
+  });
+
+  it("rejects publishing when draft does not exist (same error as already-published)", async () => {
+    const { Prisma } = await import("@prisma/client");
+    mk(prisma.taskBuildDraft.update).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record to update not found", {
+        code: "P2025",
+        clientVersion: "x",
+      }),
+    );
+    await expect(markTaskBuildDraftPublishedFromWizard("missing")).rejects.toThrow(
+      "TASK_BUILD_DRAFT_NOT_FOUND_OR_PUBLISHED",
+    );
   });
 });
