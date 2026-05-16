@@ -4,6 +4,20 @@ import { z } from "zod";
 import type { AIFeature } from "@/lib/types";
 import { prisma } from "@/lib/db/prisma";
 import { createHash } from "crypto";
+import {
+  buildSimulationChatPrompt,
+  buildSimulationChatPersona,
+  SIMULATION_CHAT_PROMPT_VERSION,
+} from "@/lib/ai/prompts/simulation-chat";
+import {
+  buildSimulationEvaluatePrompt,
+  buildEvidenceRetryHint,
+  SIMULATION_EVALUATE_PROMPT_VERSION,
+} from "@/lib/ai/prompts/simulation-evaluate";
+import {
+  buildSocraticHintPrompt,
+  SOCRATIC_HINT_PROMPT_VERSION,
+} from "@/lib/ai/prompts/socratic-hint";
 
 // ============================================
 // AI Provider 配置
@@ -29,6 +43,8 @@ export interface AiCallOptions {
   metadata?: Record<string, unknown>;
   /** Override default 8192. outline / 长 schema 易截断 → 调用方传 16384。 */
   maxOutputTokens?: number;
+  /** PR-1 E · prompt builder 的契约版本（如 "v1"）；未迁移 caller 默认 "v1"。 */
+  promptVersion?: string;
 }
 
 export function getProviderConfig(name: string): ProviderConfig | null {
@@ -401,6 +417,7 @@ async function createAiRun(input: {
   systemPrompt: string;
   userPrompt: string;
   metadata?: Record<string, unknown>;
+  promptVersion?: string;
 }) {
   try {
     const promptHash = createHash("sha256")
@@ -414,7 +431,7 @@ async function createAiRun(input: {
         provider: input.provider.name,
         model: input.model,
         status: "running",
-        promptVersion: "v1",
+        promptVersion: input.promptVersion ?? "v1",
         promptHash,
         inputSize: input.systemPrompt.length + input.userPrompt.length,
         // AI 留痕（Unit 11）：summary 用 userPrompt 前 200 字（明文，方便老师审计而非对哈希）。
@@ -506,6 +523,57 @@ async function finishAiRun(
     // AI 调用日志不能影响主流程。
   }
 }
+
+/**
+ * PR-1 D: 拿最近一次 AI run 的 model + tokens metadata，供 audit log 使用。
+ *
+ * 用法：grading.service 在调用 AI 评估前记录 `startedAt = new Date()`，调完后调本函数
+ * 拿到 `{ model, inputTokens, outputTokens, runId }` 写入 audit metadata。
+ *
+ * 设计约束（PR-1 D 决策 Q2 方案 3）：
+ * - `since` 必传：限定时间窗 ≤ 5 sec，防止误抓更早的 run
+ * - `feature` + `userId` 双重 filter，缩小竞争面
+ * - 仍有 race 窗口（同 teacher 同 feature 并发跑两个 AI 调用时）— 见 vitest race test
+ *
+ * TODO（PR-2 候选 F）：等 aiGenerateText / aiGenerateJSON 重构返回 `{ data, runId, ... }` 后，
+ *   本 helper 可删除，audit 直接拿调用返回值更精准。
+ */
+export async function getLastAiRunMetadata(
+  userId: string,
+  feature: AIFeature,
+  since: Date,
+): Promise<{
+  runId: string | null;
+  model: string | null;
+  provider: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+} | null> {
+  const FIVE_SEC_MS = 5_000;
+  const upperBound = new Date(since.getTime() + FIVE_SEC_MS);
+  try {
+    const run = await prisma.aiRun.findFirst({
+      where: {
+        userId,
+        feature,
+        createdAt: { gte: since, lte: new Date(Math.max(Date.now(), upperBound.getTime())) },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, model: true, provider: true, inputTokens: true, outputTokens: true },
+    });
+    if (!run) return null;
+    return {
+      runId: run.id,
+      model: run.model ?? null,
+      provider: run.provider ?? null,
+      inputTokens: run.inputTokens ?? null,
+      outputTokens: run.outputTokens ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 
 // ============================================
 // 限流
@@ -785,6 +853,7 @@ export async function aiGenerateText(
     systemPrompt: mergedSystemPrompt,
     userPrompt,
     metadata: options.metadata,
+    promptVersion: options.promptVersion,
   });
 
   try {
@@ -841,6 +910,7 @@ export async function aiGenerateJSON<T>(
     systemPrompt: mergedSystemPrompt,
     userPrompt,
     metadata: options.metadata,
+    promptVersion: options.promptVersion,
   });
 
   let lastError: Error | null = null;
@@ -1005,99 +1075,16 @@ function buildChatPrompts(data: ChatRequestData): {
   currentTurn: number;
 } {
   const messageType: ChatMessageType = data.messageType ?? "user_message";
-  const objectivesBlock =
-    data.objectives && data.objectives.length > 0
-      ? `\n【对话目标维度】（用作 student_perf 评估与 deviated_dimensions 命名）:\n${data.objectives.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n`
-      : "";
-
-  const personaPrompt =
-    data.systemPrompt?.replace("{scenario}", data.scenario) ||
-    `你是一个金融理财场景中的模拟客户。请按照以下角色设定进行对话：
-
-${data.scenario}
-
-【核心人设 · 中等顽固】
-- 你是一个普通人，对理财知识了解不多，但愿意学习和听取专业建议。
-- 你有自己的立场与偏好。当理财经理建议明显违背你的风险偏好或财务约束时，你会礼貌但坚定地表达异议，需要对方拿出有说服力的解释才会松动。
-- 你会有一些隐性需求（教育金 / 应急金 / 父母赡养 / 家庭目标等），不会一上来全盘托出，而是在对话推进中逐渐透露。
-- 你会主动提出与对话目标相关的问题，推动对话朝有意义的方向发展。
-
-【对话风格】
-1. 用中文回复，语气自然，像真实客户聊天一样。不要使用 Markdown 符号或列表格式。
-2. 每条回复 2-4 句话。可以分享自己的想法、提出疑问、或回应理财经理的建议。
-3. 当理财经理解释得好时，表示认可并追问更深入的问题。
-4. 当理财经理说得不清楚时，礼貌地请求进一步解释，而不是直接拒绝。
-5. 不要一味表达不信任或完全拒绝风险，但也不要对所有建议都立刻同意。
-
-【禁止行为】
-- 不要暴露你是 AI 或模拟角色。
-- 不要重复理财经理刚说过的话。
-- 不要无端制造对抗或拒绝所有建议。`;
-
-  // PR-SIM-3 D3: 当学生"提交给客户"时，注入额外指令让客户具体回应配置
-  const configSubmissionBlock =
-    messageType === "config_submission"
-      ? `\n【本轮交互类型 · 资产配置提交 · PR-SIM-3】
-学生刚刚向你展示了一版资产配置（参见用户消息中的"提交资产配置"段落）。
-请基于配置数字 + 已有对话上下文，做出客户视角的具体回应：
-- 必须在 reply 中明确提到配置的至少一项具体内容（如"为什么完全不配债券"、"股票从 50% 降到 30%，是出于风险考虑吗？"等）。
-- 如果配置与你之前表达的偏好/风险承受能力 / 隐性需求一致，表达认可并追问深层逻辑；如果不一致，礼貌质疑、表达担忧。
-- 不要泛泛评价整体（如"看起来不错"），要点名具体项。
-- mood_score / mood_label 反映你看到这版配置后的真实情绪变化。
-- student_perf 评估学生这版配置是否贴合你已表达的偏好与对话目标。
-`
-      : "";
-
-  const systemPrompt = `${personaPrompt}
-${objectivesBlock}${configSubmissionBlock}
-【输出格式 · 严格 JSON · PR-7B】
-请输出严格 JSON（不要包含其他任何文字、不要 Markdown 代码块）：
-{
-  "reply": "作为客户的中文回复，2-4 句话",
-  "mood_score": 0.0,
-  "mood_label": "平静",
-  "student_perf": 0.0,
-  "deviated_dimensions": []
-}
-
-字段定义：
-- mood_score: 当前你（客户）的情绪强度，0=最平静放松、1=最焦虑失望。与 mood_label 协调一致。
-- mood_label 必须从这 8 个中文标签中精确选 1 个：平静 / 放松 / 兴奋 / 犹豫 / 怀疑 / 略焦虑 / 焦虑 / 失望
-  · 平静（0.00-0.12）: 无情绪波动
-  · 放松（0.12-0.25）: 觉得对方的话有道理、有安全感
-  · 兴奋: 仅当对方建议让你眼前一亮、看到新可能
-  · 犹豫（0.25-0.40）: 还在思考、信息确认中
-  · 怀疑（0.40-0.55）: 觉得对方建议有点不对劲，但还在听
-  · 略焦虑（0.55-0.70）: 对方用术语堆砌或建议偏离你的偏好
-  · 焦虑（0.70-0.85）: 对方反复忽视你的核心顾虑
-  · 失望（0.85-1.00）: 对方让你觉得这次咨询没价值
-- student_perf: 评估理财经理（学生）本轮表现，0=极差/答非所问，1=非常专业且贴合目标。
-- deviated_dimensions: 学生本轮明显偏离的对话目标维度（从【对话目标维度】中选取名称；没有则空数组）。
-
-不要在 reply 里附加 [MOOD: XXX] 标签 — mood 通过 JSON 字段传递。`;
-
-  const conversationHistory = data.transcript
-    .map((m) => `${m.role === "student" ? "理财经理" : "客户"}: ${m.text}`)
-    .join("\n");
-
-  // PR-SIM-3 D3: config_submission 时把学生提交的配置摊平为可读列表，给到客户视角看
-  const allocationSubmissionText =
-    messageType === "config_submission" && data.allocations && data.allocations.length > 0
-      ? `\n\n提交资产配置（学生当前要客户对这版方案的反馈）:\n${data.allocations
-          .map((sec) => {
-            const lines = sec.items
-              .map((it) => `  · ${it.label}: ${it.value}%`)
-              .join("\n");
-            return `[${sec.label}]\n${lines}`;
-          })
-          .join("\n")}`
-      : "";
-
-  const userPrompt =
-    messageType === "config_submission"
-      ? `对话历史:\n${conversationHistory}${allocationSubmissionText}\n\n请作为客户对这版资产配置做出具体回应（按上面 JSON 格式输出，reply 必须点名提到配置中至少一项具体内容）。`
-      : `对话历史:\n${conversationHistory}\n\n请作为客户继续回复并按上面 JSON 格式输出。`;
-
+  const opts = {
+    systemPrompt: data.systemPrompt,
+    scenario: data.scenario,
+    objectives: data.objectives ?? [],
+    messageType,
+    transcript: data.transcript,
+    allocations: data.allocations,
+  };
+  const { systemPrompt, userPrompt } = buildSimulationChatPrompt(opts);
+  const personaPrompt = buildSimulationChatPersona(opts);
   const currentTurn = data.transcript.filter((m) => m.role === "student").length;
   return { personaPrompt, systemPrompt, userPrompt, currentTurn };
 }
@@ -1179,6 +1166,11 @@ export async function chatReply(
 ): Promise<ChatReplyResult> {
   const { personaPrompt, systemPrompt, userPrompt } = buildChatPrompts(data);
 
+  const callOptions: AiCallOptions = {
+    ...options,
+    promptVersion: options.promptVersion ?? SIMULATION_CHAT_PROMPT_VERSION,
+  };
+
   let parsed: z.infer<typeof chatReplySchema>;
   try {
     parsed = await aiGenerateJSON(
@@ -1188,7 +1180,7 @@ export async function chatReply(
       userPrompt,
       chatReplySchema,
       2,
-      options,
+      callOptions,
     );
   } catch {
     const fallbackText = await aiGenerateText(
@@ -1196,7 +1188,7 @@ export async function chatReply(
       userId,
       personaPrompt,
       userPrompt,
-      options,
+      callOptions,
     );
     return {
       reply: stripMoodTagFromText(fallbackText),
@@ -1272,6 +1264,7 @@ export async function chatReplyStream(
     systemPrompt: mergedSystemPrompt,
     userPrompt,
     metadata: { ...(options.metadata ?? {}), streaming: true },
+    promptVersion: options.promptVersion ?? SIMULATION_CHAT_PROMPT_VERSION,
   });
 
   // Fix 3 · 30s AbortController 上限。模型卡死时主动断流，前端走中文超时分支。
@@ -1492,33 +1485,22 @@ async function generateSocraticHint(
   options: AiCallOptions = {},
 ): Promise<string | undefined> {
   try {
-    const systemPrompt = `你是一位金融教育的学习伙伴。学生（理财顾问）在本轮对话中表现欠佳或偏离了对话目标。
-请用 Socratic（苏格拉底）方式给学生一个简短的追问式提示，引导他自己想到改进点 — 不要直接给答案。
-
-要求：
-1. 提示长度 18-40 个汉字，单句疑问形式。
-2. 中文，口吻像同伴而不是导师。
-3. 必须紧扣偏离的目标维度或核心顾虑（不要泛泛而谈）。
-4. 严格 JSON 输出: { "hint": "..." }`;
-
     const recent = data.transcript.slice(-6).map((m) => `${m.role === "student" ? "学生" : "客户"}: ${m.text}`).join("\n");
-    const userPrompt = `场景: ${data.scenario}
-对话目标: ${data.objectives.join(" / ") || "（未提供）"}
-本轮学生偏离的维度: ${data.deviatedDimensions.join(" / ") || "（未明确，但 student_perf 偏低）"}
-
-最近 6 轮对话:
-${recent}
-
-请按 Socratic 方式给一句追问式提示。`;
+    const builtHint = buildSocraticHintPrompt({
+      scenario: data.scenario,
+      objectives: data.objectives,
+      deviatedDimensions: data.deviatedDimensions,
+      recentTranscript: recent,
+    });
 
     const out = await aiGenerateJSON(
       "studyBuddyReply",
       userId,
-      systemPrompt,
-      userPrompt,
+      builtHint.systemPrompt,
+      builtHint.userPrompt,
       hintSchema,
       2,
-      options,
+      { ...options, promptVersion: options.promptVersion ?? SOCRATIC_HINT_PROMPT_VERSION },
     );
     return out.hint;
   } catch {
@@ -1593,33 +1575,6 @@ export async function evaluateSimulation(
     conceptTags: z.array(z.string()).optional(),
   });
 
-  const systemPrompt = `${data.evaluatorPersona || "你是一位资深的金融教育评估专家。"}
-
-你正在评估一场模拟理财咨询对话。
-
-任务: ${data.taskName}
-${data.requirements ? `要求: ${data.requirements}` : ""}
-场景: ${data.scenario}
-
-严格度: ${data.strictnessLevel}
-严格度说明：
-- STRICT / VERY_STRICT: 仅在对话中有明确证据支撑时才给分，推断不计分。
-- MODERATE: 合理推断可适当给分，但需注明依据。
-- LENIENT: 只要方向正确即可给分，鼓励学生参与。
-
-重要评估原则：
-1. 对话中的 [MOOD:] 标签反映了客户的真实情绪反应，请将其作为客户满意度的强信号。ANGRY 出现较多说明理财经理沟通存在严重问题。
-2. totalScore 必须等于 rubricBreakdown 中所有 score 之和，不得凭空修改。
-3. 评语要具体，引用对话中的原文作为依据。
-4. 每项 rubric 必须返回 evidence 数组（1-3 条），格式 {studentText, comment}：
-   - studentText 必须是 transcript 中"理财经理"（即学生）角色的**精确原句**（逐字引用，不得改写、不得跨行拼接、不得加引号/省略号）。
-   - comment 解释这句话如何对应该 rubric 评分。
-   - 没有可引用原句时，studentText 设为 ""（空字符串），并在 comment 中说明缺失原因（不影响 score）。
-   - 不要引用 [MOOD:...] 标签内的内容，引用时去除 MOOD 部分。
-
-评分标准:
-${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description || ""}`).join("\n")}`;
-
   const conversationText = data.transcript
     .map((m) => `${m.role === "student" ? "理财经理" : "客户"}: ${m.text.replace(/\[MOOD:.*?\]/g, "")}`)
     .join("\n")
@@ -1642,35 +1597,30 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
           .join("\n")}\n\n请参考资产配置演变：留意学生在对话中根据客户偏好/顾虑的变化是否调整了配置（积极信号），或反复在风险/保守之间摇摆（潜在问题）。把"是否随对话信息更新配置决策"作为"专业度/方案完整性"维度的判分依据之一。\n\n`
       : "";
 
-  const userPrompt = `对话记录:\n${conversationText}\n\n${finalAllocations}${snapshotsBlock}请按照评分标准逐项评估，返回 JSON:
-{
-  "totalScore": 总分,
-  "feedback": "总体评语",
-  "rubricBreakdown": [
-    {
-      "criterionId": "标准ID",
-      "score": 得分,
-      "maxScore": 满分,
-      "comment": "评语",
-      "evidence": [
-        {"studentText": "理财经理原句（必须逐字摘自上方对话）", "comment": "为何此句对应该 rubric 的得分"}
-      ]
-    }
-  ],
-  "conceptTags": ["核心概念1", "核心概念2", "核心概念3"]
-}
-
-注意:
-- rubricBreakdown 必须包含恰好 ${data.rubric.length} 项，对应每个评分标准。
-- criterionId 使用以下 ID: ${data.rubric.map((r) => r.id).join(", ")}
-- evidence 数组每项 1-3 条；studentText 必须能在上方对话中找到完全相同的子串（包括标点和空格）。
-- conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于后续班级薄弱点聚合。`;
+  const builtEval = buildSimulationEvaluatePrompt({
+    taskName: data.taskName,
+    requirements: data.requirements,
+    scenario: data.scenario,
+    evaluatorPersona: data.evaluatorPersona,
+    strictnessLevel: data.strictnessLevel,
+    rubric: data.rubric,
+    transcriptText: conversationText,
+    finalAllocations,
+    snapshotsBlock,
+  });
+  const systemPrompt = builtEval.systemPrompt;
+  const userPrompt = builtEval.userPrompt;
 
   // Unit 9: 学生原句池（用于 evidence 引用校验）
   const studentTextPool = data.transcript
     .filter((m) => m.role === "student")
     .map((m) => m.text.replace(/\[MOOD:.*?\]/g, "").trim());
   const joinedStudentText = studentTextPool.join("\n");
+
+  const evalCallOptions: AiCallOptions = {
+    ...options,
+    promptVersion: options.promptVersion ?? SIMULATION_EVALUATE_PROMPT_VERSION,
+  };
 
   // 1st pass
   let result = await aiGenerateJSON(
@@ -1680,14 +1630,14 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
     userPrompt,
     evaluationSchema,
     2,
-    options,
+    evalCallOptions,
   );
 
   // Unit 9: 校验每条 evidence.studentText 是否能在原对话中找到。
   // 找不到 → 1 次 wrap retry 加 hint；仍找不到 → 接受但 unverified=true。
   let mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, joinedStudentText);
   if (mismatchedCount > 0) {
-    const retryHint = `\n\n注意：上一轮你引用的 ${mismatchedCount} 条 studentText 在对话记录中找不到对应原句。请仅引用对话记录中"理财经理"角色的逐字原话作为 evidence.studentText（不要改写、不要加引号、不要拼接多句）。若实在没有可引用的原句，studentText 设为 ""。`;
+    const retryHint = buildEvidenceRetryHint(mismatchedCount);
     result = await aiGenerateJSON(
       "evaluation",
       userId,
@@ -1695,7 +1645,10 @@ ${data.rubric.map((r) => `- ${r.name} (满分${r.maxPoints}分): ${r.description
       userPrompt + retryHint,
       evaluationSchema,
       1,
-      { ...options, metadata: { ...(options.metadata ?? {}), evidenceRetry: true } },
+      {
+        ...evalCallOptions,
+        metadata: { ...(options.metadata ?? {}), evidenceRetry: true },
+      },
     );
     mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, joinedStudentText);
     if (mismatchedCount > 0) {

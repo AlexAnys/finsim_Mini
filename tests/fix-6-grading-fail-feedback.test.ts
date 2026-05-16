@@ -31,7 +31,7 @@ vi.mock("@/lib/services/submission.service", async () => {
 });
 
 vi.mock("@/lib/services/audit.service", () => ({
-  logAudit: vi.fn(async (entry: { action: string; metadata?: Record<string, unknown> }) => {
+  logAuditEvent: vi.fn(async (entry: { action: string; metadata?: Record<string, unknown> }) => {
     logAuditCalls.push(entry);
   }),
 }));
@@ -106,7 +106,7 @@ describe("Fix 6 · grading.service writes user-visible failure feedback", () => 
     expect(evalData?.feedback).toContain("模型输出格式异常");
 
     // audit log 写了 failed
-    expect(logAuditCalls.some((l) => l.action === "submission.grade.failed")).toBe(true);
+    expect(logAuditCalls.some((l) => l.action === "ai_grading.failed")).toBe(true);
   });
 
   it("subjective: AI 返回非法 JSON → status=failed + evaluation.feedback 中文兜底", async () => {

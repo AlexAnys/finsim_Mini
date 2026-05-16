@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
 import { createContentBlock } from "@/lib/services/course.service";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -48,8 +48,9 @@ export async function POST(request: NextRequest) {
       blockType: parsed.data.blockType,
       payload: parsed.data.payload as import("@prisma/client").Prisma.InputJsonValue | undefined,
     });
-    await logAuditForced({
+    await logAuditEvent({
       action: "contentBlock.create",
+      actorRole,
       actorId: user.id,
       targetId: block.id,
       targetType: "contentBlock",
@@ -57,7 +58,6 @@ export async function POST(request: NextRequest) {
         courseId: parsed.data.courseId,
         sectionId: parsed.data.sectionId,
         blockType: parsed.data.blockType,
-        actorRole,
       },
     });
     return created(block);

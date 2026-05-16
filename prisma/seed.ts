@@ -56,7 +56,6 @@ async function main() {
       name: "金融2024A班",
       code: "FIN-2024-A",
       academicYear: "2024",
-      departmentName: "金融学院",
       createdBy: teacher1.id,
     },
   });
@@ -68,7 +67,6 @@ async function main() {
       name: "金融2024B班",
       code: "FIN-2024-B",
       academicYear: "2024",
-      departmentName: "金融学院",
       createdBy: teacher2.id,
     },
   });

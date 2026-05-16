@@ -1,0 +1,95 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`insight prompt builders (PR-1 E) > insights-aggregate snapshot 1`] = `
+"你是一位资深的金融教育课程顾问。基于一组学生提交的 AI 批改反馈，归纳：
+1. 全班共性问题（3-5 条），每条包含 title / description / 涉及学生估算数（studentCount）
+2. 亮点提交（最多 3 条），每条引用一份提交的学生名字 + 简短引用 (quote ≤80 字)
+
+输出严格 JSON。不要捏造数据 — 仅基于提供的反馈文本归纳。"
+`;
+
+exports[`insight prompt builders (PR-1 E) > insights-aggregate snapshot 2`] = `
+"任务: 第三周练习（quiz）
+学生数: 1
+
+学生反馈片段:
+[1] submissionId=s1 studentName=李四 score=70 feedback=概念混淆
+
+请输出 JSON:
+{
+  "commonIssues": [
+    {"title": "标题", "description": "描述", "studentCount": 数字}
+  ],
+  "highlights": [
+    {"submissionId": "id", "studentName": "姓名", "quote": "引用"}
+  ]
+}"
+`;
+
+exports[`insight prompt builders (PR-1 E) > scope-insights advice snapshot 1`] = `"你是高校金融教育的资深教学顾问。基于教师当前班级 / 课程的学情数据，给出本周教学建议。每条 evidence 必须直接引用输入数据中的具体数字、学生名或章节名（不能笼统）。中文输出，简明扼要，不要重复输入数据。knowledgeGoals 是认知 / 概念层目标（如"理解风险收益权衡"）；skillGoals 是能力 / 操作层目标（如"能完成需求澄清问询、撰写理财建议"）；二者必须分开输出。"`;
+
+exports[`insight prompt builders (PR-1 E) > scope-insights advice snapshot 2`] = `
+"【输入数据】
+{"kpis":{"avgScore":75}}
+
+请输出 JSON: {"knowledgeGoals":[{point,evidence},...3-4 项], "skillGoals":[{point,evidence},...2-3 项], "pedagogyAdvice":[{method,evidence},...3-4 项], "focusGroups":[{group,action,studentNames,evidence},...2-3 项], "nextSteps":[{step,evidence},...3-4 项]}"
+`;
+
+exports[`insight prompt builders (PR-1 E) > scope-insights diagnosis snapshot 1`] = `"你是一位资深的教学诊断顾问。基于学生在 simulation 模拟对话中的低分维度样本，归纳 3-4 个共性问题。每条 title ≤15 字，description ≤80 字，关联 criterion 必须复用输入中的名称，至少 2 个学生证据。不要捏造数据，仅基于提供的样本归纳。"`;
+
+exports[`insight prompt builders (PR-1 E) > scope-insights diagnosis snapshot 2`] = `
+"以下是 simulation 评分中得分率 < 60% 的样本（按 criterion 分组）：
+
+[{"index":1,"criterion":"需求挖掘","studentCount":3,"samples":[]}]
+
+请输出 JSON: {"commonIssues": [{"title": "...", "description": "...", "frequency": 数字, "relatedCriterion": "...", "evidenceStudentNames": ["学生A", "学生B"]}]}"
+`;
+
+exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empty submissions / slots) 1`] = `
+"你是一位资深的金融教育课程顾问。基于教师过去 7 天班级提交数据 + 接下来 7 天课表，请生成结构化"一周洞察"，帮助教师在课前做有针对性的备课。
+
+输出严格 JSON。必须基于提供的数据归纳，不得捏造分数、概念或班级。
+对学生姓名仅引用提供的真实姓名；对概念标签仅在提供的 conceptTags 集合内挑选高频项。
+若数据不足以归纳某一字段，请返回空数组或简短说明。"
+`;
+
+exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empty submissions / slots) 2`] = `
+"时间窗口: 2026-05-10 ~ 2026-05-16
+
+【过去 7 天 graded + released 提交数据 (0 条)】
+（无）
+
+【接下来 7 天课表 (0 节)】
+（无）
+
+请按以下 JSON 格式输出（务必仅输出 JSON，不要 Markdown 代码块、不要其他文字）:
+{
+  "weakConceptsByCourse": [
+    {
+      "courseId": "课程ID",
+      "courseTitle": "课程名",
+      "concepts": [
+        { "tag": "概念标签", "errorRate": 0.6, "exampleStudents": ["学生姓名1"] }
+      ]
+    }
+  ],
+  "classDifferences": [
+    { "classId": "班级ID", "className": "班级名", "avgScore": 78, "summary": "简评 ≤60 字" }
+  ],
+  "studentClusters": [
+    { "label": "聚类标签", "size": 5, "characteristics": "本类学生共性 ≤80 字" }
+  ],
+  "upcomingClassRecommendations": [
+    { "scheduleSlotId": "课表 slotId", "courseTitle": "课程名", "date": "yyyy-mm-dd", "recommendation": "课前需重点讲解的方向 ≤120 字" }
+  ],
+  "highlightSummary": "本周教学需关注... ≤200 字"
+}
+
+要求:
+- weakConceptsByCourse: 仅当某课程内同一概念被 ≥2 名学生明显答错（feedback 反馈中出现弱点）时纳入。errorRate 用 (该概念出错学生数 / 课程下答过该概念的学生数)。
+- classDifferences: 列出本周有提交的班级；avgScore 取真实均分（如无可填 null）。
+- studentClusters: 基于分数与 feedback 模式归纳 2-4 类即可。
+- upcomingClassRecommendations: 仅针对接下来 7 天课表中真实存在的 slot；建议要把"过去 7 天该课程的弱点"映射到"下次课要讲什么"。
+- highlightSummary: 一段总览，开头"本周教学需关注"。
+"
+`;

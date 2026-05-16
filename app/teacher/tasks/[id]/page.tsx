@@ -106,7 +106,6 @@ interface TaskDetail {
   taskName: string;
   taskType: string;
   requirements: string | null;
-  visibility: string;
   practiceEnabled: boolean;
   createdAt: string;
   simulationConfig?: {
@@ -441,7 +440,6 @@ export default function TaskDetailPage() {
         taskType: task.taskType,
         taskName: `${editName.trim() || task.taskName} (副本)`,
         requirements: editRequirements.trim() || undefined,
-        visibility: task.visibility,
         practiceEnabled: task.practiceEnabled,
       };
 

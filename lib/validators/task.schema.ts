@@ -3,7 +3,6 @@ import { z } from "zod";
 // 任务类型
 export const taskTypeEnum = z.enum(["simulation", "quiz", "subjective"]);
 export const strictnessEnum = z.enum(["LENIENT", "MODERATE", "STRICT", "VERY_STRICT"]);
-export const visibilityEnum = z.enum(["private", "shared", "department", "public"]);
 export const quizModeEnum = z.enum(["fixed", "adaptive"]);
 export const quizQuestionTypeEnum = z.enum(["single_choice", "multiple_choice", "true_false", "short_answer"]);
 
@@ -83,10 +82,7 @@ export const createTaskSchema = z.object({
   taskType: taskTypeEnum,
   taskName: z.string().min(1, "任务名称不能为空").max(200),
   requirements: z.string().optional(),
-  visibility: visibilityEnum.default("private"),
   practiceEnabled: z.boolean().default(false),
-  courseName: z.string().max(200).optional(),
-  chapterName: z.string().max(200).optional(),
   // 类型专属配置
   simulationConfig: simulationConfigSchema.optional(),
   quizConfig: quizConfigSchema.optional(),

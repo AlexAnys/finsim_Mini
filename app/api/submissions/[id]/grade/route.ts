@@ -5,7 +5,7 @@ import {
   getSubmissionById,
   updateSubmissionGrade,
 } from "@/lib/services/submission.service";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { rubricBreakdownSchema } from "@/lib/validators/submission.schema";
 import { success, validationError, handleServiceError, notFound } from "@/lib/api-utils";
 import { z } from "zod";
@@ -69,16 +69,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       maxScore: parsed.data.maxScore,
       ...(mergedEvaluation !== undefined && { evaluation: mergedEvaluation }),
     });
-    // PR-FIX-1 UX5: 手工批改强制 audit（合规追责）
-    await logAuditForced({
+    await logAuditEvent({
       action: "submission.grade",
+      actorRole: user.role === "admin" ? "admin" : "owner",
       actorId: user.id,
       targetId: id,
       targetType: "submission",
       metadata: {
         score: parsed.data.score,
         maxScore: parsed.data.maxScore,
-        // PR-FIX-3 C1: 记录是否带分维度评语 / 总评（合规追责）
         hasFeedback: parsed.data.feedback !== undefined,
         hasRubricBreakdown: parsed.data.rubricBreakdown !== undefined,
       },

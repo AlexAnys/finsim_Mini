@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
+import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { prisma } from "@/lib/db/prisma";
 import {
   createPublishedTaskWithInstance,
@@ -10,7 +11,7 @@ import {
   getTaskBuildDraft,
   markTaskBuildDraftPublished,
 } from "@/lib/services/task-build-draft.service";
-import { logAudit } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { createPublishedTaskWithInstanceSchema } from "@/lib/validators/task.schema";
 import { created, validationError, handleServiceError } from "@/lib/api-utils";
 import { enqueueAsyncJob } from "@/lib/services/async-job.service";
@@ -36,14 +37,11 @@ export async function POST(request: NextRequest) {
     const course = await prisma.course.findUnique({
       where: { id: data.instance.courseId },
       select: {
-        classId: true,
         classes: { select: { classId: true } },
       },
     });
     if (!course) throw new Error("COURSE_NOT_FOUND");
-    const classMatches =
-      course.classId === data.instance.classId ||
-      course.classes.some((cc) => cc.classId === data.instance.classId);
+    const classMatches = course.classes.some((cc) => cc.classId === data.instance.classId);
     if (!classMatches) throw new Error("CLASS_COURSE_MISMATCH");
 
     // Unit 10: 若发布请求带 taskBuildDraftId，必须验证 draft.status === "approved"
@@ -67,18 +65,22 @@ export async function POST(request: NextRequest) {
         await markTaskBuildDraftPublished(data.taskBuildDraftId!, tx);
         return createPublishedTaskWithInstanceInTransaction(tx, user.id, data);
       });
-      // 手工 enqueue tagger job（service wrapper 路径才有，tx-aware 路径需 caller 自行 enqueue）
       needsTaggerJob =
         data.task.taskType === "quiz" &&
         data.task.quizConfig?.mode === "adaptive" &&
         (data.task.quizQuestions?.length ?? 0) > 0;
     } else {
-      // 无 draft 路径走老 wrapper（含 enqueue 副作用）
       output = await createPublishedTaskWithInstance(user.id, data);
     }
 
-    await logAudit({
-      action: "taskInstance.createWithTask.publish",
+    const actorRole = await getCourseActorRole(
+      data.instance.courseId,
+      user.id,
+      user.role,
+    );
+    await logAuditEvent({
+      action: "task_instance.create_with_task.publish",
+      actorRole,
       actorId: user.id,
       targetId: output.instance.id,
       targetType: "TaskInstance",

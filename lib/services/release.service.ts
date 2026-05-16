@@ -3,7 +3,7 @@ import {
   assertTaskInstanceWritable,
   assertSubmissionReadable,
 } from "@/lib/auth/resource-access";
-import { logAuditForced } from "./audit.service";
+import { logAuditEvent } from "./audit.service";
 
 // ============================================
 // PR-SIM-1a · D1 防作弊·教师可控的"分两步公布"
@@ -64,8 +64,9 @@ export async function releaseSubmission(
     data: { releasedAt: new Date() },
   });
 
-  await logAuditForced({
+  await logAuditEvent({
     action: "submission_released",
+    actorRole: user.role === "admin" ? "admin" : "owner",
     actorId: user.id,
     targetId: submissionId,
     targetType: "submission",
@@ -109,8 +110,9 @@ export async function unreleaseSubmission(
     data: { releasedAt: null },
   });
 
-  await logAuditForced({
+  await logAuditEvent({
     action: "submission_unreleased",
+    actorRole: user.role === "admin" ? "admin" : "owner",
     actorId: user.id,
     targetId: submissionId,
     targetType: "submission",
@@ -177,8 +179,9 @@ export async function batchReleaseSubmissions(
     });
   }
 
-  await logAuditForced({
+  await logAuditEvent({
     action: released ? "submission_released_batch" : "submission_unreleased_batch",
+    actorRole: user.role === "admin" ? "admin" : "owner",
     actorId: user.id,
     targetType: "submission",
     metadata: {
@@ -223,8 +226,9 @@ export async function setInstanceReleaseMode(
     },
   });
 
-  await logAuditForced({
+  await logAuditEvent({
     action: "instance_release_mode_changed",
+    actorRole: user.role === "admin" ? "admin" : "owner",
     actorId: user.id,
     targetId: instanceId,
     targetType: "taskInstance",
@@ -266,8 +270,9 @@ export async function autoReleaseSubmissions(
   });
 
   if (eligible.length === 0) {
-    await logAuditForced({
+    await logAuditEvent({
       action: "auto_release_batch",
+      actorRole: "system",
       // cron 触发，无 actorId（audit.service 类型为 optional string，留空写库）
       targetType: "submission",
       metadata: {
@@ -288,8 +293,9 @@ export async function autoReleaseSubmissions(
     data: { releasedAt: t },
   });
 
-  await logAuditForced({
+  await logAuditEvent({
     action: "auto_release_batch",
+    actorRole: "system",
     // cron actorId omitted
     targetType: "submission",
     metadata: {

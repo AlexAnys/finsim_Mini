@@ -4,6 +4,12 @@ import type { Prisma, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { assertAiFeatureCooldown } from "./ai-throttle.service";
 import { aiGenerateJSON } from "./ai.service";
+import {
+  buildScopeInsightsDiagnosisPrompt,
+  buildScopeInsightsAdvicePrompt,
+  SCOPE_INSIGHTS_DIAGNOSIS_PROMPT_VERSION,
+  SCOPE_INSIGHTS_ADVICE_PROMPT_VERSION,
+} from "@/lib/ai/prompts/scope-insights";
 import { isRiskChapter } from "./analytics-v2.service";
 
 export interface ScopeKey {
@@ -600,15 +606,11 @@ async function pickCommonIssues(
     })),
   }));
 
-  const systemPrompt =
-    "你是一位资深的教学诊断顾问。基于学生在 simulation 模拟对话中的低分维度样本，归纳 3-4 个共性问题。" +
-    "每条 title ≤15 字，description ≤80 字，关联 criterion 必须复用输入中的名称，至少 2 个学生证据。" +
-    "不要捏造数据，仅基于提供的样本归纳。";
-
-  const userPrompt =
-    `以下是 simulation 评分中得分率 < 60% 的样本（按 criterion 分组）：\n\n` +
-    JSON.stringify(llmInput, null, 2) +
-    `\n\n请输出 JSON: {"commonIssues": [{"title": "...", "description": "...", "frequency": 数字, "relatedCriterion": "...", "evidenceStudentNames": ["学生A", "学生B"]}]}`;
+  const builtDiagnosis = buildScopeInsightsDiagnosisPrompt({
+    llmInputJson: JSON.stringify(llmInput, null, 2),
+  });
+  const systemPrompt = builtDiagnosis.systemPrompt;
+  const userPrompt = builtDiagnosis.userPrompt;
 
   const schema = z.object({
     commonIssues: z.array(
@@ -623,7 +625,7 @@ async function pickCommonIssues(
   });
 
   try {
-    const ai = await aiGenerateJSON("insights", teacherId, systemPrompt, userPrompt, schema, 1);
+    const ai = await aiGenerateJSON("insights", teacherId, systemPrompt, userPrompt, schema, 1, { promptVersion: SCOPE_INSIGHTS_DIAGNOSIS_PROMPT_VERSION });
     const issues: ScopeSimulationIssue[] = ai.commonIssues.slice(0, 4).map((issue) => {
       const matchedItems = lowItems.filter(
         (item) =>
@@ -954,23 +956,18 @@ async function buildScopeTeachingAdviceFresh(
     nextSteps: z.array(z.object({ step: z.string(), evidence: z.string() })),
   });
 
-  const systemPrompt =
-    "你是高校金融教育的资深教学顾问。基于教师当前班级 / 课程的学情数据，给出本周教学建议。" +
-    "每条 evidence 必须直接引用输入数据中的具体数字、学生名或章节名（不能笼统）。" +
-    "中文输出，简明扼要，不要重复输入数据。" +
-    "knowledgeGoals 是认知 / 概念层目标（如\"理解风险收益权衡\"）；skillGoals 是能力 / 操作层目标（如\"能完成需求澄清问询、撰写理财建议\"）；二者必须分开输出。";
-
-  const userPrompt =
-    "【输入数据】\n" +
-    JSON.stringify(promptInput, null, 2) +
-    "\n\n请输出 JSON: {\"knowledgeGoals\":[{point,evidence},...3-4 项], \"skillGoals\":[{point,evidence},...2-3 项], \"pedagogyAdvice\":[{method,evidence},...3-4 项], \"focusGroups\":[{group,action,studentNames,evidence},...2-3 项], \"nextSteps\":[{step,evidence},...3-4 项]}";
+  const builtAdvice = buildScopeInsightsAdvicePrompt({
+    promptInputJson: JSON.stringify(promptInput, null, 2),
+  });
+  const systemPrompt = builtAdvice.systemPrompt;
+  const userPrompt = builtAdvice.userPrompt;
 
   const studentNameToId = new Map(
     diagnosis.studentInterventions.map((row) => [row.studentName, row.studentId]),
   );
 
   try {
-    const ai = await aiGenerateJSON("insights", teacherId, systemPrompt, userPrompt, adviceSchema, 1);
+    const ai = await aiGenerateJSON("insights", teacherId, systemPrompt, userPrompt, adviceSchema, 1, { promptVersion: SCOPE_INSIGHTS_ADVICE_PROMPT_VERSION });
     return {
       scope,
       generatedAt: now.toISOString(),

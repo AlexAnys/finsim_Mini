@@ -3,6 +3,10 @@ import { aiGenerateJSON } from "./ai.service";
 import { z } from "zod";
 import { readFile } from "fs/promises";
 import { extractDocumentText } from "@/lib/services/document-ingestion.service";
+import {
+  buildImportParsePrompt,
+  IMPORT_PARSE_PROMPT_VERSION,
+} from "@/lib/ai/prompts/import-parse";
 
 const STORAGE_BASE = (process.env.FILE_STORAGE_PATH || "./public/uploads").replace(/\/+$/, "");
 
@@ -70,37 +74,15 @@ async function processImportJob(jobId: string, userId: string) {
     const truncatedText = extracted.text.slice(0, 15000);
 
     // Use AI to extract questions
+    const builtPrompt = buildImportParsePrompt({ truncatedText });
     const result = await aiGenerateJSON(
       "importParse",
       userId,
-      `你是一位金融课程题目提取专家。请从以下文档文本中提取所有可以识别的题目，将它们结构化为标准格式。
-
-规则：
-1. 识别单选题、多选题、判断题、简答题
-2. 选项 id 使用 A, B, C, D 等字母
-3. 判断题选项为 [{"id":"T","text":"对"},{"id":"F","text":"错"}]
-4. 如果无法确定正确答案，correctOptionIds 留空数组，correctAnswer 留空字符串
-5. points 默认 1 分，根据题目复杂度可设为 1-5
-6. 使用中文`,
-      `以下是从文档中提取的文本：
-
-${truncatedText}
-
-请提取所有题目并返回 JSON:
-{
-  "questions": [
-    {
-      "type": "single_choice|multiple_choice|true_false|short_answer",
-      "prompt": "题目内容",
-      "options": [{"id": "A", "text": "选项"}],
-      "correctOptionIds": ["A"],
-      "correctAnswer": "简答参考答案",
-      "points": 1,
-      "explanation": "解析"
-    }
-  ]
-}`,
-      parsedQuestionsSchema
+      builtPrompt.systemPrompt,
+      builtPrompt.userPrompt,
+      parsedQuestionsSchema,
+      2,
+      { promptVersion: IMPORT_PARSE_PROMPT_VERSION },
     );
 
     // Write questions to database

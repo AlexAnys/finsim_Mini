@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireRole, assertCourseAccess } from "@/lib/auth/guards";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
 import { getCourseClasses, addCourseClass, removeCourseClass } from "@/lib/services/course.service";
 import { z } from "zod";
@@ -36,12 +36,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const actorRole = await getCourseActorRole(id, result.session.user.id, result.session.user.role);
     const cc = await addCourseClass(id, parsed.data.classId);
-    await logAuditForced({
+    await logAuditEvent({
       action: "course_class.add",
+      actorRole,
       actorId: result.session.user.id,
       targetId: id,
       targetType: "course",
-      metadata: { classId: parsed.data.classId, actorRole },
+      metadata: { classId: parsed.data.classId},
     });
     return success(cc);
   } catch (err) {
@@ -65,12 +66,13 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const actorRole = await getCourseActorRole(id, result.session.user.id, result.session.user.role);
     await removeCourseClass(id, parsed.data.classId);
-    await logAuditForced({
+    await logAuditEvent({
       action: "course_class.remove",
+      actorRole,
       actorId: result.session.user.id,
       targetId: id,
       targetType: "course",
-      metadata: { classId: parsed.data.classId, actorRole },
+      metadata: { classId: parsed.data.classId},
     });
     return success({ removed: true });
   } catch (err) {

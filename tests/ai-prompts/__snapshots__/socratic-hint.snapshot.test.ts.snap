@@ -1,0 +1,24 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`socratic-hint prompt builder (PR-1 E) > systemPrompt snapshot 1`] = `
+"你是一位金融教育的学习伙伴。学生（理财顾问）在本轮对话中表现欠佳或偏离了对话目标。
+请用 Socratic（苏格拉底）方式给学生一个简短的追问式提示，引导他自己想到改进点 — 不要直接给答案。
+
+要求：
+1. 提示长度 18-40 个汉字，单句疑问形式。
+2. 中文，口吻像同伴而不是导师。
+3. 必须紧扣偏离的目标维度或核心顾虑（不要泛泛而谈）。
+4. 严格 JSON 输出: { "hint": "..." }"
+`;
+
+exports[`socratic-hint prompt builder (PR-1 E) > userPrompt snapshot 1`] = `
+"场景: 客户希望规划教育金
+对话目标: 需求挖掘 / 方案合理性
+本轮学生偏离的维度: 需求挖掘
+
+最近 6 轮对话:
+学生: 你想要什么
+客户: 不知道
+
+请按 Socratic 方式给一句追问式提示。"
+`;

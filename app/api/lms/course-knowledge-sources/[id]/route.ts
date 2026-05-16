@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { handleServiceError, notFound, success } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
 
@@ -86,8 +86,9 @@ export async function DELETE(
     }
 
     await prisma.courseKnowledgeSource.delete({ where: { id } });
-    await logAuditForced({
+    await logAuditEvent({
       action: "course_knowledge_source.delete",
+      actorRole,
       actorId: user.id,
       targetId: id,
       targetType: "CourseKnowledgeSource",
@@ -97,7 +98,6 @@ export async function DELETE(
         ownerTeacherId: source.teacherId,
         byOwner: isOwnUpload,
         byCollaborator: !isOwnUpload && actorRole === "collaborator",
-        actorRole,
       },
     });
     return success({ id });

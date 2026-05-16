@@ -23,11 +23,10 @@ describe("assertCourseAccessForStudent", () => {
     expect(prisma.course.findUnique).not.toHaveBeenCalled();
   });
 
-  it("primary class match (Course.classId) passes", async () => {
+  it("CourseClass match passes (Course.classId 已弃用)", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-A",
-      classes: [],
+      classes: [{ classId: "class-A" }],
     });
     await expect(
       assertCourseAccessForStudent("course-1", "class-A"),
@@ -37,8 +36,7 @@ describe("assertCourseAccessForStudent", () => {
   it("CourseClass secondary class match passes", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-A",
-      classes: [{ classId: "class-B" }, { classId: "class-C" }],
+      classes: [{ classId: "class-A" }, { classId: "class-B" }, { classId: "class-C" }],
     });
     await expect(
       assertCourseAccessForStudent("course-1", "class-C"),
@@ -48,8 +46,7 @@ describe("assertCourseAccessForStudent", () => {
   it("non-matching classId throws FORBIDDEN", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-A",
-      classes: [{ classId: "class-B" }],
+      classes: [{ classId: "class-A" }, { classId: "class-B" }],
     });
     await expect(
       assertCourseAccessForStudent("course-1", "class-Z"),
@@ -106,11 +103,10 @@ describe("assertCourseReadable (role dispatch)", () => {
     ).rejects.toThrow("FORBIDDEN");
   });
 
-  it("student in primary class passes (delegates to assertCourseAccessForStudent)", async () => {
+  it("student in CourseClass passes (delegates to assertCourseAccessForStudent)", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-A",
-      classes: [],
+      classes: [{ classId: "class-A" }],
     });
     await expect(
       assertCourseReadable("course-1", {
@@ -124,8 +120,7 @@ describe("assertCourseReadable (role dispatch)", () => {
   it("student cross-class throws FORBIDDEN", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-A",
-      classes: [{ classId: "class-B" }],
+      classes: [{ classId: "class-A" }, { classId: "class-B" }],
     });
     await expect(
       assertCourseReadable("course-1", {

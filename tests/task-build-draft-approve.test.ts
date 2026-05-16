@@ -17,12 +17,11 @@ vi.mock("@/lib/db/prisma", () => ({
 }));
 
 vi.mock("@/lib/services/audit.service", () => ({
-  logAudit: vi.fn(),
-  logAuditForced: vi.fn(),
+  logAuditEvent: vi.fn(),
 }));
 
 import { prisma } from "@/lib/db/prisma";
-import { logAudit } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import {
   approveTaskBuildDraft,
   listTaskBuildDrafts,
@@ -60,7 +59,7 @@ describe("approveTaskBuildDraft", () => {
         approvedAt: expect.any(Date),
       }),
     });
-    expect(logAudit).toHaveBeenCalledWith(
+    expect(logAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "task_draft.approve",
         actorId: "teacher-1",
@@ -83,7 +82,7 @@ describe("approveTaskBuildDraft", () => {
       "TASK_BUILD_DRAFT_NOT_READY_FOR_APPROVAL",
     );
     expect(prisma.taskBuildDraft.update).not.toHaveBeenCalled();
-    expect(logAudit).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
   });
 
   it("rejects approving when status is already approved (no double-approval)", async () => {

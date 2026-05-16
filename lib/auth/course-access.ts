@@ -22,7 +22,7 @@ export async function assertCourseAccess(
 }
 
 /**
- * 断言学生可查看该课程：必须是主班（Course.classId）或通过 CourseClass 关联的次班。
+ * 断言学生可查看该课程：必须通过 CourseClass 关联到学生班级。
  * 抛 COURSE_NOT_FOUND / FORBIDDEN（由 handleServiceError 映射到 HTTP）。
  *
  * classId 为空字符串时直接 FORBIDDEN（未分班学生不该访问任何课程详情）。
@@ -36,19 +36,17 @@ export async function assertCourseAccessForStudent(
     where: { id: courseId },
     select: {
       id: true,
-      classId: true,
       classes: { select: { classId: true } },
     },
   });
   if (!course) throw new Error("COURSE_NOT_FOUND");
-  if (course.classId === classId) return;
   const match = course.classes.some((cc) => cc.classId === classId);
   if (!match) throw new Error("FORBIDDEN");
 }
 
 /**
  * 角色无关的课程访问断言：根据用户角色分派到对应的断言函数。
- * teacher / admin 走 owner+collab 路径；student 走主班+CourseClass 路径。
+ * teacher / admin 走 owner+collab 路径；student 走 CourseClass 路径。
  */
 export async function assertCourseReadable(
   courseId: string,

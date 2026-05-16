@@ -368,7 +368,7 @@ interface DiagnosisInstance {
 interface CourseForAnalyticsOptions {
   id: string;
   courseTitle: string;
-  class: { id: string; name: string };
+  class: { id: string; name: string } | null;
   classes: Array<{ class: { id: string; name: string } }>;
   chapters: Array<{
     id: string;
@@ -1289,7 +1289,7 @@ function buildFilterOptions(
   optionInstances: OptionInstance[],
 ): AnalyticsV2Diagnosis["filterOptions"] {
   const classesById = new Map<string, { id: string; name: string }>();
-  classesById.set(course.class.id, course.class);
+  if (course.class) classesById.set(course.class.id, course.class);
   for (const row of course.classes) {
     classesById.set(row.class.id, row.class);
   }

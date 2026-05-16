@@ -62,3 +62,4 @@ agent_docs/export/
 .harness/r5-*.md
 .harness/spec-builder-deploy-rewrite.md
 .harness/r5-analytics-static-research.md
+.harness/dev-db-backup-*.sql

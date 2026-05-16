@@ -8,7 +8,7 @@ describe("AI tool settings catalog", () => {
     expect(map.get("simulationChat")?.category).toBe("课堂任务 · 模拟对话");
     expect(map.get("simulationGrading")?.category).toBe("课堂任务 · 模拟对话");
     expect(map.get("simulationChat")?.basePromptPreview).toContain("模拟客户");
-    expect(map.get("simulationGrading")?.basePromptPreview).toContain("rubric");
+    expect(map.get("simulationGrading")?.basePromptPreview).toContain("金融教育评估专家");
   });
 
   it("exposes separate draft, import, grading, insight and workbench prompts", () => {
@@ -31,7 +31,8 @@ describe("AI tool settings catalog", () => {
         "examCheck",
       ]),
     );
-    expect(AI_TOOL_DEFINITIONS.every((tool) => tool.basePromptPreview.trim().length > 20)).toBe(true);
+    // PR-1 E: preview 由 builder 派生 + 截到首段。最短情形是 evaluator persona 短句 + 截断尾标。
+    expect(AI_TOOL_DEFINITIONS.every((tool) => tool.basePromptPreview.trim().length > 10)).toBe(true);
   });
 
   it("Fix 4 · 老师可选 5 个 provider（mimo 默认 + qwen/deepseek/gemini/openai）", () => {

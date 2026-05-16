@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertContentBlockWritable } from "@/lib/auth/resource-access";
 import { updateContentBlock, deleteContentBlock } from "@/lib/services/course.service";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { prisma } from "@/lib/db/prisma";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
@@ -51,8 +51,9 @@ export async function PATCH(
       order: parsed.data.order,
     });
     // PR-FIX-1 UX5: 安全敏感写入强制 audit
-    await logAuditForced({
+    await logAuditEvent({
       action: "contentBlock.update",
+      actorRole,
       actorId: user.id,
       targetId: id,
       targetType: "contentBlock",
@@ -60,7 +61,6 @@ export async function PATCH(
         fields: Object.keys(parsed.data).filter(
           (k) => parsed.data[k as keyof typeof parsed.data] !== undefined,
         ),
-        actorRole,
       },
     });
     return success(block);
@@ -91,12 +91,12 @@ export async function DELETE(
 
     await deleteContentBlock(id);
     // PR-FIX-1 UX5: 安全敏感删除强制 audit
-    await logAuditForced({
+    await logAuditEvent({
       action: "contentBlock.delete",
+      actorRole,
       actorId: user.id,
       targetId: id,
       targetType: "contentBlock",
-      metadata: { actorRole },
     });
     return success({ id });
   } catch (err) {

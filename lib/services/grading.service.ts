@@ -2,7 +2,19 @@ import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import * as aiService from "./ai.service";
 import { updateSubmissionGrade } from "./submission.service";
-import { logAudit } from "./audit.service";
+import { logAuditEvent } from "./audit.service";
+import {
+  buildQuizShortAnswerGradePrompt,
+  QUIZ_SHORT_ANSWER_GRADE_PROMPT_VERSION,
+} from "@/lib/ai/prompts/quiz-short-answer-grade";
+import {
+  buildQuizConceptTagsPrompt,
+  QUIZ_CONCEPT_TAGS_PROMPT_VERSION,
+} from "@/lib/ai/prompts/quiz-concept-tags";
+import {
+  buildSubjectiveGradePrompt,
+  SUBJECTIVE_GRADE_PROMPT_VERSION,
+} from "@/lib/ai/prompts/subjective-grade";
 
 // ============================================
 // 统一批改入口
@@ -200,6 +212,14 @@ export async function gradeSubmission(submissionId: string) {
   // 更新状态为批改中
   await updateSubmissionGrade(submissionId, { status: "grading" });
 
+  // PR-1 D: 记录 AI 调用起点 — 批改结束后查 AiRun 拿 model/tokens 写入 audit metadata
+  const gradingStartedAt = new Date();
+  const aiFeatureForTaskType: Record<string, "evaluation" | "quizGrade" | "subjectiveGrade"> = {
+    simulation: "evaluation",
+    quiz: "quizGrade",
+    subjective: "subjectiveGrade",
+  };
+
   try {
     switch (submission.taskType) {
       case "simulation":
@@ -213,12 +233,31 @@ export async function gradeSubmission(submissionId: string) {
         break;
     }
 
-    await logAudit({
-      action: "submission.grade",
+    // PR-1 D: ai_grading.complete audit (含 model + tokens) — 区别于教师手批 submission.grade
+    const aiMeta = await aiService.getLastAiRunMetadata(
+      submission.studentId,
+      aiFeatureForTaskType[submission.taskType],
+      gradingStartedAt,
+    );
+    await logAuditEvent({
+      action: "ai_grading.complete",
+      actorRole: "system",
       actorId: submission.studentId,
       targetId: submissionId,
       targetType: "Submission",
-      metadata: { taskType: submission.taskType, status: "graded" },
+      metadata: {
+        taskType: submission.taskType,
+        status: "graded",
+        feature: aiFeatureForTaskType[submission.taskType],
+        durationMs: Date.now() - gradingStartedAt.getTime(),
+        ...(aiMeta && {
+          model: aiMeta.model,
+          provider: aiMeta.provider,
+          inputTokens: aiMeta.inputTokens,
+          outputTokens: aiMeta.outputTokens,
+          aiRunId: aiMeta.runId,
+        }),
+      },
     });
   } catch (error) {
     console.error("批改失败:", error);
@@ -226,12 +265,17 @@ export async function gradeSubmission(submissionId: string) {
     // 必须在 status="failed" 之前写 evaluation — 否则 updateSubmissionGrade 顺序会覆盖。
     await writeGradingFailureFeedback(submission, error);
 
-    await logAudit({
-      action: "submission.grade.failed",
+    await logAuditEvent({
+      action: "ai_grading.failed",
+      actorRole: "system",
       actorId: submission.studentId,
       targetId: submissionId,
       targetType: "Submission",
-      metadata: { error: error instanceof Error ? error.message : "unknown" },
+      metadata: {
+        taskType: submission.taskType,
+        durationMs: Date.now() - gradingStartedAt.getTime(),
+        error: error instanceof Error ? error.message : "unknown",
+      },
     });
     throw error;
   }
@@ -443,18 +487,22 @@ async function extractQuizConceptTags(
     .slice(0, 30)
     .map((q, i) => `${i + 1}. ${q.prompt.slice(0, 200)}`)
     .join("\n");
+  const builtPrompt = buildQuizConceptTagsPrompt({
+    promptsBlock: prompts,
+    totalCount: questions.length,
+  });
   const out = await aiService.aiGenerateJSON(
     "quizGrade",
     userId,
-    `你是一位金融教育课程顾问。基于一组测验题目的 prompt，归纳本次测验涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等）。
-输出严格 JSON: {"conceptTags": ["概念1","概念2",...]}`,
-    `测验题目（共 ${questions.length} 题）:
-${prompts}
-
-请按上面 JSON 格式输出。`,
+    builtPrompt.systemPrompt,
+    builtPrompt.userPrompt,
     schema,
     2,
-    { settingsUserId, metadata: { settingsSource: settingsUserId === userId ? "student_fallback" : "teacher" } },
+    {
+      settingsUserId,
+      metadata: { settingsSource: settingsUserId === userId ? "student_fallback" : "teacher" },
+      promptVersion: QUIZ_CONCEPT_TAGS_PROMPT_VERSION,
+    },
   );
   return Array.isArray(out.conceptTags) ? out.conceptTags.slice(0, 5) : [];
 }
@@ -472,25 +520,24 @@ async function gradeShortAnswer(
     comment: z.string(),
   });
 
+  const builtPrompt = buildQuizShortAnswerGradePrompt({
+    prompt,
+    referenceAnswer,
+    studentAnswer,
+    maxPoints,
+  });
   const result = await aiService.aiGenerateJSON(
     "quizGrade",
     userId,
-    `你是一位严谨的金融课程阅卷老师。请根据参考答案评估学生的简答题作答。
-
-评分精度指导：
-- 完全匹配参考答案（含同义词、近义词表达）→ 满分
-- 部分匹配（答对核心要点但不完整）→ 按匹配程度比例给分
-- 完全不相关 → 0 分
-- 容忍合理的同义词和近义词表达，不要求与参考答案逐字匹配`,
-    `题目: ${prompt}
-参考答案: ${referenceAnswer}
-学生作答: ${studentAnswer}
-满分: ${maxPoints}
-
-    请返回 JSON: {"score": 得分(0到${maxPoints}之间的整数), "comment": "评语"}`,
+    builtPrompt.systemPrompt,
+    builtPrompt.userPrompt,
     schema,
     2,
-    { settingsUserId, metadata: { settingsSource: settingsUserId === userId ? "student_fallback" : "teacher" } },
+    {
+      settingsUserId,
+      metadata: { settingsSource: settingsUserId === userId ? "student_fallback" : "teacher" },
+      promptVersion: QUIZ_SHORT_ANSWER_GRADE_PROMPT_VERSION,
+    },
   );
 
   const score = Math.min(Math.max(0, Math.round(result.score)), maxPoints);
@@ -556,28 +603,25 @@ async function gradeSubjective(submission: SubmissionFull, releasedAt: Date | nu
   const settingsUserId = getSubmissionSettingsUserId(submission);
   const maxScore = rubric.reduce((sum: number, c: any) => sum + c.maxPoints, 0);
 
-  const systemPrompt = `${config.evaluatorPersona || "你是一位资深的金融课程评估专家。"}
-
-严格度: ${config.strictnessLevel}
-严格度说明：
-- STRICT / VERY_STRICT: 仅在作答中有明确证据支撑时才给分，推断不计分。
-- MODERATE: 合理推断可适当给分，但需注明依据。
-- LENIENT: 只要方向正确即可给分，鼓励学生参与。
-
-题目: ${config.prompt}
-${config.referenceAnswer ? `参考答案: ${config.referenceAnswer}` : ""}
-
-评分标准:
-${rubric.map((r: any) => `- ${r.name} (满分${r.maxPoints}分): ${r.description || ""}`).join("\n")}`;
+  const builtSubjective = buildSubjectiveGradePrompt({
+    evaluatorPersona: config.evaluatorPersona || undefined,
+    strictnessLevel: config.strictnessLevel,
+    prompt: config.prompt,
+    referenceAnswer: config.referenceAnswer || null,
+    rubric: rubric.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      maxPoints: r.maxPoints,
+    })),
+    studentAnswerText: combinedText,
+  });
 
   const result = await aiService.aiGenerateJSON(
     "subjectiveGrade",
     submission.studentId,
-    systemPrompt,
-    `学生作答:\n${combinedText}\n\n请按评分标准逐项评估，返回 JSON:
-{"totalScore": 总分, "feedback": "总体评语", "rubricBreakdown": [{"criterionId": "ID", "score": 得分, "maxScore": 满分, "comment": "评语"}], "conceptTags": ["概念1","概念2","概念3"]}
-criterionId 使用: ${rubric.map((r: any) => r.id).join(", ")}
-conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于班级薄弱点聚合。`,
+    builtSubjective.systemPrompt,
+    builtSubjective.userPrompt,
     evaluationSchema,
     2,
     {
@@ -588,6 +632,7 @@ conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（
         taskInstanceId: submission.taskInstanceId,
         settingsSource: settingsUserId === submission.studentId ? "student_fallback" : "teacher",
       },
+      promptVersion: SUBJECTIVE_GRADE_PROMPT_VERSION,
     },
   );
 

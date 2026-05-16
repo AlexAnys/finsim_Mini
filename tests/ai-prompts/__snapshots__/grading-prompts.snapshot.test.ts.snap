@@ -1,0 +1,85 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`grading prompt builders (PR-1 E) > quiz-concept-tags snapshot 1`] = `
+"你是一位金融教育课程顾问。基于一组测验题目的 prompt，归纳本次测验涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等）。
+输出严格 JSON: {"conceptTags": ["概念1","概念2",...]}"
+`;
+
+exports[`grading prompt builders (PR-1 E) > quiz-concept-tags snapshot 2`] = `
+"测验题目（共 2 题）:
+1. 风险溢价
+2. 现金流贴现
+
+请按上面 JSON 格式输出。"
+`;
+
+exports[`grading prompt builders (PR-1 E) > quiz-question-tagger snapshot 1`] = `
+"你是一位资深的金融教育专家。为下列测验题目分别提取 1-3 个知识点标签（中文，统一用名词或短语，例如"复利""资产配置""风险偏好"）。
+- 标签要尽量复用学科常见术语，避免凭空创造
+- 同一标签可以在多道题之间复用
+- 标签应该是该题考查的核心概念，不要太宽泛（不要"金融"这种顶层词）"
+`;
+
+exports[`grading prompt builders (PR-1 E) > quiz-question-tagger snapshot 2`] = `
+"共 1 道题需要打标：
+
+[1] questionId=q1 类型=single_choice 题干=股票风险高于债券
+
+请按以下 JSON 格式输出（仅 JSON，无 Markdown）:
+{
+  "taggings": [
+    {"questionId": "题目ID", "tags": ["标签1", "标签2"]}
+  ]
+}
+
+要求：
+- 每题 1-3 个 tags
+- questionId 必须用上方提供的 ID
+- 全部 1 题都要包含"
+`;
+
+exports[`grading prompt builders (PR-1 E) > quiz-short-answer-grade snapshot 1`] = `
+"你是一位严谨的金融课程阅卷老师。请根据参考答案评估学生的简答题作答。
+
+评分精度指导：
+- 完全匹配参考答案（含同义词、近义词表达）→ 满分
+- 部分匹配（答对核心要点但不完整）→ 按匹配程度比例给分
+- 完全不相关 → 0 分
+- 容忍合理的同义词和近义词表达，不要求与参考答案逐字匹配"
+`;
+
+exports[`grading prompt builders (PR-1 E) > quiz-short-answer-grade snapshot 2`] = `
+"题目: 什么是复利？
+参考答案: 利息再产生利息
+学生作答: 利滚利
+满分: 10
+
+    请返回 JSON: {"score": 得分(0到10之间的整数), "comment": "评语"}"
+`;
+
+exports[`grading prompt builders (PR-1 E) > subjective-grade snapshot 1`] = `
+"你是一位资深的金融课程评估专家。
+
+严格度: STRICT
+严格度说明：
+- STRICT / VERY_STRICT: 仅在作答中有明确证据支撑时才给分，推断不计分。
+- MODERATE: 合理推断可适当给分，但需注明依据。
+- LENIENT: 只要方向正确即可给分，鼓励学生参与。
+
+题目: 请阐述资产配置的核心原则。
+参考答案: 分散投资、风险匹配...
+
+评分标准:
+- 概念 (满分50分): 正确解释概念
+- 案例 (满分50分): "
+`;
+
+exports[`grading prompt builders (PR-1 E) > subjective-grade snapshot 2`] = `
+"学生作答:
+资产配置就是把钱分开放
+
+请按评分标准逐项评估，返回 JSON:
+{"totalScore": 总分, "feedback": "总体评语", "rubricBreakdown": [{"criterionId": "ID", "score": 得分, "maxScore": 满分, "comment": "评语"}], "conceptTags": ["概念1","概念2","概念3"]}
+criterionId 使用: c1, c2
+conceptTags 输出本次答卷涉及的 3-5 个金融教学核心概念标签（如"CAPM""资产配置""风险偏好"等），用于班级薄弱点聚合。"
+`;

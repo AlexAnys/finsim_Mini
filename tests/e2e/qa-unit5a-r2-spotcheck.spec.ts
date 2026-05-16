@@ -84,7 +84,6 @@ test("QA r5a r2 B: 0 instance 的 task → 删除按钮可点 + AlertDialog 弹�
     data: {
       taskType: "quiz",
       taskName: dummyName,
-      visibility: "private",
       practiceEnabled: false,
       quizConfig: { mode: "fixed", showCorrectAnswer: false },
     },

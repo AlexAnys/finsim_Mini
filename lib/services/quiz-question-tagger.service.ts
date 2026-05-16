@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "./ai.service";
+import {
+  buildQuizQuestionTaggerPrompt,
+  QUIZ_QUESTION_TAGGER_PROMPT_VERSION,
+} from "@/lib/ai/prompts/quiz-question-tagger";
 
 /**
  * Unit 8 · QuizQuestion 知识点标签器
@@ -61,11 +65,6 @@ export async function tagQuizQuestions(
     };
   }
 
-  const systemPrompt = `你是一位资深的金融教育专家。为下列测验题目分别提取 1-3 个知识点标签（中文，统一用名词或短语，例如"复利""资产配置""风险偏好"）。
-- 标签要尽量复用学科常见术语，避免凭空创造
-- 同一标签可以在多道题之间复用
-- 标签应该是该题考查的核心概念，不要太宽泛（不要"金融"这种顶层词）`;
-
   const questionsBlock = targetQuestions
     .map((q, i) => {
       const options = Array.isArray(q.options)
@@ -83,30 +82,21 @@ export async function tagQuizQuestions(
     })
     .join("\n");
 
-  const userPrompt = `共 ${targetQuestions.length} 道题需要打标：
-
-${questionsBlock}
-
-请按以下 JSON 格式输出（仅 JSON，无 Markdown）:
-{
-  "taggings": [
-    {"questionId": "题目ID", "tags": ["标签1", "标签2"]}
-  ]
-}
-
-要求：
-- 每题 1-3 个 tags
-- questionId 必须用上方提供的 ID
-- 全部 ${targetQuestions.length} 题都要包含`;
+  const builtPrompt = buildQuizQuestionTaggerPrompt({
+    questionsBlock,
+    total: targetQuestions.length,
+  });
 
   let result;
   try {
     result = await aiGenerateJSON(
       "questionAnalysis",
       userId,
-      systemPrompt,
-      userPrompt,
+      builtPrompt.systemPrompt,
+      builtPrompt.userPrompt,
       tagSchema,
+      2,
+      { promptVersion: QUIZ_QUESTION_TAGGER_PROMPT_VERSION },
     );
   } catch (err) {
     console.error("[quiz-question-tagger] AI 调用失败：", err);

@@ -26,7 +26,7 @@
 1. ✅ `npx tsc --noEmit` 0 new error (baseline 6 pre-existing study-buddy errors 维持)
 2. ✅ `npx vitest run` 全过 + 0 regression
 3. ✅ `npm run lint` 0 error
-4. ✅ 改动 ≤ 1500 行 diff (单 PR 总和)
+4. ✅ **新增/重构 diff ≤ 6000 行总和** (4 候选合并, 估算: A 2350 + D 800 + E 2000 + I+J 350)；**删除 / 死代码清理 / dead schema drop 不计入上限** (用户原话:希望减代码量提质量, 删代码与目标一致, 不应被 diff 上限拦)
 5. ✅ 任何 schema 改动严守 CLAUDE.md "Prisma 三步" (migrate dev + generate + 重启 dev server + 验证页面)
 
 ### A 专属 acceptance
