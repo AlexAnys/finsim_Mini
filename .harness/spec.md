@@ -1,120 +1,131 @@
-# Spec — Code Quality PR-1 (2026-05-16)
+# Spec — Bug Fix PR-15 (2026-05-16)
 
-> ⚠️ **行为底线**：不走捷径 — 任何跳过 / 接受 < 100% acceptance 必须先 ask 用户，结果立刻写进 `.harness/spec.md` + commit。
+> ⚠️ **行为底线**：不走捷径 — 任何跳过 / 接受 < 100% acceptance 必须先 ask 用户。
 
-> Coordinator: claude (main agent) · Team: `probe-demo` (复用) · Branch: `claude-codequality-pr1`（base = main `56b49e8`）
-> 用户标准: 长期效果好 + 稳定 + 高质量 + 不走捷径
-> 来源: `.harness/spec-codereview-archive.md` 7 路 review + coordinator 综合 numbered candidates
-> User staging 兜底: 1 次 (PR-1 进 staging 后 5-10 min 真浏览器主线点)
+> Coordinator: claude · Team: probe-demo (复用) · Branch: `claude-bugfix-pr15` (base = main `41f2564`)
+> 来源: 用户 staging 兜底测 PR #14 时发现 6 个 pre-existing bug
+> User staging 兜底: 1 次 (PR-15 进 staging 后 5-10 min)
+> 上一 PR archive: `.harness/spec-pr1-archive.md`
 
-## 用户意图（原话）
+## 用户原话 + bug 分类
 
-> "希望长期功能效果好 + 稳定 + 代码质量高 + 不走捷径。每次 PR 后 e2e 真测过才进下一步。10 个候选不要分太多批，最多 2 PR。我顶多新开 session 或你并行处理。"
+| # | bug | 性质 | 严重度 |
+|---|---|---|---|
+| 1 | 老师: 草稿发布任务后, 草稿仍在; 不能直接转任务 | TaskBuildDraft 状态机流程 | P1 |
+| 2 | 老师: 点开草稿后没有"返回 / 退出任务设置"路径 | UI 流程缺 | P1 |
+| 3 | 老师: Study Buddy 统计页不直观 — 想要"问题卡片"形式: 高频问题集中展示 + 点开看完整对话(AI 回 + 人后续) + filter 章/节 | UI 重设计 | P2 |
+| 4 | 老师: 任务详情页加 Study Buddy 小模块 — 显示此任务有无学生提问 | 新 mini-feature | P2 |
+| 5 | 学生: dashboard 任务区无滚动条, 折叠到前 5 — 希望可滚动 | 设计调整 (Phase 4 Unit 14 反向) | P2 |
+| 6 | 学生: 评分页面**评价维度显示代码**, 没有显示模拟对话历史, 手机端**无法显示** | render 严重 bug | **P0** |
 
-## 范围 — PR-1（4 候选并行）
+## 范围 — PR-15 (2 builder 并行 + 1 qa)
 
-| 候选 | 名 | 改什么 | builder | 风险 |
-|---|---|---|---|---|
-| **A** | CI 测试基础 | playwright.config.ts (官方) + 5 主线 smoke 进 CI + 90 个 mutation route 加 200/401/403 三角 + 删 21 个 readFileSync grep 守 + 加 lib/db/test-helpers.ts 共享 fixture | builder-test-infra | 极低 (纯加 + 删死代码) |
-| **D** | 审计 default-on | 删 ENABLE_AUDIT_LOGS env gate + 合并 logAudit→logAuditForced (rename → logAuditEvent) + 给 publish/snapshot-update/title-update/grading 等漏掉 audit 的写操作补 audit + 加 actorRole 字段 | builder-audit | 极低 (审计表 append-only) |
-| **E** | AI prompt 集中 | 新 lib/ai/prompts/ 目录 (12 feature builder 文件) + 35 处 inline prompt 提到 builder + lib/services/ai-tool-settings.ts basePromptPreview 改成从 builder import 派生 + 每 builder 加 promptVersion 写到 AiRun.promptVersion | builder-ai-prompts | 低 (重构 prompt 字字不变) |
-| **I+J** | Schema 清理 | 删 TaskInstanceAnalytics 死表 + 删 Task.analytics 关系 + 删 Visibility enum + Task.visibility + 删 Task.courseName/chapterName 冗余 + 标 Course.classId deprecated（不删，留迁移期） + 改 5 处 OR pattern 收敛到 CourseClass + 删 Class.code/academicYear/departmentName 死字段 (verify 真死) | builder-schema-cleanup | 低 (Prisma 三步严格走 + 备份) |
+### builder-teacher-fixes (bug 1 / 2 / 3 / 4)
 
-## Acceptance criteria（每候选独立 100% PASS 才进 PR）
+**bug 1 — TaskBuildDraft 状态机**:
+- 触发点: 老师 publish task from draft (走 createPublishedTaskWithInstance with draftId) → draft 应该转 published 状态 (PR #12 Unit 10 已加 approved + atomic publish), 但 UI 还看到 draft 在列表
+- 检查: `lib/services/task-build-draft.service.ts:markTaskBuildDraftPublished` 是否真改 status; UI 列表 query 是否 filter `status NOT IN ('published')`
+- 修: 列表 query 加 filter; "直转任务" 按钮 — builder 评估方案 ask coord
 
-### 通用 acceptance（所有候选）
-1. ✅ `npx tsc --noEmit` 0 new error (baseline 6 pre-existing study-buddy errors 维持)
-2. ✅ `npx vitest run` 全过 + 0 regression
-3. ✅ `npm run lint` 0 error
-4. ✅ **新增/重构 diff ≤ 6000 行总和** (4 候选合并, 估算: A 2350 + D 800 + E 2000 + I+J 350)；**删除 / 死代码清理 / dead schema drop 不计入上限** (用户原话:希望减代码量提质量, 删代码与目标一致, 不应被 diff 上限拦)
-5. ✅ 任何 schema 改动严守 CLAUDE.md "Prisma 三步" (migrate dev + generate + 重启 dev server + 验证页面)
+**bug 2 — 草稿编辑退出**:
+- 点草稿后用户期望"返回 / 退出" 按钮
+- 检查: 草稿编辑 dialog/sheet/page close handler + redirect path
+- 修: 加 "取消" 按钮 / 顶部 X / 浏览器返回 OK
 
-### A 专属 acceptance
-- ✅ `playwright.config.ts` 存在且有效 (browser=chromium / 单 worker / staging URL)
-- ✅ 5 主线 smoke 编写完: ① teacher login → 建 task instance → publish ② student login → 进 instance → 提交 simulation ③ AI grade → released ④ student SB 自由问 → AI reply ⑤ teacher 一周洞察 ≥1 教师有提交 → 出报告
-- ✅ `.github/workflows/ci.yml` 增加 playwright 主线 smoke step (可 fail-on-error 或 warning, builder 决定 + ask coord)
-- ✅ 90 mutation route 中至少 30 个有 200/401/403 三角测试 (按依赖热度选 + ask coord)
-- ✅ 21 个 readFileSync grep 守 (`tests/pr-*.test.ts` 系列) 删除或重写为真 RTL test
-- ✅ 加 `tests/_fixtures/prisma.ts` + `tests/_fixtures/users.ts` 共享 helper
+**bug 3 — SB 统计页 UI 重设计** (scope 最大):
+- 当前: `components/course/course-study-buddy-analytics-tab.tsx` 显示混乱
+- 改: 高频问题排序 → 卡片网格 → 点开看完整 thread (原问题 + AI reply + 学生 follow-up) + filter chapter/section
 
-### D 专属 acceptance
-- ✅ `ENABLE_AUDIT_LOGS` env gate 删除 (audit.service.ts + .env.example + .env.production.example)
-- ✅ `logAudit` 函数删除 (rename `logAuditForced` → `logAuditEvent`，所有 caller 同步)
-- ✅ 给 PR #13 留下的两个 mutation 路径 (updateTaskInstance/updateTaskInstanceSnapshot) 加 audit
-- ✅ 给 grading auto-grade (gradeSimulation/gradeQuiz/gradeSubjective) 加 audit (action: ai_grading.complete with model+tokens metadata)
-- ✅ logAuditEvent 接口加 `actorRole` field (wrapper 内 fall back 用 getCourseActorRole 自动推导)
-- ✅ vitest 覆盖: assert publish/ai-grade/snapshot-update 在 ENABLE_AUDIT_LOGS 任意值都写 AuditLog
-- ✅ 真浏览器: molly 改 instance title → /admin/audit 看到 audit 行 + actorRole=owner
+**bug 4 — 任务详情 SB 小模块**:
+- 任务详情页加 mini 卡片: 此 task 关联的 SB post (count + 列表前 3)
+- 数据源: `studyBuddyPost` where `taskId / taskInstanceId` 关联
 
-### E 专属 acceptance
-- ✅ `lib/ai/prompts/` 目录建立, 12 个 feature 各 1 文件: `simulation-chat.ts` / `simulation-evaluate.ts` / `quiz-short-answer-grade.ts` / `quiz-concept-tags.ts` / `quiz-question-tagger.ts` / `subjective-grade.ts` / `study-buddy-reply.ts` / `study-buddy-summary.ts` / `socratic-hint.ts` / `weekly-insight.ts` / `insights-aggregate.ts` / `scope-insights.ts` (其余按 review-ai F-3 列表补)
-- ✅ 每个 builder 文件 export `{ buildSystemPrompt(opts), buildUserPrompt(opts), version: "v1" }`
-- ✅ 12 service 内 35 处 inline prompt 全部改成调 builder
-- ✅ AiRun.promptVersion 写真版本 (从 builder 取，不再硬编码 "v1")
-- ✅ `AI_TOOL_DEFINITIONS.basePromptPreview` 字段改成从 builder.buildSystemPrompt({}) 截取或派生 (单源)
-- ✅ vitest snapshot test 每 builder 一组 (锁 prompt 内容防漂移)
-- ✅ 真浏览器: molly /teacher/ai-settings 看到的 preview 与运行时 prompt 第一段一致 (人工 diff)
+### builder-student-fixes (bug 5 / 6)
 
-### I+J 专属 acceptance
-- ✅ migration 包含: `DROP TABLE TaskInstanceAnalytics CASCADE` + `ALTER TABLE Task DROP COLUMN visibility, DROP COLUMN courseName, DROP COLUMN chapterName` + `DROP TYPE Visibility` + 标记 `Course.classId` deprecated 注释
-- ✅ Prisma 三步严格走: migrate dev + generate + 重启 dev server + 验证页面
-- ✅ Course.classId + CourseClass 双源 OR pattern 5 处 (dashboard.service.ts:184-185,224,237 / course.service.ts:199-202) 收敛到 CourseClass-only 查询
-- ✅ Class.code/academicYear/departmentName 验证真死后删 (grep 全 codebase 确认无 reader 后再删)
-- ✅ 旧 reader (dashboard.service computeLiveAnalytics 注释 "TaskInstanceAnalytics 死表") 注释清理
-- ✅ vitest 全过 + 真浏览器: molly /teacher/dashboard / /teacher/courses / /teacher/instances 完整加载
+**bug 5 — 学生 dashboard 任务区可滚动**:
+- 当前: Phase 4 Unit 14 设计"折叠到 5 + 查看全部按钮"
+- 改: 改成内部滚动 (max-height ~ 400-500px + overflow-y-auto)
+- 文件: `components/dashboard/priority-tasks.tsx` 或 `app/(student)/dashboard/page.tsx`
 
-### Cross-builder coordination
-- E 改 `lib/services/ai.service.ts` 内 prompt 段, D 也可能改 ai.service 的 audit 写入 — 两人 schedule 错开 commit (D 先 commit 然后 E rebase, 或 E 在不同 function 工作)
-- I+J 改 schema, 其他 builder vitest 跑前必须 `npx prisma generate` (CLAUDE.md "Prisma Gotchas")
-- A builder 完成后, 其他 builder 可以用 A 提供的 fixtures 写 vitest
+**bug 6 — 学生评分页面 P0**:
+- 现象 (a): 维度 (rubricBreakdown 各 criterion) 显示**原始 JSON 代码** 不是评语
+- 现象 (b): 无模拟对话历史 (simulationSubmission.transcript)
+- 现象 (c): 手机端 < md 视口**无法显示**
+- 文件: `app/(student)/grades/[id]/page.tsx` 或 `components/grade/*` (builder 自查)
+- 修 (a): 正确 parse rubricBreakdown JSON (criterion.name / score / maxPoints / rationale) 卡片渲染
+- 修 (b): 加 transcript section (类似教师查对话, 只读) — 时间轴 / 气泡
+- 修 (c): responsive (md:grid-cols-2, base flex-col)
 
-## Workflow（每 builder 严格遵守）
+## Acceptance criteria
 
-1. **Builder 接手 spec** → 写 plan 报告 `.harness/plans/pr1_{name}_plan_r1.md` (实现方案 + 文件清单 + 风险) → SendMessage coord 1 句 plan summary
-2. **Coordinator 审 plan** → 批准/反馈 → builder 开始
-3. **Builder 实现** → 单 commit 或多 commit (按需，每 commit 跑 tsc + vitest 单 file) → 完成报告 `.harness/reports/build_pr1_{name}_r1.md`
-4. **Builder SendMessage coord** → "build done, ready for QA"
-5. **Coordinator spawn QA** (待 builder 全完成后批量 spawn 2 qa)
-6. **QA 真浏览器跑 acceptance** → 写 `.harness/reports/qa_pr1_{name}_r1.md`
-7. **Dynamic exit**: PASS 100% → 该候选 done; FAIL 同样问题连续 3 轮 → coord 介入重 plan
-8. **每候选 done 写一行 progress.tsv**
-9. **任何想 skip 任何 acceptance 必须先 ask coordinator，coord 必须 ask 用户**
+### 通用 (所有 bug)
+1. ✅ tsc --noEmit 0 new error
+2. ✅ vitest run 0 regression
+3. ✅ npm run lint 0 error
+4. ✅ 改动 ≤ 1500 行 (单 PR 总和)
+5. ✅ 无 schema 改动 (本 PR 纯 UI/service)
 
-## QA 阶段（builder 全完成后）
+### bug 1
+- ✅ 老师建 draft → publish → draft 列表不再显示 (filter status='published')
+- ✅ 或 提供 "草稿直转已发布任务" 按钮 (builder 决定方案 ask coord)
+- ✅ vitest: list query 测试加断言
+- ✅ 真浏览器: molly 发布 draft → 草稿列表只剩 ready/in-progress
 
-- **qa-pr1-smoke**: 在 staging 跑 5 条主线 smoke (Playwright on staging.finsim.anlanai.cn)
-  - 必须用真账号 (molly@qq.com / alex@qq.com 等 demo 账号)
-  - 任何 e2e 失败 → block PR
-- **qa-pr1-regression**: 全量 vitest + 4 候选每个的核心路径真浏览器抽样
-  - PR-1 整体 commit 后跑全量, 不分 candidate
-  - 抽样: A→CI 红绿验证 / D→/admin/audit 显示新 audit / E→teacher ai-settings preview / I+J→死表死字段读路径不挂
+### bug 2
+- ✅ 草稿编辑界面有清晰 "取消 / 返回" 按钮
+- ✅ 点击 / Esc / 浏览器返回 回上一页 无 stuck
+- ✅ 真浏览器: molly 点草稿 → 编辑界面 → 取消 → 回列表
 
-## PR 推送
+### bug 3
+- ✅ SB 统计页改成卡片网格 (高频问题排序 count desc, 前 N 张卡)
+- ✅ 每卡显示: 问题摘要 + 提问次数 + 创建时间
+- ✅ 点卡片 → dialog/sheet 显示完整 thread (原 post + AI reply + follow-up)
+- ✅ filter 下拉: chapter / section
+- ✅ vitest: 卡片 + filter 工作
+- ✅ 真浏览器: molly 课程 SB 统计页
 
-- 4 candidate + qa 全 PASS → push 触发 GitHub PR 自动开
-- CI quality job (vitest + tsc + lint) + staging-deploy job 双绿
-- @用户 staging URL 5-10 min 真浏览器主线点
-- 用户 OK → squash merge → main → 生产部署 (~4 min)
+### bug 4
+- ✅ 任务详情页加 SB mini 模块
+- ✅ 显示: count + 前 3 条 (或 '本任务暂无提问')
+- ✅ vitest: 模块 render + 0-state
+- ✅ 真浏览器: molly 进任务详情看 SB 模块
 
-## 不在 PR-1 范围（明确排除）
+### bug 5
+- ✅ 学生 dashboard 任务区可纵向滚动
+- ✅ 滚动顺滑, 适配 < md
+- ✅ 不破坏 Phase 4 Unit 14 AiBuddyCallout 显示
+- ✅ 真浏览器: student1 dashboard ≥ 6 task → 滚动条
+- ✅ 移动端 375px 滚动正常
 
-- 候选 B (JSON 边界) → PR-2
-- 候选 C (route 搬 service) → 长期 backlog 5-10 小 PR
-- 候选 F (AI 安全) → PR-2
-- 候选 G (权限合并 + JWT) → PR-2
-- 候选 H (PR #13 followup) → PR-2 (PR #13 已 merge, 可顺手做)
+### bug 6 (P0)
+- ✅ 评价维度**真渲染** (criterion.name / score / maxPoints / rationale 中文) — 不是原 JSON
+- ✅ 模拟对话历史: 时间轴 / 气泡显示 transcript
+- ✅ 响应式: < md 视口完整加载 + 滚动 + 无横向溢出
+- ✅ vitest: rubricBreakdown 各 criterion + transcript turn 渲染
+- ✅ 真浏览器: 桌面端 + 移动端 (375px) student1 grades/[id] (alex 评过的) 完整 + 维度 + 对话 + 截图
+
+## Workflow
+
+1. 写 plan `.harness/plans/pr15_{name}_plan_r1.md` (实现方案 + 文件清单 + 风险)
+2. SendMessage team-lead 等 approval
+3. 实现 (单 / 多 commit, 每 commit tsc + vitest)
+4. **本地真跑 e2e** (CLAUDE.md 行为底线 — PR-1 A r1 走捷径教训): `BASE_URL=http://localhost:3000 npx playwright test ...`
+5. 完成报告 `.harness/reports/build_pr15_{name}_r1.md`
+6. SendMessage team-lead "build done"
+7. TaskUpdate task → completed
+
+## QA
+
+qa-pr15-bugs: 在 staging 真浏览器跑 6 bug case + 桌面 + 移动端 (bug 5/6 特别) + 截图. DB cleanup hard-delete 副作用.
+
+## 不在范围
+
+- 候选 B/F/G/H (PR-2 4 候选) — PR-15 merge 后做
+- 候选 C route 搬 service — 长期 backlog
 
 ## 风险登记
 
-- **Schema 改动 destructive**：I+J 删 4 个表/字段，**必须 prod DB 备份后** migrate (CI staging 自动用 ephemeral DB，prod 用户 merge 前必须备份；coord 在 PR description 显式写 "需 prod 备份"提醒用户)
-- **Audit 表写入压力**：D default-on 后 audit 量上升，监测 audit 表大小与查询性能 (review-arch 已确认 (action) + (createdAt) 索引匹配)
-- **prompt registry 改动**：E 改 prompt 字字不变，但若 builder 误改单个字符，AI 行为可能漂移 — vitest snapshot test 防止
-- **CI playwright fail-on-error**：A 加 playwright 进 CI 可能 flaky (staging 共享栈)，builder 决策 fail-on-warn 还是 fail-on-error — ask coord 后定
-- **跨 worktree commit 顺序**：A/D/E/I+J 4 个 builder 用 isolation: "worktree" 隔离工作, coord 整合时按依赖序 cherry-pick (建议: A → D → I+J → E, 因为 E 可能用到 A 的 fixtures + D 的 audit 已落地)
-
-## 接力
-
-会话结束前 coord 更新 `.harness/HANDOFF.md`，列:
-- PR-1 进度 (which candidate done / qa pending / merged?)
-- PR-2 候选清单 (待 PR-1 merge 后做)
-- Backlog 候选 C 长期跟踪
+- bug 1: vitest 应已覆盖 publish marks draft published, 但 UI 仍显示 = list filter missing 概率高
+- bug 3: SB 统计重设计 ≥ 300 行 diff, scope 最大
+- bug 6: 移动端 — PR-12 commit b2d3738 "feat(mobile): adapt student runner" 只覆盖 runner, grades 没覆盖. responsive 必须真浏览器 375px viewport 真测
+- builder 必须本地真跑 e2e 才能交 (CLAUDE.md 行为底线)
