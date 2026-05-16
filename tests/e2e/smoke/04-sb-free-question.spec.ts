@@ -29,7 +29,7 @@ test("smoke-04 student 自由问 SB", async ({ browser }) => {
   const listRes = await r.get(`/api/study-buddy/posts?take=20`);
   expect(listRes.status()).toBe(200);
   const listJson = await listRes.json();
-  const found = (listJson.data?.items ?? []).find(
+  const found = (listJson.data ?? []).find(
     (p: { title?: string }) => p.title === titleTag,
   );
   expect(found).toBeDefined();

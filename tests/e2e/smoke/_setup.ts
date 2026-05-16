@@ -76,6 +76,29 @@ export async function findAvailableInstance(
   return matched[0] ?? null;
 }
 
+/** 当前登录用户的 classId (student 才会有). */
+export async function getOwnClassId(request: APIRequestContext): Promise<string | null> {
+  const res = await request.get("/api/users/me");
+  if (!res.ok()) return null;
+  const json = await res.json();
+  return json?.data?.classId ?? null;
+}
+
+/** 已 publish 的 instance 必须先 close 才能 delete; task 必须等 instance 删完才能 delete. */
+export async function cleanupPublishedTaskAndInstance(
+  request: APIRequestContext,
+  taskId: string,
+  instanceId: string,
+  extraSubmissionIds: string[] = [],
+): Promise<void> {
+  for (const subId of extraSubmissionIds) {
+    await request.delete(`/api/submissions/${subId}`).catch(() => {});
+  }
+  await request.post(`/api/lms/task-instances/${instanceId}/close`).catch(() => {});
+  await request.delete(`/api/lms/task-instances/${instanceId}`).catch(() => {});
+  await request.delete(`/api/tasks/${taskId}`).catch(() => {});
+}
+
 /** 给主线 smoke 用的一次性后置: 删除 smoke 创建的 SB post (deterministic cleanup). */
 export async function cleanupSmokeSbPosts(
   request: APIRequestContext,
@@ -85,7 +108,7 @@ export async function cleanupSmokeSbPosts(
     const res = await request.get(`/api/study-buddy/posts?take=50`);
     if (!res.ok()) return;
     const json = await res.json();
-    const posts: Array<{ id: string; title?: string }> = json?.data?.items ?? [];
+    const posts: Array<{ id: string; title?: string }> = json?.data ?? [];
     for (const p of posts) {
       if (p.title && p.title.includes(titleContains)) {
         await request.delete(`/api/study-buddy/posts/${p.id}`).catch(() => {});

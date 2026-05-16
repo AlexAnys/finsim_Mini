@@ -1,0 +1,100 @@
+
+Running 5 tests using 1 worker
+
+  ✘  1 [chromium] › tests/e2e/smoke/01-teacher-create-publish.spec.ts:9:5 › smoke-01 teacher 建任务 → 建实例 → publish (3.3s)
+  ✘  2 [chromium] › tests/e2e/smoke/02-student-submit-simulation.spec.ts:9:5 › smoke-02 teacher 建 sim → student 提交 (2.1s)
+  ✘  3 [chromium] › tests/e2e/smoke/03-ai-grade-release.spec.ts:10:5 › smoke-03 teacher 手动 grade + release → student 看到分数 (2.1s)
+  ✘  4 [chromium] › tests/e2e/smoke/04-sb-free-question.spec.ts:10:5 › smoke-04 student 自由问 SB (2.3s)
+  ✓  5 [chromium] › tests/e2e/smoke/05-weekly-insight.spec.ts:10:5 › smoke-05 admin 触发 weekly-insight cron (2.5s)
+
+
+  1) [chromium] › tests/e2e/smoke/01-teacher-create-publish.spec.ts:9:5 › smoke-01 teacher 建任务 → 建实例 → publish 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m201[39m
+    Received: [31m400[39m
+
+      39 |     },
+      40 |   });
+    > 41 |   expect(createTaskRes.status()).toBe(201);
+         |                                  ^
+      42 |   const taskJson = await createTaskRes.json();
+      43 |   expect(taskJson.success).toBe(true);
+      44 |   const taskId = taskJson.data.id;
+        at /Users/alexmac/Documents/Mini 项目开发/finsim v2/finsim/tests/e2e/smoke/01-teacher-create-publish.spec.ts:41:34
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/01-teacher-create-publish--d7af2-teacher-建任务-→-建实例-→-publish-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/01-teacher-create-publish--d7af2-teacher-建任务-→-建实例-→-publish-chromium/error-context.md
+
+  2) [chromium] › tests/e2e/smoke/02-student-submit-simulation.spec.ts:9:5 › smoke-02 teacher 建 sim → student 提交 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m201[39m
+    Received: [31m400[39m
+
+      31 |     },
+      32 |   });
+    > 33 |   expect(createTaskRes.status()).toBe(201);
+         |                                  ^
+      34 |   const taskId = (await createTaskRes.json()).data.id;
+      35 |
+      36 |   const dueAt = new Date(Date.now() + 7 * 24 * 3600_000).toISOString();
+        at /Users/alexmac/Documents/Mini 项目开发/finsim v2/finsim/tests/e2e/smoke/02-student-submit-simulation.spec.ts:33:34
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-student-submit-simulati-48a99--teacher-建-sim-→-student-提交-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-student-submit-simulati-48a99--teacher-建-sim-→-student-提交-chromium/error-context.md
+
+  3) [chromium] › tests/e2e/smoke/03-ai-grade-release.spec.ts:10:5 › smoke-03 teacher 手动 grade + release → student 看到分数 
+
+    TypeError: Cannot read properties of undefined (reading 'id')
+
+      28 |     },
+      29 |   });
+    > 30 |   const taskId = (await createTaskRes.json()).data.id;
+         |                                                    ^
+      31 |
+      32 |   const dueAt = new Date(Date.now() + 7 * 24 * 3600_000).toISOString();
+      33 |   const createInstRes = await tr.post("/api/lms/task-instances", {
+        at /Users/alexmac/Documents/Mini 项目开发/finsim v2/finsim/tests/e2e/smoke/03-ai-grade-release.spec.ts:30:52
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-ai-grade-release-smoke--8fa20-rade-release-→-student-看到分数-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-ai-grade-release-smoke--8fa20-rade-release-→-student-看到分数-chromium/error-context.md
+
+  4) [chromium] › tests/e2e/smoke/04-sb-free-question.spec.ts:10:5 › smoke-04 student 自由问 SB ───────
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeDefined[2m()[22m
+
+    Received: [31mundefined[39m
+
+      33 |     (p: { title?: string }) => p.title === titleTag,
+      34 |   );
+    > 35 |   expect(found).toBeDefined();
+         |                 ^
+      36 |
+      37 |   // cleanup
+      38 |   await cleanupSmokeSbPosts(r, titleTag);
+        at /Users/alexmac/Documents/Mini 项目开发/finsim v2/finsim/tests/e2e/smoke/04-sb-free-question.spec.ts:35:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/04-sb-free-question-smoke-04-student-自由问-SB-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/04-sb-free-question-smoke-04-student-自由问-SB-chromium/error-context.md
+
+  4 failed
+    [chromium] › tests/e2e/smoke/01-teacher-create-publish.spec.ts:9:5 › smoke-01 teacher 建任务 → 建实例 → publish 
+    [chromium] › tests/e2e/smoke/02-student-submit-simulation.spec.ts:9:5 › smoke-02 teacher 建 sim → student 提交 
+    [chromium] › tests/e2e/smoke/03-ai-grade-release.spec.ts:10:5 › smoke-03 teacher 手动 grade + release → student 看到分数 
+    [chromium] › tests/e2e/smoke/04-sb-free-question.spec.ts:10:5 › smoke-04 student 自由问 SB ────────
+  1 passed (16.5s)

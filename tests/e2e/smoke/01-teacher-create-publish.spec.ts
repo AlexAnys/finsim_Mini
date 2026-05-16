@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { loginAs } from "./_setup";
+import { loginAs, cleanupPublishedTaskAndInstance } from "./_setup";
 
 /**
  * Smoke 01: teacher1 登录 → API create task → create instance → publish → assert published.
@@ -29,7 +29,7 @@ test("smoke-01 teacher 建任务 → 建实例 → publish", async ({ browser })
       taskName,
       requirements: "smoke 测试用主观题",
       subjectiveConfig: {
-        wordLimit: 100,
+        prompt: "smoke 测试: 请回答下方主观题",
         allowedAttachmentTypes: [],
       },
       scoringCriteria: [
@@ -66,7 +66,6 @@ test("smoke-01 teacher 建任务 → 建实例 → publish", async ({ browser })
   expect(pubJson.success).toBe(true);
   expect(pubJson.data.status).toBe("published");
 
-  // cleanup
-  await r.delete(`/api/lms/task-instances/${instanceId}`).catch(() => {});
-  await r.delete(`/api/tasks/${taskId}`).catch(() => {});
+  // cleanup (published 实例 必须先 close 再 delete; task 必须等 instance 删完)
+  await cleanupPublishedTaskAndInstance(r, taskId, instanceId);
 });
