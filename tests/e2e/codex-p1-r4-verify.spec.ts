@@ -71,8 +71,8 @@ test("P1-A: teacher2 不应在 SB 管理页看到 teacher1 课程的 post (over-
   // Setup: SQL 创建 task X + 在 teacher1 course + teacher2 course 各开一个 instance + alex 发 post on instance_a
   // 这样 post.courseId = teacher1's course → teacher2 不应能看到（修前会因为 task-level over-match 看到）
   await sql(`
-    INSERT INTO "Task" (id, "taskType", "taskName", "requirements", visibility, "creatorId", "createdAt", "updatedAt", "practiceEnabled")
-    VALUES ('${taskId}', 'subjective', 'r4-P1-overmatch', '主观题描述', 'private', '${TEACHER1_ID}', NOW(), NOW(), false);
+    INSERT INTO "Task" (id, "taskType", "taskName", "requirements", "creatorId", "createdAt", "updatedAt", "practiceEnabled")
+    VALUES ('${taskId}', 'subjective', 'r4-P1-overmatch', '主观题描述', '${TEACHER1_ID}', NOW(), NOW(), false);
   `);
   await sql(`
     INSERT INTO "SubjectiveConfig" (id, "taskId", prompt, "allowTextAnswer", "allowedAttachmentTypes", "strictnessLevel", "updatedAt")
@@ -155,7 +155,6 @@ test("P2-A: 并发 publish 同 draftId → 1 个 201 + 1 个 4xx + DB 只 1 个 
         taskType: "subjective",
         taskName: "r4-P2-task-name",
         requirements: "describe",
-        visibility: "private",
         practiceEnabled: false,
         subjectiveConfig: {
           prompt: "race test prompt",
@@ -251,7 +250,6 @@ test("P2-B: 单 publish flow 仍正常工作（regression）", async ({ browser 
         taskType: "subjective",
         taskName: "r4-P2-B-single-task",
         requirements: "describe",
-        visibility: "private",
         practiceEnabled: false,
         subjectiveConfig: {
           prompt: "single test prompt",

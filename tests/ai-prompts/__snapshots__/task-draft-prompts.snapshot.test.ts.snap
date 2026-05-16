@@ -1,0 +1,208 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > course-knowledge-summary snapshot 1`] = `"你是一位中高职课程教研助手。请把课程素材整理成教师可复核的摘要和概念标签。"`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > course-knowledge-summary snapshot 2`] = `
+"文件名: chapter1.docx
+
+请阅读以下课程素材文本，返回 JSON：
+{
+  "summary": "用 3-5 句话概括素材覆盖的知识点、题型线索和教学目标",
+  "conceptTags": ["核心概念1", "核心概念2"]
+}
+
+要求：
+- conceptTags 只写素材涉及概念，不要断定学生弱点。
+- 面向中高职教学，避免 MBA/投行等不相干语境。
+
+素材文本：
+复利原理..."
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > course-outline compact snapshot 1`] = `"你是一位中高职课程负责人。请只生成可供教师审核的课程目录草稿，不要直接写入系统。"`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > course-outline compact snapshot 2`] = `
+"文件名: outline.xlsx
+
+请阅读以下课程素材，返回 JSON 草稿（精简版，只包含核心章节结构）：
+{
+  "courseGoals": ["课程总体目标"],
+  "knowledgeObjectives": ["知识目标"],
+  "skillObjectives": ["技能目标"],
+  "valueObjectives": ["素养/价值/思政融合目标"],
+  "assessmentRequirements": ["考核要求或评价方式"],
+  "chapters": [
+    {
+      "title": "章节标题",
+      "order": 0,
+      "learningGoals": ["本章学习目标"],
+      "knowledgeObjectives": ["本章知识目标"],
+      "skillObjectives": ["本章技能目标"],
+      "sections": [
+        { "title": "小节标题", "order": 0, "knowledgePoints": ["知识点"] }
+      ]
+    }
+  ],
+  "globalKnowledgePoints": ["课程级知识点"],
+  "notes": ""
+}
+
+要求：
+- 只输出严格 JSON，不要 Markdown 代码块。
+- 每章 sections 最多 5 个，不要写 taskSuggestions / learningGoals 细分（除非素材直接给出）。
+- 面向中高职课堂。
+
+素材文本（前 6000 字符）：
+章节1..."
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > import-parse snapshot 1`] = `
+"你是一位金融课程题目提取专家。请从以下文档文本中提取所有可以识别的题目，将它们结构化为标准格式。
+
+规则：
+1. 识别单选题、多选题、判断题、简答题
+2. 选项 id 使用 A, B, C, D 等字母
+3. 判断题选项为 [{"id":"T","text":"对"},{"id":"F","text":"错"}]
+4. 如果无法确定正确答案，correctOptionIds 留空数组，correctAnswer 留空字符串
+5. points 默认 1 分，根据题目复杂度可设为 1-5
+6. 使用中文"
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > import-parse snapshot 2`] = `
+"以下是从文档中提取的文本：
+
+Q1. 复利 ...
+
+请提取所有题目并返回 JSON:
+{
+  "questions": [
+    {
+      "type": "single_choice|multiple_choice|true_false|short_answer",
+      "prompt": "题目内容",
+      "options": [{"id": "A", "text": "选项"}],
+      "correctOptionIds": ["A"],
+      "correctAnswer": "简答参考答案",
+      "points": 1,
+      "explanation": "解析"
+    }
+  ]
+}"
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > task-draft-from-context (quiz) snapshot 1`] = `
+"你是一位面向中高职学校的课程教研与出题助手。请根据课程素材和教师需求生成可由教师审核的测验草稿。
+
+边界：
+- 不要做跨课程能力诊断，只围绕当前课程/章节/小节。
+- 题目和情境要适合中高职课堂，避免 MBA、投行、研究生案例等不相干语境。
+- 概念标签只代表素材涉及概念，不要把它们当作学生弱点。
+- 返回严格 JSON。"
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > task-draft-from-context (quiz) snapshot 2`] = `
+"任务类型：quiz
+课程：个人理财规划
+课程描述：面向金融2024
+章节：复利
+小节：应用
+已有任务名称：未填写
+已有任务描述：未填写
+教师高维需求：未填写
+
+课程素材：
+未选择素材，请基于课程/章节/教师需求生成。
+
+请返回 JSON：
+{
+  "taskName": "任务名称",
+  "description": "任务说明",
+  "totalPoints": 100,
+  "timeLimitMinutes": 30,
+  "draftNotes": "说明 AI 根据哪些素材和需求填充了哪些字段",
+  "quiz": {
+    "quizMode": "fixed",
+    "showResult": true,
+    "questions": [
+      {
+        "type": "single_choice|multiple_choice|true_false|short_answer",
+        "prompt": "题干",
+        "options": [{"id": "A", "text": "选项"}],
+        "correctOptionIds": ["A"],
+        "correctAnswer": "简答参考答案",
+        "points": 1,
+        "difficulty": 1,
+        "explanation": "解析"
+      }
+    ]
+  },
+  "subjective": {
+    "prompt": "题干",
+    "requirements": ["要求1", "要求2"],
+    "referenceAnswer": "参考答案",
+    "scoringCriteria": [{"name": "评分维度", "description": "评分说明", "maxPoints": 25}]
+  },
+  "simulation": {
+    "scenario": "对话场景",
+    "openingLine": "AI 客户开场白",
+    "requirements": ["学生需完成的目标"],
+    "scoringCriteria": [{"name": "评分维度", "description": "评分说明", "maxPoints": 25}],
+    "allocationSections": [{"label": "资产类别", "items": [{"label": "项目", "defaultValue": 0}]}],
+    "simPersona": "AI 客户人设",
+    "simDialogueStyle": "对话风格",
+    "simConstraints": "禁止行为与边界"
+  }
+}
+
+只填充当前任务类型对应的对象，但保留同一个 JSON 外层结构。"
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > task-draft-quiz snapshot 1`] = `"你是一位资深的金融课程出题专家。请根据课程和章节信息生成高质量的测验题目。"`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > task-draft-quiz snapshot 2`] = `
+"课程: 理财
+章节: 复利
+
+
+请生成 10 道混合题型的测验题目（包含单选、多选、判断、简答），返回 JSON:
+{
+  "questions": [
+    {
+      "type": "single_choice|multiple_choice|true_false|short_answer",
+      "prompt": "题目内容",
+      "options": [{"id": "A", "text": "选项文本"}],
+      "correctOptionIds": ["A"],
+      "correctAnswer": "简答题参考答案",
+      "points": 1-3,
+      "difficulty": 1-3,
+      "explanation": "解析"
+    }
+  ]
+}
+
+注意:
+- 判断题的 options 为 [{"id":"T","text":"对"},{"id":"F","text":"错"}]
+- 简答题不需要 options 和 correctOptionIds
+- 每题 points 为 1-3 分
+- 使用中文出题"
+`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > task-draft-subjective snapshot 1`] = `"你是一位资深的金融课程出题专家。请根据课程信息生成高质量的主观题任务。"`;
+
+exports[`task-draft + import + outline prompt builders (PR-1 E) > task-draft-subjective snapshot 2`] = `
+"课程: 理财
+章节: 复利
+
+
+请生成一道主观题任务，返回 JSON:
+{
+  "taskName": "任务名称",
+  "requirements": "任务要求描述",
+  "prompt": "给学生看的题目/提示语",
+  "referenceAnswer": "参考答案",
+  "scoringCriteria": [
+    {"name": "评分标准名称", "description": "评分标准描述", "maxPoints": 分值}
+  ]
+}
+
+注意: 评分标准应该包含 3-5 项，总分 100 分，使用中文。"
+`;

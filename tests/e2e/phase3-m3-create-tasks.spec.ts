@@ -52,7 +52,6 @@ test("Phase 3 M-3: molly 创建 3 类演示任务", async ({ page }) => {
       taskName: "客户风险评估模拟对话",
       requirements:
         "你将作为理财顾问，与潜在客户进行风险评估对话。请通过提问了解客户的家庭情况、收入支出、风险偏好与理财目标，最终给出初步资产配置建议方向。",
-      visibility: "shared",
       simulationConfig: {
         scenario:
           "潜在客户走进网点咨询理财方案。客户对投资了解有限，对收益期望高但表现出风险厌恶迹象，需要顾问通过沟通识别真实需求。",
@@ -221,7 +220,6 @@ test("Phase 3 M-3: molly 创建 3 类演示任务", async ({ page }) => {
       taskType: "quiz",
       taskName: "理财基础自适应测验",
       requirements: "本测验为自适应模式，系统将根据答题情况动态调整题目难度，最多 8 题。完成后获得知识点掌握诊断报告。",
-      visibility: "shared",
       quizConfig: {
         mode: "adaptive",
         timeLimitMinutes: 30,
@@ -266,7 +264,6 @@ test("Phase 3 M-3: molly 创建 3 类演示任务", async ({ page }) => {
       taskName: "为李志华客户撰写资产配置建议书",
       requirements:
         "基于本课程「客户风险评估模拟对话」中李志华客户的情况（38 岁，离婚带 2 娃，月入 5 万，关注教育金和医疗保障），为他撰写一份初步资产配置建议书。建议书应包含：客户画像、风险评估、配置策略、产品类别建议、风控提示。",
-      visibility: "shared",
       subjectiveConfig: {
         prompt:
           "字数不少于 300 字，建议结构化分点表达。可上传 PDF/DOCX 作为附件。",

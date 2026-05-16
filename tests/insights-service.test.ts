@@ -182,12 +182,15 @@ describe("aggregateInsights", () => {
     expect(result.commonIssues.highlights).toHaveLength(1);
 
     // Verifies AI was called with feature 'insights'
+    // PR-1 E: builder caller 现在多传 maxRetries + { promptVersion } 两个参数
     expect(mk(aiGenerateJSON)).toHaveBeenCalledWith(
       "insights",
       "teacher1",
       expect.any(String),
       expect.stringContaining("学生反馈片段"),
-      expect.anything()
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ promptVersion: expect.any(String) }),
     );
     // PR-FIX-2 B6: 现在用 upsert 替代 findFirst+create/update
     expect(mk(prisma.analysisReport.upsert)).toHaveBeenCalledTimes(1);

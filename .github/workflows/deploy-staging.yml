@@ -122,7 +122,7 @@ jobs:
             sleep 5
             docker compose -f docker-compose.staging.yml -p finsim-staging ps
 
-      - name: Staging smoke test
+      - name: Staging smoke test (curl /login)
         env:
           STAGING_URL: https://staging.finsim.anlanai.cn/login
         run: |
@@ -135,6 +135,39 @@ jobs:
           done
           echo "::error::staging smoke test failed: $STAGING_URL did not return 200" >&2
           exit 1
+
+      # PR-1 A: Playwright 主线 smoke (5 specs) 真浏览器跑 staging.
+      # 用 seeded baseline 账号 (teacher1/student1 @finsim.edu.cn / password123) —
+      # 不依赖 molly 演示数据；smoke 内自造 task/instance 并自清理.
+      # fail-on-error 硬阻塞 PR merge；retries: 2 (playwright.config.ts) 容忍 staging 共享栈短暂不稳.
+      # 监测点: 若 ≥3 个 PR 因 flaky 红, 考虑降级 retries 或拆 critical-only.
+      - name: Install Node for Playwright
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (Playwright only needed)
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright 5 主线 smoke (staging)
+        env:
+          PLAYWRIGHT_BASE_URL: https://staging.finsim.anlanai.cn
+          CI: "true"
+        run: npx playwright test
+
+      - name: Upload Playwright trace + screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.event.pull_request.number }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
 
       - name: Comment staging URL on PR
         if: success()

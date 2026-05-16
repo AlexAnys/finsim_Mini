@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter } from "@/lib/services/course.service";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { clampTake } from "@/lib/pagination";
 import { createTaskInTransaction } from "@/lib/services/task.service";
 import type {
@@ -259,7 +259,7 @@ export async function updateTaskInstance(
     throw new Error("FORBIDDEN");
   }
 
-  return prisma.taskInstance.update({
+  const updated = await prisma.taskInstance.update({
     where: { id: instanceId },
     data: {
       ...(input.title && { title: input.title }),
@@ -271,6 +271,18 @@ export async function updateTaskInstance(
       ...(input.status && { status: input.status }),
     },
   });
+
+  // PR-1 D: 教师改 instance（title / dueAt / status 等）需 audit — PR #13 path 之前漏掉
+  await logAuditEvent({
+    action: "task_instance.update",
+    actorRole: existing.createdBy === createdBy ? "owner" : "collaborator",
+    actorId: createdBy,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: { changedFields: Object.keys(input), title: existing.title },
+  });
+
+  return updated;
 }
 
 export async function deleteTaskInstance(instanceId: string, createdBy: string) {
@@ -291,8 +303,9 @@ export async function deleteTaskInstance(instanceId: string, createdBy: string) 
     throw new Error("INSTANCE_HAS_SUBMISSIONS");
   }
   const deleted = await prisma.taskInstance.delete({ where: { id: instanceId } });
-  await logAuditForced({
+  await logAuditEvent({
     action: "task_instance.delete",
+    actorRole: existing.createdBy === createdBy ? "owner" : "collaborator",
     actorId: createdBy,
     targetId: instanceId,
     targetType: "TaskInstance",
@@ -320,8 +333,9 @@ export async function reopenTaskInstance(instanceId: string, actorId: string) {
     where: { id: instanceId },
     data: { status: "published" },
   });
-  await logAuditForced({
+  await logAuditEvent({
     action: "task_instance.reopen",
+    actorRole: existing.createdBy === actorId ? "owner" : "collaborator",
     actorId,
     targetId: instanceId,
     targetType: "TaskInstance",
@@ -349,8 +363,9 @@ export async function closeTaskInstance(instanceId: string, actorId: string) {
     where: { id: instanceId },
     data: { status: "closed" },
   });
-  await logAuditForced({
+  await logAuditEvent({
     action: "task_instance.close",
+    actorRole: existing.createdBy === actorId ? "owner" : "collaborator",
     actorId,
     targetId: instanceId,
     targetType: "TaskInstance",
@@ -437,6 +452,21 @@ export async function updateTaskInstanceSnapshot(
       where: { taskInstanceId: instanceId, status: "graded" },
     }),
   ]);
+
+  // PR-1 D: 教师改 instance taskSnapshot（学生看到的题面/配置）— PR #13 path 之前漏掉
+  // 含 gradedCount > 0 时标 force=true（review-pr13 F-7 提到的"我知道，仍然保存"高危场景）
+  await logAuditEvent({
+    action: "task_instance.snapshot_update",
+    actorRole: existing.createdBy === createdBy ? "owner" : "collaborator",
+    actorId: createdBy,
+    targetId: instanceId,
+    targetType: "TaskInstance",
+    metadata: {
+      taskType: patch.taskType,
+      gradedCount,
+      ...(gradedCount > 0 && { force: true }),
+    },
+  });
 
   return { instance: updated, gradedCount };
 }

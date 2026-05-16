@@ -1,69 +1,171 @@
-# Stream C · 数据统计准确性 review (2026-05-13)
+# Review — Data layer (Prisma schema + migrations + queries) (r1)
 
-Reviewer: reviewer-data · 范围: analytics-v2.service, scope-insights, scope-drilldown, dashboard, weekly-insight, insights · 实测: Playwright + 直连 Postgres 对照
+## Reviewer charter
 
-## 一、做了什么 / 看了什么
+独立审查 `prisma/schema.prisma`、`prisma/migrations/*.sql` (24 条)、`lib/db/`、以及 `lib/services/*.service.ts` 中所有 Prisma 查询。范围聚焦：schema 健康、migration 链干净度、查询 leverage（N+1 / over-fetch / 缺索引）、Json blob seam 设计、type narrowing 完整性。不审 UI、不审 auth、不审 AI prompt 内容。
 
-- 直连 `acc4fef29d82_finsim-postgres` 取真值: teacher1 名下 5 课程、2 班级 (A=10 学生, B=2 学生)、20 个 published 实例、24 份 submission (graded=22, submitted=2, released=11)；overdue+unreleased = 3 sub / 3 instance。
-- Playwright 实测: 老师 dashboard、`/teacher/analytics-v2` (注：spec 给的 URL `/analytics-v2/dashboard` 是 404，真实路径无 `/dashboard` 后缀)、instance insights 两例 (无 sub / 有 sub)、KPI 4 卡 drilldown drawer、班级切换。
-- 代码核对: KPI 5 个计算路径 (completionRate, avgNormalized, pendingRelease, riskChapter, riskStudent) + 缓存层 (scope 24h, weeklyInsight 7d 内存)。
-- 截图: `.harness/screenshots/review-2026-05-13/data/01..09-*.png`。
+## Method
 
-## 二、好的发现 (验证为对)
+读完整份 `prisma/schema.prisma`（1086 行 / 35 表 / 23 enum）+ 24 个 migration SQL（init 839 行 + 后续 23 个增量共 389 行）+ `lib/db/prisma.ts` + 重点服务 `dashboard / task / task-instance / submission / grading / study-buddy / insights / analytics-v2 / scope-insights / weekly-insight / quiz-question-tagger / release / async-job / course-knowledge-source / course / audit / ai-usage / quiz-adaptive`。Bash grep：`Promise.all` (13 处)、`for (const ...) await prisma` (loop-await N+1 hotspots)、`as unknown as Prisma.InputJsonValue` (16 处)、`as <Shape>` Json cast (12+ 处)、`@@index` 总数 (72)。检查 `lib/utils/task-snapshot.ts` 的 snapshot 校验深度。
 
-1. **analytics-v2 KPI 数字对得上**: 默认 scope = "个人理财规划 + 金融2024B班"，完成率 50% (1/2) ✓、归一化均分 90% ✓、待发布 0 项 ✓ (B 班唯一实例 dueAt=2026-05-15 > today=05-13)、风险 1 章节 ✓。
-2. **drilldown 1:1 KPI**: 点 "完成率" → drawer "未提交学生 · 1 人" 列出周八 (assigned=2, submitted=1, missing=1) ✓；"待发布" → drawer "0 件 · 当前范围内无待发布作业" ✓；"风险信号" → "风险章节 · 1 个" 列出理财基础概念 ✓。phase6 minor3 的 1:1 不变性成立。
-3. **instance insights 实时正确**: 取 `57c9940b…家庭预算分析报告` 实测页面显示 `提交 4 / 批改 4 / 均分 67.8 / 最高 86 / 最低 48`，DB 真值 `subs=4, graded=4, avg_pct=67.75, score 范围 48-86` — 完全一致。该路径走 `insights.service.ts`，**实时从 Submission 表算**，不读 TaskInstanceAnalytics 缓存表。
-4. **scope-insights 24h LLM 缓存不影响 KPI**: 阅 `scope-insights.service.ts:120 CACHE_TTL_MS`、`:151 cached.scopeSummary` — 24h 缓存只覆盖 LLM 生成的 `scopeSummary` 和教学建议文本；KPI 数字每次都过 `getAnalyticsV2Diagnosis()` 新算，不会因缓存读到陈旧数字。
-5. **空态文案明确**: 待发布 0 时显示 "当前范围内无待发布作业" 而不是误导性 "无风险"；风险 0 时显示 "暂无数据"。
-6. **未提交 vs 低分逻辑分离**: `scope-drilldown.service.ts:289 getRiskStudents` 用 `reason: not_submitted | low_score | declining` 三态，drawer 里能看出原因。
+## Top findings（按 severity 排序）
 
-## 三、风险 / 问题 (按严重度)
+### F-1: `taskSnapshot` / `evaluation` / `transcript` / `assets` 等 Json 字段全程 type-assert，无 runtime parse — Severity: P0
 
-### P0 — 老师 dashboard "学生数" 显示错误
-`lib/utils/teacher-dashboard-transforms.ts:51-54`: `studentCount = max(ti.class._count.students)` — 取**最大**班级人数而非求和。teacher1 名下 A 班 10 + B 班 2 = **12 人**，dashboard 实测显示 "共 10 名学生"。班级越多越偏低，老师误以为少了。正确口径应该 `sum(distinct classIds → classSize)` 或基于 `classIds` set 重新查 User count。
+- **Files**: `lib/utils/task-snapshot.ts` (lines 24-43), `lib/services/grading.service.ts` (lines 250 transcript-as, 290 evaluation cast, 393 quizSubmission.evaluation as `{ adaptiveMasteryReport?: unknown }`), `lib/services/insights.service.ts` (lines 197-302 evaluation/transcript/assets all `as` cast), `lib/services/weekly-insight.service.ts` (lines 404, 408, 412), `lib/services/analytics-v2.service.ts` (line 2201 `(evaluation as Record<string, unknown>).feedback`), `lib/services/study-buddy.service.ts` (line 139 `messages as StudyBuddyMessageRecord[]`)
+- **Problem**: bad Seam — Json blob columns are the project's largest abstraction boundary, but they leak shape uncertainty to every reader. `isValidSnapshot` only checks `taskName: string` non-empty; everything else (`scoringCriteria`, `quizQuestions`, `simulationConfig.systemPrompt`, etc.) is trusted. `transcript` cast as `Array<{ role: string; text: string }>` while writer schema allows `mood`/`moodScore`/`hint` 8 enum. `evaluation` cast across services with overlapping but incompatible shapes (`{ feedback?, totalScore?, rubricBreakdown?, quizBreakdown?, adaptiveMasteryReport?, latePenalty?, ... }`). HANDOFF documents this risk ("runtime parse + validate shape") — current code has neither.
+- **Why-it-bites**: schema migration that adds a required nested field (e.g. simulation evaluation gets a new `criterionRationale[]`) silently lands; readers see undefined and fall back to "暂无评语" with zero error. Worse: `transcript[].role` enum drift (writer adds `system` role, reader expects only `student|ai`) produces silent miscategorization in `aggregateInsights` mood timeline. The 26-day-old TaskSnapshot regression risk (Unit 17) is structurally still present — `isValidSnapshot` returns `true` for `{ taskName: "x" }`, which is enough to mask a stripped/corrupt snapshot that lacks `simulationConfig`, causing student runner to render with no scenario.
+- **Deletion test**: Delete the Json columns entirely → can't, they are load-bearing. But narrow each one with a Zod schema next to the writer (`lib/validators/`) and parse at read sites → 0 callers move, ~6 services thin out their `as` casts.
+- **Suggested direction**: define explicit Zod schemas for each Json column (`taskSnapshotSchema`, `simulationEvaluationSchema`, `transcriptSchema`, `studyBuddyMessagesSchema`, `analysisReport.commonIssuesSchema`, `structuredOutlineSchema`) and parse at read entry points; fail closed when shape is wrong so writers are forced to migrate.
+- **Tests would improve**: A single failing parse test catches a schema drift before it ships; today the unit suite has no coverage of Json shape contracts so a missing field passes both tsc and runtime smoke.
 
-### P0 — TaskInstanceAnalytics 表全空 → dashboard 多个卡片实际跑不出数
-DB 真值: `SELECT COUNT(*) FROM TaskInstanceAnalytics` = **0 行**。grep 全仓 `analytics.upsert|create|update` 在 `lib/services/` 下 **零 producer**。但 `dashboard.service.ts:29` include `analytics: { avgScore, submissionCount }`，`teacher-dashboard-transforms.ts:65 buildKpiSummary` 的 `avgScore`、`weakInstanceCount`、`buildWeakInstances` 全部依赖该字段。结果：dashboard 实测显示 "薄弱任务 0 / 暂无薄弱任务"、"班级表现 → 暂无班级模拟分"，但 DB 中实际有 4 个实例均分 < 60。**整张 dashboard 的分析类小部件是死的**。要么写个 cron / submission 写 hook 维护 TaskInstanceAnalytics，要么这些卡片改成像 instance insights 那样实时 SELECT。
+### F-2: `TaskInstanceAnalytics` is a dead table — full schema + FK + unique-index overhead, zero producer — Severity: P1
 
-### P1 — dashboard 完成率 vs analytics-v2 完成率两套口径
-- dashboard `computeCompletionRate` (`teacher-dashboard-transforms.ts:102`): `Σ min(subs, classSize) / Σ (classSize × instance)`。实测 11%。
-- analytics-v2 (`analytics-v2.service.ts:676`): `submittedStudents (distinct) / assignedStudents`，按 instance 聚合再加总。实测 50% (B 班窄 scope)。
+- **Files**: `prisma/schema.prisma` (lines 810-823 model definition), `lib/services/dashboard.service.ts` (lines 17-19, 100-103, 128-175 — comment "TaskInstanceAnalytics 表是死表（全仓 0 producer）, …该表此修复后将被弃用"), prisma/migrations/20260221084930_init/migration.sql (lines 448-460 CREATE TABLE), 20260225 + 20260426 (preserved)
+- **Problem**: Shallow + bad Locality. Table has `taskInstanceId` unique FK + `taskId` FK + 4 stat columns + `updatedAt`, but no service writes to it. `computeLiveAnalytics` in dashboard.service.ts re-aggregates from `Submission` every dashboard load. The model still wires `TaskInstance.analytics` relation and `Task.analytics` back-relation, which makes every reader's `include` look intentional but is silent dead-weight.
+- **Why-it-bites**: future contributors will write `instance.analytics` and get `null`, then "fix" by writing producer code — duplicating dashboard's live aggregation. The relation also clutters Prisma type generation. Migration to drop is 1 line, but until then `prisma generate` keeps the optional relation in 10+ inferred types.
+- **Deletion test**: Drop table + drop both relations → ~4 line patch in schema, 0 caller migration, removes a permanent "did I check this?" question. Complexity disappears, not redistributed.
+- **Suggested direction**: drop the table + relations in one migration; remove the comment hedges in dashboard.service.ts.
+- **Tests would improve**: nothing test-wise; this is pure schema cleanup.
 
-两个数字都"对"但口径不同，老师从 dashboard 跳到数据洞察会困惑 "为什么差 40 个百分点"。建议在分析数据上分别加 hover tooltip 说明分母口径，或者直接统一为 distinct-student 口径。
+### F-3: `AnalysisReport` is overloaded — three unrelated cache shapes share one row — Severity: P1
 
-### P1 — pendingRelease 分母不一致
-`analytics-v2.service.ts:698-721`: KPI `pendingReleaseCount` = 全量 `submission.count(releasedAt=null, dueAt<now)`；`pendingReleaseInstances` 只取 **distinct top 3 by dueAt**。drilldown `scope-drilldown.service.ts:221 getPendingReleaseList` 上限 `RESULT_LIMIT=50`。如果有 >50 待发布 sub，drilldown 列表会被截断而 KPI 数字继续涨，1:1 不变性破。当前数据规模 (3 sub) 不触发，但作为代码 review 应该补 "查看全部" 链接或对齐分页。
+- **Files**: `prisma/schema.prisma` (lines 829-849), `lib/services/insights.service.ts` (lines 118-128 reads `commonIssues`+`aggregatedAt`+`moodTimeline` keyed by `taskInstanceId`), `lib/services/scope-insights.service.ts` (lines 181-214 reads/writes `scopeSummary` keyed by `scopeHash`, line 196 also writes `studentCount`), 1097-1127 (teaching advice writes into `scopeSummary.teachingAdvice` nested), `lib/services/insights.service.ts:401-422` upsert by `taskInstanceId` unique
+- **Problem**: bad Locality + bad Seam. Same table holds:
+  - (a) per-instance batch insight cache → keyed by `@@unique(taskInstanceId)`, uses `commonIssues / aggregatedAt / moodTimeline / report / studentCount`
+  - (b) per-scope simulation insight cache → keyed by `scopeHash`, uses `scopeSummary` + cold-start writes `report: { kind: "scope_simulation_insight" }` as placeholder
+  - (c) per-scope teaching advice → also keyed by `scopeHash`, merged INTO `scopeSummary.teachingAdvice` of an existing (b) row
+  Row identity oscillates between two business keys (`taskInstanceId` XOR `scopeHash`) — unique constraint on `taskInstanceId` enforces (a) but (b)/(c) have no enforcement and depend on `findFirst orderBy createdAt desc`.
+- **Why-it-bites**: (b) writes use `findFirst + create/update` (no UPSERT possible because no unique on scopeHash), so two concurrent fresh-build calls for the same scope create duplicate rows. (c) writes assume (b) row exists and that the latest by createdAt is "the right one"; merging happens on a snapshot that may be from a different teacher's earlier call. The `report Json NOT NULL` column forces (b)/(c) callers to write a synthetic `{ kind: "..." }` blob just to satisfy NOT NULL — visible at scope-insights.service.ts:210. `studentCount` is meaningful only for (a) but is always written.
+- **Deletion test**: Split into three tables (`InstanceInsightCache`, `ScopeSimulationCache`, `ScopeTeachingAdvice`) → ~80 lines of service refactor, removes the synthetic `report:{kind:...}` placeholder, removes `findFirst` race, makes each cache a proper UPSERT. Complexity drops because each shape has its own schema; readers stop juggling which fields are populated.
+- **Suggested direction**: split into three dedicated tables (or three Json columns on a single `ScopeCache` keyed by `scopeHash` with `kind` enum + proper unique). Keep `AnalysisReport` for (a) only and add `@@unique(scopeHash, kind)` for the rest.
+- **Tests would improve**: concurrent-write tests for scope cache become possible (deterministic single row per scope/kind), insight aggregation tests stop mocking irrelevant `scopeSummary` field.
 
-### P1 — weeklyInsight 7 天进程内缓存可能出错过时数据
-`weekly-insight.service.ts:85 CACHE_TTL_MS = 7*24h`、`:86 const cache = new Map<>`。该缓存：(a) 7 天后才过期，(b) 没有 grade/submission 写入时的失效，(c) 仅进程内 (重启即失)。dashboard "一周洞察 modal" 走该路径。最坏情况：周一生成后，本周内所有新增 graded sub 都不会反映到洞察文本里。dashboard 页面有 `force=true` 按钮 (page.tsx:218) 用户可手动 refresh，但默认体验是"看的是上周快照"。
+### F-4: Cross-cutting N+1 / loop-await in three hot paths — Severity: P1
 
-### P2 — analytics-v2 默认 scope 选 B 班 (2 学生) 容易给出错觉
-实测 `/teacher/analytics-v2` 默认显示 "个人理财规划 · 金融2024B班"，那里只有 1 sub / 2 学生。完成率、均分、风险数据样本极小 (n=1)。`dataQualityFlags` 里给了"信息 2 项"的提示，但首屏 KPI 仍以 50%/90% 大字呈现，老师容易当成全局指标。建议默认 scope 选 "全部班级" 或样本量最大的课程。
+- **Files**:
+  - `lib/services/release.service.ts:152-164` — `for (const instanceId of uniqueInstanceIds) await assertTaskInstanceWritable(instanceId, user)` + `for (const s of standaloneSubs) await assertSubmissionReadable(s.id, user)`. Each `assert*` runs its own `findUnique`. Batch release of N submissions across M instances → 1 select + M+N round trips before the batch update.
+  - `lib/services/quiz-question-tagger.service.ts:130-149` — `for (let i ...) await prisma.quizQuestion.update(...)`. N writes for N untagged questions, no batch. Adaptive task with 60 questions = 60 individual update statements.
+  - `lib/services/task.service.ts:300-315` — recreates allocationSections in update loop: `for (section of patchData.allocationSections) await tx.allocationSection.create(...)` (each followed by `createMany` for items). 5 sections × 8 items each = 5 sequential create round-trips inside the transaction.
+- **Problem**: Shallow batch APIs at the seam. Each call site has access to the full set up front; the service still issues per-row queries.
+- **Why-it-bites**: PR-FIX-2's "B5 单 snapshot allocations 上限 20 项" comments hint at past load incidents. Release sweeper (`autoReleaseSubmissions`) is correct (uses `findMany + updateMany`), but the user-triggered batch release is not — teacher batch-releasing 30 submissions across 6 instances issues ~36 sequential queries on a hot path. `tagQuizQuestions` is called from async job after every adaptive quiz publish; if Phase3-A re-triggers (clear → re-tag) on every quiz edit, the cost is repeated.
+- **Deletion test**: Replace each loop with a batch primitive (`findMany` for auth-resolution preload, `updateMany` for writes that only touch the same column, `$transaction([...])` for the allocation creates). 3 ~10-line patches; no API change; existing tests pass.
+- **Suggested direction**: preload all `taskInstance` rows once with `findMany({ where: { id: { in: uniqueInstanceIds } }, select: { id, createdBy, course: {...} } })` then run `assertWritable` in-memory; replace tagger loop with a single CASE-WHEN raw update or batched `$transaction`.
+- **Tests would improve**: integration tests for release batching can assert query count; today perf regressions land silently.
 
-### P3 — 风险 KPI 卡显示 "1 章节 | 1 学生"，drawer 只看到 "风险章节" tab
-KPI 风险卡显示组合数 `1 章节 | 1 学生`，但点开 drawer 标题是 `风险章节 · 1 个`，drawer 内没有 "切到学生 tab" 的 toggle 可见。`scope-drilldown.service.ts` 有独立的 `getRiskStudents`，但 drawer UI 未提供切换路径 (至少在此 viewport 没看到)。若设计本意是合并查看，则需把章节与学生条目并列在同 drawer。
+### F-5: Missing unique constraint allows duplicate submission rows under race; `Submission.attemptsAllowed` enforced only by count read — Severity: P1
 
-### P3 — instance insights `taskInstanceId` 全 0 sub 的零态没有 CTA
-实测 `ca3b34d3-…理财基础知识随堂测验` 显示 `提交 0 / 已批改 0 / 均分 0 / 0 (空分布)`。零态信息 OK，但缺乏 "去查看任务详情 / 提醒学生" 的 CTA，老师不知道下一步该做啥。
+- **Files**: `lib/services/submission.service.ts:99-107` (`prisma.submission.count(...)` then `prisma.submission.create(...)` outside any transaction wrapping the check) and `prisma/schema.prisma:577-582` (`Submission` has `@@index([taskInstanceId, studentId])` for query speed but no `@@unique`)
+- **Problem**: TOCTOU race + missing DB-level invariant. Two parallel student submits both pass `count < attemptsAllowed` and both insert. The transaction at line 110 wraps only the writes — the count read happens before the tx and uses repeatable read semantics not at all.
+- **Why-it-bites**: with `attemptsAllowed=1`, a student double-tapping submit (or two browser tabs from the Unit-5 "draft cross-account" fix's exact scenario) silently creates a 2nd graded submission, which then doubles AI grading cost AND affects analytics `submissionCount` for the instance. Cross-references with student dashboard `attemptsUsed = subs.length` (dashboard.service.ts:272) — the user-facing counter desyncs from server side.
+- **Deletion test**: Add `@@unique([taskInstanceId, studentId, <attemptSeq>])` or a partial unique on `(taskInstanceId, studentId)` when `attemptsAllowed=1`. Caller code in submission.service simplifies — race goes from "best effort count" to "DB-enforced 23505 → translate to MAX_ATTEMPTS_REACHED".
+- **Suggested direction**: introduce an `attemptIndex` column on `Submission`, then unique `(taskInstanceId, studentId, attemptIndex)`, and translate Prisma P2002 to `MAX_ATTEMPTS_REACHED`. For attemptsAllowed=null (unlimited), this is a no-op constraint.
+- **Tests would improve**: add a parallel-submit test that today would intermittently fail; the schema change makes it deterministic.
 
-## 四、建议优先级
+### F-6: `StudyBuddyPost.taskId` nullable but no DB check that (taskId IS NOT NULL OR courseId IS NOT NULL OR taskInstanceId IS NOT NULL) — Severity: P2
 
-| # | 修复 | 影响 | 工作量 |
-|---|------|------|--------|
-| 1 | dashboard 学生总数取 sum 而非 max (`teacher-dashboard-transforms.ts:51-54`) | P0 信任度 | <1h |
-| 2 | 决定 `TaskInstanceAnalytics`：要么补 producer (在 `grading.service.ts` finalize 时 upsert)；要么删表 + dashboard 改成实时 SELECT | P0 数据可见性 | 1d |
-| 3 | dashboard 与 analytics-v2 完成率口径统一，或加 tooltip 说明分母 | P1 一致性 | 0.5d |
-| 4 | pendingRelease drilldown 加 "查看全部" 或分页 | P1 1:1 不变性 | 0.5d |
-| 5 | weeklyInsight 改为 30 min 缓存 + grade-hook 失效，或在 UI 显著标注 "本周快照截止 XX 时刻" | P1 体感 | 0.5d |
-| 6 | analytics-v2 默认 scope 选样本最大的班，或显示"样本量低"水印 | P2 误读 | 1h |
-| 7 | 风险 drawer 加 章节↔学生 tab 切换 | P3 可达性 | 0.5d |
+- **Files**: `prisma/schema.prisma:655-689`, migrations `20260514112456_make_sb_post_task_id_nullable_and_add_course_id`
+- **Problem**: Shallow nullability. Schema allows a SB post with all three FK fields null (admin-bin orphan), but business logic in `createPost` (study-buddy.service.ts:25-92) enforces "self-classification": free-form must have at least courseId for AI context, but the DB will accept rows that bypass the service (e.g. admin SQL fix-up or future async-jobs).
+- **Why-it-bites**: Generates a "ghost" post that `generateReply` later loads without any course → `getKnowledgeSourcesForStudyBuddy` returns `[]` because `effectiveCourseId` is null → AI runs without grounding. Today this happens silently. Combined with `hiddenAt: null` default filter, ghost posts are visible in admin views indefinitely.
+- **Deletion test**: Add CHECK `(taskId IS NOT NULL OR courseId IS NOT NULL OR taskInstanceId IS NOT NULL)` → 1-line migration, no caller change, prevents the orphan state.
+- **Suggested direction**: introduce a Postgres CHECK constraint (Prisma 6 supports via `@@check` or raw SQL migration). Alternative: tighten the service contract and add unit tests for the null-on-all-three case.
+- **Tests would improve**: removes a class of "AI returned generic answer because no course found" reports from QA — they become 400 at write time.
 
-## 五、未触达 (时间所限)
+### F-7: `Task.courseName` / `Task.chapterName` + `Class.code` / `academicYear` / `departmentName` are denormalized strings parallel to their FK rels — Severity: P2
 
-- 缓存命中刷新：未触发一次 study-buddy / scope-insights 重生成对比 fresh vs cache 差值。
-- 多老师隔离：只测 teacher1，没验证 teacher2 数据是否会泄露到 teacher1 视图。
-- `analytics-v2.service.ts:1218` `kpis.completionRate > 1` 守卫意味着代码自己也担心溢出 — 没在数据集中复现到这个 edge case。
+- **Files**: `prisma/schema.prisma:351-352`, `225-228`, used in `lib/services/task.service.ts:81-82, 260-261`, `lib/services/question-bank.service.ts:197-199, 568-611`, validators `lib/validators/task.schema.ts:88-89`
+- **Problem**: bad Locality + leaky abstraction. Task is template-level (no course FK at all on Task table — only through `TaskInstance`), yet `courseName`/`chapterName` strings are written at task creation and never updated when the actual `Course.courseTitle` or `Chapter.title` changes. Used only as AI prompt hints (`question-bank.service.ts:609-611`) and as denormalized labels in some legacy reports.
+- **Why-it-bites**: rename a course → existing Tasks still show old name in AI prompts and any UI relying on these fields. Combined with no FK, no integrity. Validators expose the field on every task create/update payload but most callers don't pass it, leaving NULL — and the half-populated state confuses code reading the fields.
+- **Deletion test**: Drop both columns + adjust the 4-5 read sites to use `taskInstance.course.courseTitle`/`taskInstance.chapter.title` via existing relation. Same query cost (already included for instance pages). Complexity moves from 35-column Task table to per-call joins, but readers are at the seams that need it (AI prompts) and the data is fresher.
+- **Suggested direction**: drop `Task.courseName` + `Task.chapterName`; resolve names from the most-recent `TaskInstance` (or pass course/chapter context explicitly into the AI builder). Similarly audit `Class.code`/`academicYear`/`departmentName` for actual reads — `class.service.ts` exposes `academicYear` once, no writers; likely dead.
+- **Tests would improve**: removes a stale-data test category; existing AI prompt tests don't currently cover the rename-drift case.
 
-参考截图: `.harness/screenshots/review-2026-05-13/data/{01..09}-*.png`
-测试脚本: `tests/e2e/review-data.spec.ts`、`tests/e2e/review-data-final.spec.ts`
+### F-8: `Visibility` enum (private/shared/department/public) declared + on Task, never read anywhere — Severity: P2
+
+- **Files**: `prisma/schema.prisma:90-96`, `Task.visibility` line 348, written by `task.service.ts:78` and `258`, no `where: { visibility: ... }` anywhere in `lib/` or `app/`
+- **Problem**: Shallow — enum + column + form value travels all the way from validator (`task.schema.ts`) to Prisma write, but read-side authorization uses `creatorId` / `CourseTeacher` / `Class` association. The visibility flag is set and forgotten.
+- **Why-it-bites**: future contributor sees the field, assumes there's department-level visibility logic, builds against it, ships a security bug because no filter actually applies. Codex-P1 review (per HANDOFF) already fixed "cross-course over-match" — this is the same family.
+- **Deletion test**: drop column + drop enum + drop validator field → removes ~6 lines, no behavior change, eliminates the trap.
+- **Suggested direction**: either remove entirely or wire it into `task.service.getTasksByCreator` / library list queries. Don't leave half-built.
+- **Tests would improve**: cleaning this lets us add real visibility tests if/when needed without inherited dead state.
+
+### F-9: `Course.classId` (required FK to single class) + `CourseClass` (M:N join) duplicate the same fact — Severity: P2
+
+- **Files**: `prisma/schema.prisma:248`, `1075-1086`, `lib/services/course.service.ts:75-79` (creating Course auto-creates a CourseClass row mirroring `classId`), 179 (cannot remove primary class), 198-202 (queries union both)
+- **Problem**: Bad Locality. The "primary class" lives in two places that can desync. `addCourseClass` creates a join row but does not touch `Course.classId`; if `removeCourseClass(courseId, course.classId)` happens despite the `CANNOT_REMOVE_PRIMARY_CLASS` guard, the relations drift. Migration `20260422041600_backfill_course_class` backfilled but did not migrate `Course.classId` away.
+- **Why-it-bites**: every list query has to UNION (`OR: [{ classId }, { classes: { some: { classId } } }]`) — see `dashboard.service.ts:184-185, 224-225, 237`, `course.service.ts:199-202`. Five+ services duplicate this OR. A missed copy of the OR pattern (`teacherCourseFilter` only filters by `createdBy` / `CourseTeacher`, not by primary-class fallback) leads to invisible-but-assigned data.
+- **Deletion test**: Migrate all reads to `CourseClass` only, write `Course.classId` as deprecated (or drop it after backfill). Eliminates one OR pattern from 5+ callers. ~20-line patch, single migration, removes a recurring foot-gun.
+- **Suggested direction**: deprecate `Course.classId`. Either drop it (migration → backfill any straggler CourseClass rows) or keep as `defaultClassId` with a CHECK that it ∈ CourseClass.classId.
+- **Tests would improve**: each list endpoint has duplicate OR — collapsing them gives one place to test the class-scope rule.
+
+### F-10: Heavy include trees + over-fetch in `analytics-v2.getDiagnosis` and `dashboard.getTeacherDashboard` — Severity: P2
+
+- **Files**: `lib/services/analytics-v2.service.ts:579-654` (course findUnique includes chapters + sections + classes + courseClasses; instances findMany then deeply nests `task.quizQuestions + scoringCriteria + submissions.{student, simulationSubmission.evaluation, quizSubmission.evaluation, subjectiveSubmission.evaluation}`), `lib/services/dashboard.service.ts:19-75` (parallel 5 queries, but `taskInstances` pulls full `_count.submissions`+class with `_count.students` for 50 instances)
+- **Problem**: Deep include trees that fetch entire Json `evaluation`/`transcript` blobs when downstream only reads `score`/`maxScore`/`feedback.slice(0,400)`. `instances.submissions.simulationSubmission` pulls every transcript message in DB (could be 10-50KB each) when only `conceptTags` + `evaluation.feedback` are used.
+- **Why-it-bites**: dashboard load time for a teacher with 50 instances and 1000 submissions: ~10MB Prisma payload, most discarded. Plus extra GC pressure; plus token-level transcripts in memory while the user is just clicking "课程".
+- **Deletion test**: tighten the `select` to just the consumed fields per service → no behavior change, ~30% payload reduction in practice (heavy `simulationSubmission.transcript` removed from analytics-v2 hot path; only `evaluation.feedback` + `conceptTags` needed downstream).
+- **Suggested direction**: replace `simulationSubmission: true` etc. with explicit `select: { evaluation: true, conceptTags: true }`; same for `quizSubmission` / `subjectiveSubmission`. Already done elsewhere (scope-insights.service.ts:391 selects narrowly) — apply the same discipline in `analytics-v2` + `dashboard`.
+- **Tests would improve**: snapshot tests of the include shape, would also serve as documentation of which Json fields are read.
+
+## Anti-findings（看起来像但不是问题）
+
+- **Migration drift suspicion**: I looked for hand-edits to applied migrations. `20260426010000_add_pgcrypto_extension` is documented as a *replacement* for an earlier-hand-edited `ef820b5`-style attempt; CLAUDE.md memo "Migration drift 处理" + HANDOFF "SQL UPDATE checksum / cherry-pick" confirms the team learned and now uses idempotent additive migrations. Chain is clean — every migration uses `ALTER TABLE … ADD COLUMN`, `ALTER TYPE … ADD VALUE IF NOT EXISTS`, or new CREATE TABLE; no "add then drop" loops; no destructive ALTERs. The chain itself is healthy.
+- **Json columns as `Prisma.InputJsonValue` casts**: ubiquitous (`as unknown as Prisma.InputJsonValue`), but this is unavoidable plumbing — Prisma's `JsonValue` type is recursive and only narrows after a Zod parse. The cast itself is not the bug; the missing parse step before it is (covered by F-1).
+- **`StudentGroup.meta Json`**: small write-only blob for group metadata (`auto_score_bucket` filters). It's read in one spot. Not a Seam problem because it's truly opaque metadata — no service tries to type-narrow it. Fine.
+- **`SimulationConfig.systemPrompt`**: nullable + can carry legacy 5-档 mood block; `stripLegacyMoodBlock` (task.service.ts:22-48) normalizes on write. Migration story is acknowledged in code — not a finding, just legacy.
+- **`@@index([scopeHash])` non-unique on AnalysisReport**: looks like a missing unique, but the scopeHash overload pattern (F-3) means you can't add unique without splitting the table. Listed as part of F-3 rather than separately.
+
+## Cross-cutting hunches
+
+- **For review-security**: `StudyBuddyPost` nullable taskId + courseId — the service path (`createPost`) gates correctly with classId checks, but I noticed `listStudyBuddyPosts` at study-buddy.service.ts:285-298 has a complex OR-spread on `where` where a teacher passing neither taskId nor taskInstanceId throws FORBIDDEN at line 286. Verify all callers route through this; a Route Handler bypass could expose cross-class SB posts via `where: { isPreview }` only.
+- **For review-arch**: the `AnalysisReport` overload (F-3) is the most distilled example of "one table doing three jobs because we didn't want to add three tables". Probably worth a deletion test discussion on whether scope-insights deserves its own caching layer with proper unique keys.
+- **For review-recent**: `taskSnapshot` validation depth (F-1, lib/utils/task-snapshot.ts) was the deliverable of Unit 17 per HANDOFF — present but minimal. Validation is `taskName: string` only; the actual question/criteria/config payload is trusted blindly. Worth grilling whether Unit 17 "task 模板改动不影响 in-flight instance" is fully cashed in vs. just papered over.
+- **For review-ai**: `QuizQuestion.knowledgeTagIds` (added in `20260514142850`) defaults to `String[]` not `String[][]`; the AI tagger writes max 3 tags but there's no DB-level cap. If a future prompt-injection scenario inflates tag count, the array grows unbounded. Also: `quiz-question-tagger.service.ts` loops `prisma.quizQuestion.update` N times — see F-4 — relevant to AI cost as much as DB cost.
+- **For review-test**: missing Zod schemas for Json fields (F-1) is the largest gap from a testability standpoint. Once schemas exist, you can unit-test them; today the only contract is the `as` cast itself.
+
+## Schema health scorecard
+
+| Table | Status | 主要风险 / 备注 |
+|---|---|---|
+| User | OK | `classId` nullable for teachers/admins makes sense; `@@index([classId])` covers Class membership lookups. |
+| Class | YELLOW (F-7) | `code`/`academicYear`/`departmentName` likely unused-write columns. |
+| Course | YELLOW (F-9) | `classId` required + `CourseClass` M:N → drift surface, OR-pattern duplication in 5+ services. |
+| Chapter / Section / ContentBlock | OK | Composite `@@unique([courseId, order])` etc. enforce ordering; OK locality. |
+| Task | YELLOW (F-7, F-8) | `courseName`/`chapterName` denormalized strings + `Visibility` enum dead column. |
+| SimulationConfig / QuizConfig / SubjectiveConfig | OK | Unique on `taskId` is correct; relation cascade on Task delete is appropriate. |
+| ScoringCriterion / AllocationSection / AllocationItem / QuizQuestion | OK | Order+taskId indexes correct; `knowledgeTagIds` 默认 `[]` (Unit 8). |
+| TaskInstance | YELLOW (F-1) | `taskSnapshot Json` validation thin (F-1); `groupIds String[]` no FK integrity (orphan tolerated). |
+| Submission | YELLOW (F-5) | No unique on `(taskInstanceId, studentId, attemptIdx)` → race tolerated; `releasedAt`/`gradedAt` semantics good. |
+| SimulationSubmission / QuizSubmission / SubjectiveSubmission | YELLOW (F-1) | `transcript`/`evaluation`/`assets` Json fields untyped at runtime. |
+| StudyBuddyPost | YELLOW (F-6) | nullable taskId+courseId+taskInstanceId, no CHECK; soft-delete `hiddenAt` correctly indexed. |
+| StudyBuddySummary | OK | Json `topQuestions`/`knowledgeGaps` consumed in one place, OK. |
+| Announcement / TaskPost | OK | Cascade on Course/TaskInstance delete is appropriate. |
+| ScheduleSlot | OK | Composite index `(courseId, dayOfWeek, slotIndex)`. |
+| StudentGroup / StudentGroupMember | OK | `meta` Json truly opaque; `@@unique(groupId, studentId)` correct. |
+| TaskInstanceAnalytics | RED (F-2) | Dead table, schema overhead, zero producer. |
+| AnalysisReport | RED (F-3) | Overloaded with 3 distinct cache shapes; `report Json NOT NULL` forces placeholder writes. |
+| AsyncJob | OK | `attempts/maxAttempts` retry semantics + sweeper match well; indexes cover both `(type,status)` claim and `(entityType,entityId)` lookups. |
+| TaskBuildDraft | OK | `aiPayload`/`editedPayload` 双载体 (Unit), `approvedAt`/`approvedBy` state-machine complete. Json shape covered by F-1. |
+| AiRun | OK | Cost/token columns added cleanly in `20260514133211`; index `(createdAt)` enables time-range scans. |
+| AiToolSetting | OK | `@@unique(teacherId, toolKey)` clean. |
+| AuditLog | OK | `targetId/targetType` String (no FK) is intentional — soft pointer. `(action)` + `(createdAt)` indexes match listAuditLogs query. |
+| CourseTeacher / CourseClass | OK | Clean M:N tables with proper unique. |
+| CourseKnowledgeSource | YELLOW (F-1) | `structuredData` Json untyped; 6 indexes feels heavy but each justified by listed-by-scope queries. |
+| ImportJob | OK | Single tenant per-task; small. |
+
+## N+1 hotspots
+
+| File:Line | 问题 | 影响 |
+|---|---|---|
+| `lib/services/release.service.ts:152-164` | `for (const instanceId of uniqueInstanceIds) await assertTaskInstanceWritable(...)` + `for (const s of standaloneSubs) await assertSubmissionReadable(...)` | 教师批量公布 30 submissions / 6 instances → 36+ 顺序 round-trips 在写权校验阶段 |
+| `lib/services/quiz-question-tagger.service.ts:130-149` | `for (let i ...) await prisma.quizQuestion.update(...)` N 次 | 60 题 adaptive task → 60 个 UPDATE 语句串行；每次 publish/edit 重跑 |
+| `lib/services/task.service.ts:300-315` | `for (section of patchData.allocationSections) await tx.allocationSection.create(...)` (followed by inner `createMany` for items) | task update 每个 section 一次 round-trip；tx 内串行 |
+| `lib/services/submission.service.ts:155-167` (attachments loop) | `for (const att of input.attachments) await tx.attachment.create(...)` | 10 attachments → 10 INSERTs 在 tx 内串行（`createMany` 可一次） |
+| `lib/services/submission.service.ts:399-401` | `for (const id of uniqueIds) await assertSubmissionReadable(id, actor)` (batch delete) | N submissions delete → N readable check round-trips |
+| `lib/services/analytics-v2.service.ts:624-654` | Heavy `include` 拉所有 instance 下的所有 submission 的所有 simulationSubmission.transcript（Json full payload）+ evaluation | 50 instance × 100 sub × 10KB transcript ≈ 50MB Prisma payload；下游只用 conceptTags + feedback.slice(0,400) |
+| `lib/services/dashboard.service.ts:19-36` | `taskInstances` include `class._count.students` for 50 instances + `_count.submissions` 每条 | Subqueries OK for Prisma but include shape is over-fetch (see F-10) |
+| `lib/services/scope-insights.service.ts:267-274` | `samplePosts` take 600，再在 inner loop `.filter(p => p.taskId === taskId)` per question | 6 secs × 5 questions × 600 posts = 18000 string comparisons in JS heap；index OK但 post-fetch filter could move into per-task query |
+
+## 总结要点
+
+**最严重的一个**：Json 字段全程裸 cast 无 runtime parse（F-1）。它是其他几个发现的放大器 —— taskSnapshot 漂移、evaluation shape drift、scope cache 形状串台、commonIssues 解码假设 —— 都通过同一个"我们相信这个 Json 是对的"机制扩散。Schema 干净，migration 链干净；薄弱在 Json blob 没被当成正式 Seam 来管。

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { clampTake } from "@/lib/pagination";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validators/task.schema";
 import type { Prisma } from "@prisma/client";
 
@@ -75,11 +75,8 @@ export async function createTaskInTransaction(
         taskType: input.taskType,
         taskName: input.taskName,
         requirements: input.requirements,
-        visibility: input.visibility,
         practiceEnabled: input.practiceEnabled,
         creatorId,
-        courseName: input.courseName,
-        chapterName: input.chapterName,
       },
     });
 
@@ -255,10 +252,7 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
       data: {
         taskName: patchData.taskName,
         requirements: patchData.requirements,
-        visibility: patchData.visibility,
         practiceEnabled: patchData.practiceEnabled,
-        courseName: patchData.courseName,
-        chapterName: patchData.chapterName,
       },
     });
 
@@ -339,8 +333,9 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
   });
 
   // Unit 4 audit log — 紧凑 diff，避免整 JSON 入库
-  await logAuditForced({
+  await logAuditEvent({
     action: "task.update",
+    actorRole: "owner",
     actorId: creatorId,
     targetId: taskId,
     targetType: "Task",
@@ -417,8 +412,9 @@ export async function deleteTask(taskId: string, creatorId: string) {
   }
 
   await prisma.task.delete({ where: { id: taskId } });
-  await logAuditForced({
+  await logAuditEvent({
     action: "task.delete",
+    actorRole: "owner",
     actorId: creatorId,
     targetId: taskId,
     targetType: "Task",

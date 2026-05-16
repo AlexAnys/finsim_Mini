@@ -14,13 +14,13 @@ import { getAnnouncements } from "@/lib/services/announcement.service";
 describe("getScheduleSlots with classId", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("uses courseClassFilter so a secondary class hits the parent course schedule", async () => {
+  it("uses courseClassFilter so the class hits the parent course schedule (CourseClass M:N only)", async () => {
     (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     await getScheduleSlots({ classId: "class-secondary" });
 
     const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
-      OR: [{ classId: "class-secondary" }, { classes: { some: { classId: "class-secondary" } } }],
+      classes: { some: { classId: "class-secondary" } },
     });
   });
 
@@ -31,7 +31,8 @@ describe("getScheduleSlots with classId", () => {
     const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.include.course.select.semesterStartDate).toBe(true);
     expect(call.include.course.select.courseTitle).toBe(true);
-    expect(call.include.course.select.classId).toBe(true);
+    // Course.classId 已弃用，select 不再包含
+    expect(call.include.course.select.classId).toBeUndefined();
   });
 
   it("combines classId + teacherId via AND (no spread key collision)", async () => {
@@ -41,7 +42,7 @@ describe("getScheduleSlots with classId", () => {
     const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
       AND: [
-        { OR: [{ classId: "class-x" }, { classes: { some: { classId: "class-x" } } }] },
+        { classes: { some: { classId: "class-x" } } },
         { OR: [{ createdBy: "t-2" }, { teachers: { some: { teacherId: "t-2" } } }] },
       ],
     });
@@ -59,13 +60,13 @@ describe("getScheduleSlots with classId", () => {
 describe("getAnnouncements with classId", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("uses courseClassFilter so a secondary class sees parent course announcements", async () => {
+  it("uses courseClassFilter so the class sees parent course announcements (CourseClass M:N only)", async () => {
     (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     await getAnnouncements({ classId: "class-secondary" });
 
     const call = (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
-      OR: [{ classId: "class-secondary" }, { classes: { some: { classId: "class-secondary" } } }],
+      classes: { some: { classId: "class-secondary" } },
     });
   });
 

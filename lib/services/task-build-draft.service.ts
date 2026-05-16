@@ -1,6 +1,6 @@
 import { Prisma, SlotType, TaskBuildDraftStatus, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { logAudit } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 
 export interface TaskBuildDraftInput {
   courseId: string;
@@ -183,8 +183,9 @@ export async function approveTaskBuildDraft(draftId: string, actorId: string) {
     },
   });
 
-  await logAudit({
+  await logAuditEvent({
     action: "task_draft.approve",
+    actorRole: "owner",
     actorId,
     targetId: draftId,
     targetType: "TaskBuildDraft",

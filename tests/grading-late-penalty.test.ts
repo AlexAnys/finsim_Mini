@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db/prisma", () => ({ prisma: {} }));
 vi.mock("@/lib/services/ai.service", () => ({}));
 vi.mock("@/lib/services/submission.service", () => ({ updateSubmissionGrade: vi.fn() }));
-vi.mock("@/lib/services/audit.service", () => ({ logAudit: vi.fn() }));
+vi.mock("@/lib/services/audit.service", () => ({ logAuditEvent: vi.fn() }));
 
 import { computeLatePenalty } from "@/lib/services/grading.service";
 

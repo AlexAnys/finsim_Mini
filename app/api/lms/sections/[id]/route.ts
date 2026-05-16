@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertSectionWritable } from "@/lib/auth/resource-access";
 import { updateSection, deleteSection } from "@/lib/services/course.service";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { prisma } from "@/lib/db/prisma";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
@@ -46,12 +46,13 @@ export async function PATCH(
 
     const section = await updateSection(id, parsed.data);
     // PR-FIX-1 UX5: 安全敏感写入强制 audit
-    await logAuditForced({
+    await logAuditEvent({
       action: "section.update",
+      actorRole,
       actorId: user.id,
       targetId: id,
       targetType: "section",
-      metadata: { fields: Object.keys(parsed.data), actorRole },
+      metadata: { fields: Object.keys(parsed.data)},
     });
     return success(section);
   } catch (err) {
@@ -81,12 +82,12 @@ export async function DELETE(
 
     await deleteSection(id);
     // PR-FIX-1 UX5: 安全敏感删除强制 audit
-    await logAuditForced({
+    await logAuditEvent({
       action: "section.delete",
+      actorRole,
       actorId: user.id,
       targetId: id,
       targetType: "section",
-      metadata: { actorRole },
     });
     return success({ id });
   } catch (err) {

@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import { aiGenerateJSON } from "./ai.service";
+import {
+  buildInsightsAggregatePrompt,
+  INSIGHTS_AGGREGATE_PROMPT_VERSION,
+} from "@/lib/ai/prompts/insights-aggregate";
 
 /**
  * PR-7B: legacy mood enum keys → 0-1 score fallback for transcripts that have
@@ -331,35 +335,16 @@ export async function aggregateInsights(
     .slice(0, 12);
 
   // AI: produce common issues + highlights from feedback corpus
-  const systemPrompt = `你是一位资深的金融教育课程顾问。基于一组学生提交的 AI 批改反馈，归纳：
-1. 全班共性问题（3-5 条），每条包含 title / description / 涉及学生估算数（studentCount）
-2. 亮点提交（最多 3 条），每条引用一份提交的学生名字 + 简短引用 (quote ≤80 字)
-
-输出严格 JSON。不要捏造数据 — 仅基于提供的反馈文本归纳。`;
-
-  const corpus = evaluations
-    .slice(0, 50)
-    .map(
-      (e, i) =>
-        `[${i + 1}] submissionId=${e.submissionId} studentName=${e.studentName} score=${e.score} feedback=${e.feedback}`
-    )
-    .join("\n");
-
-  const userPrompt = `任务: ${instance.title}（${instance.taskType}）
-学生数: ${evaluations.length}
-
-学生反馈片段:
-${corpus}
-
-请输出 JSON:
-{
-  "commonIssues": [
-    {"title": "标题", "description": "描述", "studentCount": 数字}
-  ],
-  "highlights": [
-    {"submissionId": "id", "studentName": "姓名", "quote": "引用"}
-  ]
-}`;
+  const builtInsights = buildInsightsAggregatePrompt({
+    instanceTitle: instance.title,
+    taskType: instance.taskType,
+    evaluations: evaluations.map((e) => ({
+      submissionId: e.submissionId,
+      studentName: e.studentName,
+      score: e.score ?? 0,
+      feedback: e.feedback,
+    })),
+  });
 
   // PR-FIX-2 B3: AI 失败时仍保存 weaknessConcepts + 空 issues/highlights（降级路径，不丢历史 conceptTags 信息）
   let ai: { commonIssues: Array<{ title: string; description: string; studentCount: number }>; highlights: Array<{ submissionId: string; studentName: string; quote: string }> };
@@ -367,9 +352,11 @@ ${corpus}
     ai = await aiGenerateJSON(
       "insights",
       teacherId,
-      systemPrompt,
-      userPrompt,
-      aggregateSchema
+      builtInsights.systemPrompt,
+      builtInsights.userPrompt,
+      aggregateSchema,
+      2,
+      { promptVersion: INSIGHTS_AGGREGATE_PROMPT_VERSION },
     );
   } catch (err) {
     console.error("[insights] AI 聚合失败，降级写空 issues/highlights：", err);

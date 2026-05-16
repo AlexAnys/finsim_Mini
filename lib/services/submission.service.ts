@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
 import { assertSubmissionReadable } from "@/lib/auth/resource-access";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { clampPage, clampTake } from "@/lib/pagination";
 
 type UserLike = { id: string; role: string; classId?: string | null };
@@ -364,8 +364,9 @@ export async function ungradeSubmission(submissionId: string, actorId: string) {
     },
   });
 
-  await logAuditForced({
+  await logAuditEvent({
     action: "submission.ungrade",
+    actorRole: "owner",
     actorId,
     targetId: submissionId,
     targetType: "Submission",

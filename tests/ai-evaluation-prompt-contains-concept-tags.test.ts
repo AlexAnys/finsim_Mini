@@ -5,9 +5,9 @@ import * as path from "node:path";
 const ROOT = path.join(__dirname, "..");
 
 describe("AI evaluation prompts include conceptTags extraction directive (PR-5C)", () => {
-  it("ai.service.evaluateSimulation user prompt mentions conceptTags + 3-5 concepts", () => {
+  it("simulation-evaluate builder mentions conceptTags + 3-5 concepts (PR-1 E)", () => {
     const file = fs.readFileSync(
-      path.join(ROOT, "lib/services/ai.service.ts"),
+      path.join(ROOT, "lib/ai/prompts/simulation-evaluate.ts"),
       "utf8"
     );
     expect(file).toContain('"conceptTags": ["核心概念1"');

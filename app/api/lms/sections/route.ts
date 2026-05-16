@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
 import { createSection } from "@/lib/services/course.service";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { prisma } from "@/lib/db/prisma";
 import { created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
@@ -27,7 +27,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { user } = result.session;
-    // PR-FIX-1 A5: 防教师向他人课程插入小节 + 防 chapter/course 跨课错位
     await assertCourseAccess(parsed.data.courseId, user.id, user.role);
     const ch = await prisma.chapter.findUnique({
       where: { id: parsed.data.chapterId },
@@ -43,8 +42,9 @@ export async function POST(request: NextRequest) {
       ...parsed.data,
       createdBy: user.id,
     });
-    await logAuditForced({
+    await logAuditEvent({
       action: "section.create",
+      actorRole,
       actorId: user.id,
       targetId: section.id,
       targetType: "section",
@@ -52,7 +52,6 @@ export async function POST(request: NextRequest) {
         courseId: parsed.data.courseId,
         chapterId: parsed.data.chapterId,
         title: parsed.data.title,
-        actorRole,
       },
     });
     return created(section);

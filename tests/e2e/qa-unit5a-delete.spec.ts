@@ -116,7 +116,6 @@ test("QA r5a F: 完整 dummy task 创建+删除 round-trip (无 instance → 200
     data: {
       taskType: "quiz",
       taskName: dummyName,
-      visibility: "private",
       practiceEnabled: false,
       quizConfig: { mode: "fixed", showCorrectAnswer: false },
     },
@@ -261,7 +260,6 @@ test("QA r5a J: molly /teacher/tasks/[id] — 「删除任务」按钮行为", a
     data: {
       taskType: "quiz",
       taskName: dummyName,
-      visibility: "private",
       practiceEnabled: false,
       quizConfig: { mode: "fixed", showCorrectAnswer: false },
     },

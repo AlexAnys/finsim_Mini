@@ -42,7 +42,6 @@ interface Task {
   taskName: string;
   taskType: string;
   requirements: string | null;
-  visibility: string;
   createdAt: string;
   _count?: {
     taskInstances: number;

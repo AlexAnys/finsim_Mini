@@ -51,12 +51,6 @@ describe("getTeacherDashboard", () => {
     expect(dashboard.stats.publishedCount).toBe(2);
   });
 
-  it("does not include the dead TaskInstanceAnalytics relation in the findMany include", async () => {
-    await getTeacherDashboard("teacher-1");
-    const call = (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.include?.analytics).toBeUndefined();
-  });
-
   it("attaches live analytics (avgScore + submissionCount) computed from graded submissions", async () => {
     (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: "ti-A", status: "published", courseId: "c1" },

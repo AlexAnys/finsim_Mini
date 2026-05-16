@@ -1,0 +1,983 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: 01-teacher-create-publish.spec.ts >> smoke-01 teacher 建任务 → 建实例 → publish
+- Location: tests/e2e/smoke/01-teacher-create-publish.spec.ts:9:5
+
+# Error details
+
+```
+Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: 201
+Received: 400
+```
+
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e6]:
+          - img "灵析" [ref=e8]
+          - generic [ref=e9]: 灵析
+        - generic [ref=e11]:
+          - img [ref=e12]
+          - generic [ref=e15]: 搜索...
+          - generic [ref=e16]: ⌘K
+        - navigation [ref=e17]:
+          - generic [ref=e18]: 教师工作台
+          - link "仪表盘" [ref=e19] [cursor=pointer]:
+            - /url: /teacher/dashboard
+            - img [ref=e21]
+            - text: 仪表盘
+          - link "课程管理" [ref=e26] [cursor=pointer]:
+            - /url: /teacher/courses
+            - img [ref=e27]
+            - text: 课程管理
+          - link "数据洞察" [ref=e29] [cursor=pointer]:
+            - /url: /teacher/analytics-v2
+            - img [ref=e30]
+            - text: 数据洞察
+          - link "课表管理" [ref=e32] [cursor=pointer]:
+            - /url: /teacher/schedule
+            - img [ref=e33]
+            - text: 课表管理
+          - link "班级管理" [ref=e35] [cursor=pointer]:
+            - /url: /teacher/groups
+            - img [ref=e36]
+            - text: 班级管理
+          - link "AI 助手" [ref=e41] [cursor=pointer]:
+            - /url: /teacher/ai-assistant
+            - img [ref=e42]
+            - text: AI 助手
+          - link "AI 工作台" [ref=e45] [cursor=pointer]:
+            - /url: /teacher/ai-workbench
+            - img [ref=e46]
+            - text: AI 工作台
+        - generic [ref=e48]:
+          - generic [ref=e50]: 王
+          - generic [ref=e51]:
+            - paragraph [ref=e52]: 王教授
+            - paragraph [ref=e53]: 教师
+          - button "登出" [ref=e54]:
+            - img
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - navigation "面包屑" [ref=e57]:
+          - generic [ref=e59]: 教师
+          - generic [ref=e60]:
+            - generic [ref=e61]: /
+            - generic [ref=e62]: 仪表盘
+        - generic [ref=e63]:
+          - button "通知" [ref=e64]:
+            - img
+          - button "AI 助手" [ref=e65]:
+            - img
+            - text: AI 助手
+          - button "用户菜单" [ref=e66]:
+            - generic [ref=e68]: 王
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - generic [ref=e73]: 2026 年 5 月 16 日 · 周六 · 第 13 教学周
+            - heading "教学工作台" [level=1] [ref=e74]
+            - paragraph [ref=e75]:
+              - text: 今日无排课·待批
+              - generic [ref=e76]: 2 份
+              - text: ·本周新发布
+              - generic [ref=e77]: 0 项任务
+          - generic [ref=e79]:
+            - img [ref=e81]
+            - generic [ref=e84]:
+              - generic [ref=e85]: AI 助手
+              - generic [ref=e86]: ·
+              - generic [ref=e87]: 本周建议
+            - button "生成一周洞察" [ref=e88]:
+              - text: 一周洞察
+              - img [ref=e89]
+        - generic [ref=e91]:
+          - generic [ref=e93]:
+            - generic [ref=e94]:
+              - generic [ref=e95]: 在教班级
+              - img [ref=e97]
+            - generic [ref=e103]: "2"
+            - generic [ref=e104]: 共 13 名学生
+          - generic [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]: 本周提交
+              - img [ref=e110]
+            - generic [ref=e115]: "2"
+            - generic [ref=e117]:
+              - generic [ref=e118]: 完成率 12%
+              - button "完成率口径说明" [ref=e119]:
+                - img [ref=e120]
+          - generic [ref=e123]:
+            - generic [ref=e124]:
+              - generic [ref=e125]: 需审核
+              - img [ref=e127]
+            - generic [ref=e131]: "2"
+            - generic [ref=e132]: 前往任务列表批改
+          - generic [ref=e134]:
+            - generic [ref=e135]:
+              - generic [ref=e136]: 薄弱任务
+              - img [ref=e138]
+            - generic [ref=e143]: "7"
+            - generic [ref=e144]: 低均分，建议讲解
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - generic [ref=e147]:
+              - generic [ref=e148]:
+                - heading "任务列表" [level=2] [ref=e149]
+                - button "回到当天" [disabled]:
+                  - img
+                  - text: 回到当天
+              - generic [ref=e150]:
+                - combobox "按课程筛选" [ref=e151]:
+                  - generic: 全部课程
+                  - img
+                - radiogroup "按任务类型筛选" [ref=e152]:
+                  - radio "全部" [checked] [ref=e153]
+                  - radio "测验" [ref=e154]
+                  - radio "模拟" [ref=e155]
+                  - radio "主观" [ref=e156]
+              - generic [ref=e157]:
+                - generic [ref=e158]:
+                  - generic [ref=e160]: 已过期 · 20
+                  - button "模拟对话 已过期 2月21日 客户理财咨询模拟 个人理财规划 · 金融2024A班 · 理财基础概念 · 什么是个人理财 课前 9 完成度 9% (1/11) 暂无均分 测试 管理" [ref=e162] [cursor=pointer]:
+                    - generic [ref=e163]:
+                      - img [ref=e165]
+                      - generic [ref=e167]:
+                        - generic [ref=e168]:
+                          - generic [ref=e169]: 模拟对话
+                          - generic [ref=e170]: 已过期 2月21日
+                        - generic [ref=e171]: 客户理财咨询模拟
+                        - generic [ref=e172]:
+                          - generic [ref=e173]: 个人理财规划
+                          - generic [ref=e174]: ·
+                          - generic [ref=e175]: 金融2024A班
+                          - generic [ref=e176]: ·
+                          - generic [ref=e177]: 理财基础概念 · 什么是个人理财
+                          - generic [ref=e178]: 课前
+                        - generic [ref=e179]:
+                          - generic [ref=e180]:
+                            - progressbar "完成度" [ref=e181]
+                            - generic [ref=e183]: 完成度 9%
+                            - generic [ref=e184]: (1/11)
+                          - generic [ref=e186]: 暂无均分
+                      - generic [ref=e187]:
+                        - button "测试" [ref=e188]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e189]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 2月26日 测验1 个人理财规划 · 金融2024A班 · 理财基础概念 · 收支管理 课后 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e190] [cursor=pointer]:
+                    - generic [ref=e191]:
+                      - img [ref=e193]
+                      - generic [ref=e196]:
+                        - generic [ref=e197]:
+                          - generic [ref=e198]: 测验
+                          - generic [ref=e199]: 已过期 2月26日
+                        - generic [ref=e200]: 测验1
+                        - generic [ref=e201]:
+                          - generic [ref=e202]: 个人理财规划
+                          - generic [ref=e203]: ·
+                          - generic [ref=e204]: 金融2024A班
+                          - generic [ref=e205]: ·
+                          - generic [ref=e206]: 理财基础概念 · 收支管理
+                          - generic [ref=e207]: 课后
+                        - generic [ref=e208]:
+                          - generic [ref=e209]:
+                            - progressbar "完成度" [ref=e210]
+                            - generic [ref=e211]: 完成度 0%
+                            - generic [ref=e212]: (0/11)
+                          - generic [ref=e214]: 暂无均分
+                      - generic [ref=e215]:
+                        - button "测试" [ref=e216]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e217]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 已过期 2月28日 客户理财咨询模拟 个人理财规划 · 金融2024A班 · 理财基础概念 · 财务目标设定 课中 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e218] [cursor=pointer]:
+                    - generic [ref=e219]:
+                      - img [ref=e221]
+                      - generic [ref=e223]:
+                        - generic [ref=e224]:
+                          - generic [ref=e225]: 模拟对话
+                          - generic [ref=e226]: 已过期 2月28日
+                        - generic [ref=e227]: 客户理财咨询模拟
+                        - generic [ref=e228]:
+                          - generic [ref=e229]: 个人理财规划
+                          - generic [ref=e230]: ·
+                          - generic [ref=e231]: 金融2024A班
+                          - generic [ref=e232]: ·
+                          - generic [ref=e233]: 理财基础概念 · 财务目标设定
+                          - generic [ref=e234]: 课中
+                        - generic [ref=e235]:
+                          - generic [ref=e236]:
+                            - progressbar "完成度" [ref=e237]
+                            - generic [ref=e238]: 完成度 0%
+                            - generic [ref=e239]: (0/11)
+                          - generic [ref=e241]: 暂无均分
+                      - generic [ref=e242]:
+                        - button "测试" [ref=e243]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e244]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 2月28日 理财基础知识随堂测验 个人理财规划 · 金融2024A班 · 理财基础概念 · 收支管理 课中 9 完成度 9% (1/11) 均分 11.4 测试 管理" [ref=e245] [cursor=pointer]:
+                    - generic [ref=e246]:
+                      - img [ref=e248]
+                      - generic [ref=e251]:
+                        - generic [ref=e252]:
+                          - generic [ref=e253]: 测验
+                          - generic [ref=e254]: 已过期 2月28日
+                        - generic [ref=e255]: 理财基础知识随堂测验
+                        - generic [ref=e256]:
+                          - generic [ref=e257]: 个人理财规划
+                          - generic [ref=e258]: ·
+                          - generic [ref=e259]: 金融2024A班
+                          - generic [ref=e260]: ·
+                          - generic [ref=e261]: 理财基础概念 · 收支管理
+                          - generic [ref=e262]: 课中
+                        - generic [ref=e263]:
+                          - generic [ref=e264]:
+                            - progressbar "完成度" [ref=e265]
+                            - generic [ref=e267]: 完成度 9%
+                            - generic [ref=e268]: (1/11)
+                          - generic [ref=e270]: 均分 11.4
+                      - generic [ref=e271]:
+                        - button "测试" [ref=e272]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e273]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 已过期 3月7日 客户理财咨询模拟练习 个人理财规划 · 金融2024A班 · 风险与资产配置 · 资产配置策略 课后 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e274] [cursor=pointer]:
+                    - generic [ref=e275]:
+                      - img [ref=e277]
+                      - generic [ref=e279]:
+                        - generic [ref=e280]:
+                          - generic [ref=e281]: 模拟对话
+                          - generic [ref=e282]: 已过期 3月7日
+                        - generic [ref=e283]: 客户理财咨询模拟练习
+                        - generic [ref=e284]:
+                          - generic [ref=e285]: 个人理财规划
+                          - generic [ref=e286]: ·
+                          - generic [ref=e287]: 金融2024A班
+                          - generic [ref=e288]: ·
+                          - generic [ref=e289]: 风险与资产配置 · 资产配置策略
+                          - generic [ref=e290]: 课后
+                        - generic [ref=e291]:
+                          - generic [ref=e292]:
+                            - progressbar "完成度" [ref=e293]
+                            - generic [ref=e294]: 完成度 0%
+                            - generic [ref=e295]: (0/11)
+                          - generic [ref=e297]: 暂无均分
+                      - generic [ref=e298]:
+                        - button "测试" [ref=e299]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e300]:
+                          - img
+                          - text: 管理
+                  - button "主观题 已过期 3月14日 个人投资组合分析报告 个人理财规划 · 金融2024A班 · 投资工具入门 · 基金投资基础 课后 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e301] [cursor=pointer]:
+                    - generic [ref=e302]:
+                      - img [ref=e304]
+                      - generic [ref=e307]:
+                        - generic [ref=e308]:
+                          - generic [ref=e309]: 主观题
+                          - generic [ref=e310]: 已过期 3月14日
+                        - generic [ref=e311]: 个人投资组合分析报告
+                        - generic [ref=e312]:
+                          - generic [ref=e313]: 个人理财规划
+                          - generic [ref=e314]: ·
+                          - generic [ref=e315]: 金融2024A班
+                          - generic [ref=e316]: ·
+                          - generic [ref=e317]: 投资工具入门 · 基金投资基础
+                          - generic [ref=e318]: 课后
+                        - generic [ref=e319]:
+                          - generic [ref=e320]:
+                            - progressbar "完成度" [ref=e321]
+                            - generic [ref=e322]: 完成度 0%
+                            - generic [ref=e323]: (0/11)
+                          - generic [ref=e325]: 暂无均分
+                      - generic [ref=e326]:
+                        - button "测试" [ref=e327]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e328]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 4月29日 理财基础知识随堂测验 个人理财规划 · 金融2024A班 · 理财基础概念 · 收支管理 课中 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e329] [cursor=pointer]:
+                    - generic [ref=e330]:
+                      - img [ref=e332]
+                      - generic [ref=e335]:
+                        - generic [ref=e336]:
+                          - generic [ref=e337]: 测验
+                          - generic [ref=e338]: 已过期 4月29日
+                        - generic [ref=e339]: 理财基础知识随堂测验
+                        - generic [ref=e340]:
+                          - generic [ref=e341]: 个人理财规划
+                          - generic [ref=e342]: ·
+                          - generic [ref=e343]: 金融2024A班
+                          - generic [ref=e344]: ·
+                          - generic [ref=e345]: 理财基础概念 · 收支管理
+                          - generic [ref=e346]: 课中
+                        - generic [ref=e347]:
+                          - generic [ref=e348]:
+                            - progressbar "完成度" [ref=e349]
+                            - generic [ref=e350]: 完成度 0%
+                            - generic [ref=e351]: (0/11)
+                          - generic [ref=e353]: 暂无均分
+                      - generic [ref=e354]:
+                        - button "测试" [ref=e355]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e356]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 4月29日 B4 独立测验 · 金融2024A班 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e357] [cursor=pointer]:
+                    - generic [ref=e358]:
+                      - img [ref=e360]
+                      - generic [ref=e363]:
+                        - generic [ref=e364]:
+                          - generic [ref=e365]: 测验
+                          - generic [ref=e366]: 已过期 4月29日
+                        - generic [ref=e367]: B4 独立测验
+                        - generic [ref=e368]:
+                          - generic [ref=e369]: ·
+                          - generic [ref=e370]: 金融2024A班
+                        - generic [ref=e371]:
+                          - generic [ref=e372]:
+                            - progressbar "完成度" [ref=e373]
+                            - generic [ref=e374]: 完成度 0%
+                            - generic [ref=e375]: (0/11)
+                          - generic [ref=e377]: 暂无均分
+                      - generic [ref=e378]:
+                        - button "测试" [ref=e379]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e380]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 已过期 5月6日 客户理财咨询模拟练习 个人理财规划 · 金融2024A班 · 风险与资产配置 · 资产配置策略 课后 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e381] [cursor=pointer]:
+                    - generic [ref=e382]:
+                      - img [ref=e384]
+                      - generic [ref=e386]:
+                        - generic [ref=e387]:
+                          - generic [ref=e388]: 模拟对话
+                          - generic [ref=e389]: 已过期 5月6日
+                        - generic [ref=e390]: 客户理财咨询模拟练习
+                        - generic [ref=e391]:
+                          - generic [ref=e392]: 个人理财规划
+                          - generic [ref=e393]: ·
+                          - generic [ref=e394]: 金融2024A班
+                          - generic [ref=e395]: ·
+                          - generic [ref=e396]: 风险与资产配置 · 资产配置策略
+                          - generic [ref=e397]: 课后
+                        - generic [ref=e398]:
+                          - generic [ref=e399]:
+                            - progressbar "完成度" [ref=e400]
+                            - generic [ref=e401]: 完成度 0%
+                            - generic [ref=e402]: (0/11)
+                          - generic [ref=e404]: 暂无均分
+                      - generic [ref=e405]:
+                        - button "测试" [ref=e406]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e407]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 5月6日 理财基础知识随堂测验 个人理财规划 · 金融2024A班 · 理财基础概念 · 收支管理 课中 18 完成度 18% (2/11) 均分 42.9 测试 管理" [ref=e408] [cursor=pointer]:
+                    - generic [ref=e409]:
+                      - img [ref=e411]
+                      - generic [ref=e414]:
+                        - generic [ref=e415]:
+                          - generic [ref=e416]: 测验
+                          - generic [ref=e417]: 已过期 5月6日
+                        - generic [ref=e418]: 理财基础知识随堂测验
+                        - generic [ref=e419]:
+                          - generic [ref=e420]: 个人理财规划
+                          - generic [ref=e421]: ·
+                          - generic [ref=e422]: 金融2024A班
+                          - generic [ref=e423]: ·
+                          - generic [ref=e424]: 理财基础概念 · 收支管理
+                          - generic [ref=e425]: 课中
+                        - generic [ref=e426]:
+                          - generic [ref=e427]:
+                            - progressbar "完成度" [ref=e428]
+                            - generic [ref=e430]: 完成度 18%
+                            - generic [ref=e431]: (2/11)
+                          - generic [ref=e433]: 均分 42.9
+                      - generic [ref=e434]:
+                        - button "测试" [ref=e435]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e436]:
+                          - img
+                          - text: 管理
+                  - button "主观题 已过期 5月13日 个人投资组合分析报告 个人理财规划 · 金融2024A班 · 投资工具入门 · 基金投资基础 课后 9 完成度 9% (1/11) 均分 73 测试 管理" [ref=e437] [cursor=pointer]:
+                    - generic [ref=e438]:
+                      - img [ref=e440]
+                      - generic [ref=e443]:
+                        - generic [ref=e444]:
+                          - generic [ref=e445]: 主观题
+                          - generic [ref=e446]: 已过期 5月13日
+                        - generic [ref=e447]: 个人投资组合分析报告
+                        - generic [ref=e448]:
+                          - generic [ref=e449]: 个人理财规划
+                          - generic [ref=e450]: ·
+                          - generic [ref=e451]: 金融2024A班
+                          - generic [ref=e452]: ·
+                          - generic [ref=e453]: 投资工具入门 · 基金投资基础
+                          - generic [ref=e454]: 课后
+                        - generic [ref=e455]:
+                          - generic [ref=e456]:
+                            - progressbar "完成度" [ref=e457]
+                            - generic [ref=e459]: 完成度 9%
+                            - generic [ref=e460]: (1/11)
+                          - generic [ref=e462]: 均分 73
+                      - generic [ref=e463]:
+                        - button "测试" [ref=e464]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e465]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 已过期 5月13日 客户理财咨询模拟练习 个人理财规划 · 金融2024A班 · 风险与资产配置 · 资产配置策略 课后 18 完成度 18% (2/11) 均分 21.5 测试 管理" [ref=e466] [cursor=pointer]:
+                    - generic [ref=e467]:
+                      - img [ref=e469]
+                      - generic [ref=e471]:
+                        - generic [ref=e472]:
+                          - generic [ref=e473]: 模拟对话
+                          - generic [ref=e474]: 已过期 5月13日
+                        - generic [ref=e475]: 客户理财咨询模拟练习
+                        - generic [ref=e476]:
+                          - generic [ref=e477]: 个人理财规划
+                          - generic [ref=e478]: ·
+                          - generic [ref=e479]: 金融2024A班
+                          - generic [ref=e480]: ·
+                          - generic [ref=e481]: 风险与资产配置 · 资产配置策略
+                          - generic [ref=e482]: 课后
+                        - generic [ref=e483]:
+                          - generic [ref=e484]:
+                            - progressbar "完成度" [ref=e485]
+                            - generic [ref=e487]: 完成度 18%
+                            - generic [ref=e488]: (2/11)
+                          - generic [ref=e490]: 均分 21.5
+                      - generic [ref=e491]:
+                        - button "测试" [ref=e492]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e493]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 已过期 5月14日 [QA-V2-202604300250] 客户风险沟通模拟 个人理财规划 · 金融2024A班 · 理财基础概念 · 什么是个人理财 课中 36 完成度 36% (4/11) 均分 72 测试 管理" [ref=e494] [cursor=pointer]:
+                    - generic [ref=e495]:
+                      - img [ref=e497]
+                      - generic [ref=e499]:
+                        - generic [ref=e500]:
+                          - generic [ref=e501]: 模拟对话
+                          - generic [ref=e502]: 已过期 5月14日
+                        - generic [ref=e503]: "[QA-V2-202604300250] 客户风险沟通模拟"
+                        - generic [ref=e504]:
+                          - generic [ref=e505]: 个人理财规划
+                          - generic [ref=e506]: ·
+                          - generic [ref=e507]: 金融2024A班
+                          - generic [ref=e508]: ·
+                          - generic [ref=e509]: 理财基础概念 · 什么是个人理财
+                          - generic [ref=e510]: 课中
+                        - generic [ref=e511]:
+                          - generic [ref=e512]:
+                            - progressbar "完成度" [ref=e513]
+                            - generic [ref=e515]: 完成度 36%
+                            - generic [ref=e516]: (4/11)
+                          - generic [ref=e518]: 均分 72
+                      - generic [ref=e519]:
+                        - button "测试" [ref=e520]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e521]:
+                          - img
+                          - text: 管理
+                  - button "主观题 已过期 5月14日 [QA-V2-202604300250] 家庭预算分析报告 个人理财规划 · 金融2024A班 · 理财基础概念 · 什么是个人理财 课后 36 完成度 36% (4/11) 均分 67.8 测试 管理" [ref=e522] [cursor=pointer]:
+                    - generic [ref=e523]:
+                      - img [ref=e525]
+                      - generic [ref=e528]:
+                        - generic [ref=e529]:
+                          - generic [ref=e530]: 主观题
+                          - generic [ref=e531]: 已过期 5月14日
+                        - generic [ref=e532]: "[QA-V2-202604300250] 家庭预算分析报告"
+                        - generic [ref=e533]:
+                          - generic [ref=e534]: 个人理财规划
+                          - generic [ref=e535]: ·
+                          - generic [ref=e536]: 金融2024A班
+                          - generic [ref=e537]: ·
+                          - generic [ref=e538]: 理财基础概念 · 什么是个人理财
+                          - generic [ref=e539]: 课后
+                        - generic [ref=e540]:
+                          - generic [ref=e541]:
+                            - progressbar "完成度" [ref=e542]
+                            - generic [ref=e544]: 完成度 36%
+                            - generic [ref=e545]: (4/11)
+                          - generic [ref=e547]: 均分 67.8
+                      - generic [ref=e548]:
+                        - button "测试" [ref=e549]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e550]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 5月14日 [QA-V2-202604300250] 风险收益基础测验 个人理财规划 · 金融2024A班 · 理财基础概念 · 什么是个人理财 课前 36 完成度 36% (4/11) 均分 45 测试 管理" [ref=e551] [cursor=pointer]:
+                    - generic [ref=e552]:
+                      - img [ref=e554]
+                      - generic [ref=e557]:
+                        - generic [ref=e558]:
+                          - generic [ref=e559]: 测验
+                          - generic [ref=e560]: 已过期 5月14日
+                        - generic [ref=e561]: "[QA-V2-202604300250] 风险收益基础测验"
+                        - generic [ref=e562]:
+                          - generic [ref=e563]: 个人理财规划
+                          - generic [ref=e564]: ·
+                          - generic [ref=e565]: 金融2024A班
+                          - generic [ref=e566]: ·
+                          - generic [ref=e567]: 理财基础概念 · 什么是个人理财
+                          - generic [ref=e568]: 课前
+                        - generic [ref=e569]:
+                          - generic [ref=e570]:
+                            - progressbar "完成度" [ref=e571]
+                            - generic [ref=e573]: 完成度 36%
+                            - generic [ref=e574]: (4/11)
+                          - generic [ref=e576]: 均分 45
+                      - generic [ref=e577]:
+                        - button "测试" [ref=e578]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e579]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 5月14日 个人理财基础概念测验 个人理财规划 · 金融2024A班 · 理财基础概念 · 什么是个人理财 课后 9 完成度 9% (1/11) 暂无均分 测试 管理" [ref=e580] [cursor=pointer]:
+                    - generic [ref=e581]:
+                      - img [ref=e583]
+                      - generic [ref=e586]:
+                        - generic [ref=e587]:
+                          - generic [ref=e588]: 测验
+                          - generic [ref=e589]: 已过期 5月14日
+                        - generic [ref=e590]: 个人理财基础概念测验
+                        - generic [ref=e591]:
+                          - generic [ref=e592]: 个人理财规划
+                          - generic [ref=e593]: ·
+                          - generic [ref=e594]: 金融2024A班
+                          - generic [ref=e595]: ·
+                          - generic [ref=e596]: 理财基础概念 · 什么是个人理财
+                          - generic [ref=e597]: 课后
+                        - generic [ref=e598]:
+                          - generic [ref=e599]:
+                            - progressbar "完成度" [ref=e600]
+                            - generic [ref=e602]: 完成度 9%
+                            - generic [ref=e603]: (1/11)
+                          - generic [ref=e605]: 暂无均分
+                      - generic [ref=e606]:
+                        - button "测试" [ref=e607]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e608]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 5月15日 ANL-2 B 班独立测验 个人理财规划 · 金融2024B班 · 理财基础概念 课中 50 完成度 50% (1/2) 均分 90 测试 管理" [ref=e609] [cursor=pointer]:
+                    - generic [ref=e610]:
+                      - img [ref=e612]
+                      - generic [ref=e615]:
+                        - generic [ref=e616]:
+                          - generic [ref=e617]: 测验
+                          - generic [ref=e618]: 已过期 5月15日
+                        - generic [ref=e619]: ANL-2 B 班独立测验
+                        - generic [ref=e620]:
+                          - generic [ref=e621]: 个人理财规划
+                          - generic [ref=e622]: ·
+                          - generic [ref=e623]: 金融2024B班
+                          - generic [ref=e624]: ·
+                          - generic [ref=e625]: 理财基础概念
+                          - generic [ref=e626]: 课中
+                        - generic [ref=e627]:
+                          - generic [ref=e628]:
+                            - progressbar "完成度" [ref=e629]
+                            - generic [ref=e631]: 完成度 50%
+                            - generic [ref=e632]: (1/2)
+                          - generic [ref=e634]: 均分 90
+                      - generic [ref=e635]:
+                        - button "测试" [ref=e636]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e637]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 已过期 5月15日 ANL-2 客户风险评估模拟 个人理财规划 · 金融2024A班 · 风险与资产配置 · 风险识别 课后 18 完成度 18% (2/11) 均分 55 测试 管理" [ref=e638] [cursor=pointer]:
+                    - generic [ref=e639]:
+                      - img [ref=e641]
+                      - generic [ref=e643]:
+                        - generic [ref=e644]:
+                          - generic [ref=e645]: 模拟对话
+                          - generic [ref=e646]: 已过期 5月15日
+                        - generic [ref=e647]: ANL-2 客户风险评估模拟
+                        - generic [ref=e648]:
+                          - generic [ref=e649]: 个人理财规划
+                          - generic [ref=e650]: ·
+                          - generic [ref=e651]: 金融2024A班
+                          - generic [ref=e652]: ·
+                          - generic [ref=e653]: 风险与资产配置 · 风险识别
+                          - generic [ref=e654]: 课后
+                        - generic [ref=e655]:
+                          - generic [ref=e656]:
+                            - progressbar "完成度" [ref=e657]
+                            - generic [ref=e659]: 完成度 18%
+                            - generic [ref=e660]: (2/11)
+                          - generic [ref=e662]: 均分 55
+                      - generic [ref=e663]:
+                        - button "测试" [ref=e664]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e665]:
+                          - img
+                          - text: 管理
+                  - button "主观题 已过期 5月15日 ANL-2 资产配置简答 个人理财规划 · 金融2024A班 · 理财基础概念 · 复利与现金流 课后 9 完成度 9% (1/11) 均分 56.7 测试 管理" [ref=e666] [cursor=pointer]:
+                    - generic [ref=e667]:
+                      - img [ref=e669]
+                      - generic [ref=e672]:
+                        - generic [ref=e673]:
+                          - generic [ref=e674]: 主观题
+                          - generic [ref=e675]: 已过期 5月15日
+                        - generic [ref=e676]: ANL-2 资产配置简答
+                        - generic [ref=e677]:
+                          - generic [ref=e678]: 个人理财规划
+                          - generic [ref=e679]: ·
+                          - generic [ref=e680]: 金融2024A班
+                          - generic [ref=e681]: ·
+                          - generic [ref=e682]: 理财基础概念 · 复利与现金流
+                          - generic [ref=e683]: 课后
+                        - generic [ref=e684]:
+                          - generic [ref=e685]:
+                            - progressbar "完成度" [ref=e686]
+                            - generic [ref=e688]: 完成度 9%
+                            - generic [ref=e689]: (1/11)
+                          - generic [ref=e691]: 均分 56.7
+                      - generic [ref=e692]:
+                        - button "测试" [ref=e693]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e694]:
+                          - img
+                          - text: 管理
+                  - button "测验 已过期 5月15日 ANL-2 复利测验 个人理财规划 · 金融2024A班 · 理财基础概念 · 复利与现金流 课中 27 完成度 27% (3/11) 均分 67.5 测试 管理" [ref=e695] [cursor=pointer]:
+                    - generic [ref=e696]:
+                      - img [ref=e698]
+                      - generic [ref=e701]:
+                        - generic [ref=e702]:
+                          - generic [ref=e703]: 测验
+                          - generic [ref=e704]: 已过期 5月15日
+                        - generic [ref=e705]: ANL-2 复利测验
+                        - generic [ref=e706]:
+                          - generic [ref=e707]: 个人理财规划
+                          - generic [ref=e708]: ·
+                          - generic [ref=e709]: 金融2024A班
+                          - generic [ref=e710]: ·
+                          - generic [ref=e711]: 理财基础概念 · 复利与现金流
+                          - generic [ref=e712]: 课中
+                        - generic [ref=e713]:
+                          - generic [ref=e714]:
+                            - progressbar "完成度" [ref=e715]
+                            - generic [ref=e717]: 完成度 27%
+                            - generic [ref=e718]: (3/11)
+                          - generic [ref=e720]: 均分 67.5
+                      - generic [ref=e721]:
+                        - button "测试" [ref=e722]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e723]:
+                          - img
+                          - text: 管理
+                - generic [ref=e724]:
+                  - generic [ref=e726]: 下周 · 2
+                  - button "主观题 5 天后截止 个人投资组合分析报告 个人理财规划 · 金融2024A班 · 投资工具入门 · 基金投资基础 课后 9 完成度 9% (1/11) 均分 20 测试 管理" [ref=e728] [cursor=pointer]:
+                    - generic [ref=e729]:
+                      - img [ref=e731]
+                      - generic [ref=e734]:
+                        - generic [ref=e735]:
+                          - generic [ref=e736]: 主观题
+                          - generic [ref=e737]: 5 天后截止
+                        - generic [ref=e738]: 个人投资组合分析报告
+                        - generic [ref=e739]:
+                          - generic [ref=e740]: 个人理财规划
+                          - generic [ref=e741]: ·
+                          - generic [ref=e742]: 金融2024A班
+                          - generic [ref=e743]: ·
+                          - generic [ref=e744]: 投资工具入门 · 基金投资基础
+                          - generic [ref=e745]: 课后
+                        - generic [ref=e746]:
+                          - generic [ref=e747]:
+                            - progressbar "完成度" [ref=e748]
+                            - generic [ref=e750]: 完成度 9%
+                            - generic [ref=e751]: (1/11)
+                          - generic [ref=e753]: 均分 20
+                      - generic [ref=e754]:
+                        - button "测试" [ref=e755]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e756]:
+                          - img
+                          - text: 管理
+                  - button "模拟对话 5 天后截止 保险配置模拟对话 个人理财规划 · 金融2024A班 · 理财基础概念 · 什么是个人理财 课中 0 完成度 0% (0/11) 暂无均分 测试 管理" [ref=e757] [cursor=pointer]:
+                    - generic [ref=e758]:
+                      - img [ref=e760]
+                      - generic [ref=e762]:
+                        - generic [ref=e763]:
+                          - generic [ref=e764]: 模拟对话
+                          - generic [ref=e765]: 5 天后截止
+                        - generic [ref=e766]: 保险配置模拟对话
+                        - generic [ref=e767]:
+                          - generic [ref=e768]: 个人理财规划
+                          - generic [ref=e769]: ·
+                          - generic [ref=e770]: 金融2024A班
+                          - generic [ref=e771]: ·
+                          - generic [ref=e772]: 理财基础概念 · 什么是个人理财
+                          - generic [ref=e773]: 课中
+                        - generic [ref=e774]:
+                          - generic [ref=e775]:
+                            - progressbar "完成度" [ref=e776]
+                            - generic [ref=e777]: 完成度 0%
+                            - generic [ref=e778]: (0/11)
+                          - generic [ref=e780]: 暂无均分
+                      - generic [ref=e781]:
+                        - button "测试" [ref=e782]:
+                          - img
+                          - text: 测试
+                        - button "管理" [ref=e783]:
+                          - img
+                          - text: 管理
+            - generic [ref=e784]:
+              - generic [ref=e785]:
+                - heading "班级表现" [level=2] [ref=e786]
+                - generic [ref=e787]:
+                  - combobox "按课程筛选班级表现" [ref=e788]:
+                    - generic: 全部课程
+                    - img
+                  - radiogroup "时间维度" [ref=e789]:
+                    - radio "本周" [checked] [ref=e790]
+                    - radio "本月" [ref=e791]
+                    - radio "学期" [ref=e792]
+              - generic [ref=e794]:
+                - generic [ref=e795]:
+                  - generic [ref=e796]: 平均得分趋势
+                  - generic [ref=e797]:
+                    - generic [ref=e798]: "51.9"
+                    - generic [ref=e799]:
+                      - img [ref=e800]
+                      - text: "-3.3 较上周"
+                  - generic [ref=e803]:
+                    - generic [ref=e804]:
+                      - generic [ref=e805]: 金融2024B班
+                      - generic [ref=e808]: "90.0"
+                    - generic [ref=e809]:
+                      - generic [ref=e810]: 金融2024A班
+                      - generic [ref=e813]: "48.4"
+                - generic [ref=e814]:
+                  - generic [ref=e815]: 8 周提交量 & 均分
+                  - img [ref=e816]
+                  - generic [ref=e825]:
+                    - generic [ref=e826]: W1
+                    - generic [ref=e827]: W2
+                    - generic [ref=e828]: W3
+                    - generic [ref=e829]: W4
+                    - generic [ref=e830]: W5
+                    - generic [ref=e831]: W6
+                    - generic [ref=e832]: W7
+                    - generic [ref=e833]: W8
+                  - generic [ref=e834]:
+                    - generic [ref=e835]: 班级均分
+                    - generic [ref=e837]: 提交量
+            - generic [ref=e839]:
+              - generic [ref=e840]:
+                - heading "薄弱任务" [level=2] [ref=e841]
+                - generic [ref=e842]: 按低分风险排序 · 前 3
+              - generic [ref=e843]:
+                - generic [ref=e844]:
+                  - generic [ref=e846]:
+                    - generic [ref=e847]: 理财基础知识随堂测验
+                    - generic [ref=e848]: 个人理财规划·1 名学生错答
+                  - generic [ref=e849]: 89%
+                  - link "查看洞察" [ref=e850] [cursor=pointer]:
+                    - /url: /teacher/instances/017f5aa6-f12f-4f48-a747-0f90cf6040a7/insights
+                    - img
+                    - text: 查看洞察
+                - generic [ref=e851]:
+                  - generic [ref=e853]:
+                    - generic [ref=e854]: 个人投资组合分析报告
+                    - generic [ref=e855]: 个人理财规划·1 名学生错答
+                  - generic [ref=e856]: 80%
+                  - link "查看洞察" [ref=e857] [cursor=pointer]:
+                    - /url: /teacher/instances/d8099300-e7ff-4aac-8505-b3533a82fd39/insights
+                    - img
+                    - text: 查看洞察
+                - generic [ref=e858]:
+                  - generic [ref=e860]:
+                    - generic [ref=e861]: 客户理财咨询模拟练习
+                    - generic [ref=e862]: 个人理财规划·2 名学生错答
+                  - generic [ref=e863]: 79%
+                  - link "查看洞察" [ref=e864] [cursor=pointer]:
+                    - /url: /teacher/instances/f1494008-e987-4576-b5e5-4a304d0ec822/insights
+                    - img
+                    - text: 查看洞察
+          - generic [ref=e865]:
+            - generic [ref=e866]:
+              - generic [ref=e867]:
+                - heading "近期课表" [level=2] [ref=e868]
+                - generic [ref=e869]: 未来 2 节课
+              - generic [ref=e870]:
+                - generic [ref=e871]:
+                  - generic [ref=e872]:
+                    - generic [ref=e873]: 5/18
+                    - generic [ref=e874]: 周一
+                  - generic [ref=e876]:
+                    - generic [ref=e877]: 个人理财规划
+                    - generic [ref=e878]: 10:00·金融2024A班 · 金融楼 301
+                - generic [ref=e879]:
+                  - generic [ref=e880]:
+                    - generic [ref=e881]: 5/20
+                    - generic [ref=e882]: 周三
+                  - generic [ref=e884]:
+                    - generic [ref=e885]: 个人理财规划
+                    - generic [ref=e886]: 14:00·金融2024A班 · 金融楼 301
+            - generic [ref=e887]:
+              - generic [ref=e888]:
+                - heading "动态" [level=2] [ref=e889]
+                - generic [ref=e890]: 最近 4 条
+              - generic [ref=e891]:
+                - generic [ref=e892]:
+                  - img [ref=e894]
+                  - generic [ref=e897]:
+                    - text: alex
+                    - generic [ref=e898]: 完成了
+                    - text: 理财基础知识测验
+                    - generic [ref=e899]: 11 分
+                    - generic [ref=e900]: 4 小时前
+                - generic [ref=e901]:
+                  - img [ref=e903]
+                  - generic [ref=e905]:
+                    - text: alex
+                    - generic [ref=e906]: 完成了
+                    - text: 客户理财咨询模拟
+                    - generic [ref=e907]: 0 分
+                    - generic [ref=e908]: 6 小时前
+                - generic [ref=e909]:
+                  - img [ref=e911]
+                  - generic [ref=e913]:
+                    - text: 张三
+                    - generic [ref=e914]: 完成了
+                    - text: 客户理财咨询模拟
+                    - generic [ref=e915]: 18 分
+                    - generic [ref=e916]: 5月6日
+                - generic [ref=e917]:
+                  - img [ref=e919]
+                  - generic [ref=e922]:
+                    - text: 张三
+                    - generic [ref=e923]: 完成了
+                    - text: 理财基础知识测验
+                    - generic [ref=e924]: 0 分
+                    - generic [ref=e925]: 5月6日
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e926]:
+        - img [ref=e928]
+        - generic [ref=e932]: 登录成功
+  - alert [ref=e933]
+```
+
+# Test source
+
+```ts
+  1  | import { test, expect } from "@playwright/test";
+  2  | import { loginAs } from "./_setup";
+  3  | 
+  4  | /**
+  5  |  * Smoke 01: teacher1 登录 → API create task → create instance → publish → assert published.
+  6  |  *
+  7  |  * 不依赖 molly 演示数据, 全程自给自足 + 自清理.
+  8  |  */
+  9  | test("smoke-01 teacher 建任务 → 建实例 → publish", async ({ browser }) => {
+  10 |   const page = await loginAs(browser, "teacher1");
+  11 |   const r = page.request;
+  12 | 
+  13 |   // 找一个 teacher1 拥有的 course + classId (seed: 王教授 → 金融2024A班)
+  14 |   const coursesRes = await r.get("/api/lms/courses?take=20");
+  15 |   expect(coursesRes.ok()).toBeTruthy();
+  16 |   const coursesJson = await coursesRes.json();
+  17 |   expect(coursesJson.success).toBe(true);
+  18 |   const courses: Array<{ id: string; classId: string | null }> =
+  19 |     coursesJson.data?.items ?? coursesJson.data ?? [];
+  20 |   const course = courses.find((c) => c.classId);
+  21 |   if (!course) {
+  22 |     throw new Error("seed 未含 teacher1 的 course + classId — 检查 npm run db:seed");
+  23 |   }
+  24 | 
+  25 |   const taskName = `smoke-01-task-${Date.now()}`;
+  26 |   const createTaskRes = await r.post("/api/tasks", {
+  27 |     data: {
+  28 |       taskType: "subjective",
+  29 |       taskName,
+  30 |       requirements: "smoke 测试用主观题",
+  31 |       subjectiveConfig: {
+  32 |         wordLimit: 100,
+  33 |         allowedAttachmentTypes: [],
+  34 |       },
+  35 |       scoringCriteria: [
+  36 |         { name: "完整性", maxPoints: 50, order: 0 },
+  37 |         { name: "准确性", maxPoints: 50, order: 1 },
+  38 |       ],
+  39 |     },
+  40 |   });
+> 41 |   expect(createTaskRes.status()).toBe(201);
+     |                                  ^ Error: expect(received).toBe(expected) // Object.is equality
+  42 |   const taskJson = await createTaskRes.json();
+  43 |   expect(taskJson.success).toBe(true);
+  44 |   const taskId = taskJson.data.id;
+  45 | 
+  46 |   const dueAt = new Date(Date.now() + 7 * 24 * 3600_000).toISOString();
+  47 |   const createInstRes = await r.post("/api/lms/task-instances", {
+  48 |     data: {
+  49 |       title: `${taskName}-instance`,
+  50 |       taskId,
+  51 |       taskType: "subjective",
+  52 |       classId: course.classId,
+  53 |       courseId: course.id,
+  54 |       dueAt,
+  55 |     },
+  56 |   });
+  57 |   expect(createInstRes.status()).toBe(201);
+  58 |   const instJson = await createInstRes.json();
+  59 |   expect(instJson.success).toBe(true);
+  60 |   const instanceId = instJson.data.id;
+  61 | 
+  62 |   // publish
+  63 |   const pubRes = await r.post(`/api/lms/task-instances/${instanceId}/publish`);
+  64 |   expect(pubRes.status()).toBe(200);
+  65 |   const pubJson = await pubRes.json();
+  66 |   expect(pubJson.success).toBe(true);
+  67 |   expect(pubJson.data.status).toBe("published");
+  68 | 
+  69 |   // cleanup
+  70 |   await r.delete(`/api/lms/task-instances/${instanceId}`).catch(() => {});
+  71 |   await r.delete(`/api/tasks/${taskId}`).catch(() => {});
+  72 | });
+  73 | 
+```

@@ -1,0 +1,162 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`question-bank + work-assistant prompt builders (PR-1 E) > question-bank checkOptimize snapshot 1`] = `
+"你是题库质检与优化助手。必须同时给出"质检"和"补充题"两类输出，不能只给抽象建议。
+
+【质检要求】
+逐题检查导入题目，把以下问题写入 issues 数组（每条带 questionIndex 和 sourceRef）：
+- 缺答案 / 缺解析 / 答案疑似错误（结合素材上下文判断）
+- 选项语义歧义、选项之间互斥不清、唯一正确选项不明显
+- 重复题或近似题
+- 题型分布异常（如全是单选、缺少判断或多选）
+- 题干表述不清、含错别字、语病
+
+【补题要求】
+基于课程/章节/小节/素材实际内容，新增至少 3-5 道高质量补充题，每道题：
+- 必须有完整 prompt + 选项 + correctOptionIds 或 correctAnswer + explanation（不能留空）
+- 标记 aiSupplemented=true
+- 题型应均衡：至少各包含 1 道 single_choice / multiple_choice / true_false 或 short_answer
+- conceptTags 必须填实际知识点（≥1 个），不要写 "无" / "暂无"
+- explanation 不少于 30 字，给出推导过程或参考依据
+- sourceRefs 引用具体 sourceId 和原文摘录
+
+【硬性规则】
+- 不覆盖原导入题。
+- 已有题目不在 questions 数组里返回；只返回新增补充题。
+- 题目须贴合当前课程、章节、小节、素材；不要泛泛之谈。
+- 即使素材较短，也要尽量挖出 3 道补题。
+- 返回严格 JSON。"
+`;
+
+exports[`question-bank + work-assistant prompt builders (PR-1 E) > question-bank checkOptimize snapshot 2`] = `
+"动作：checkOptimize
+课程：x
+课程描述：无
+章节：未指定
+小节：未指定
+教师要求：未填写
+
+课程素材：
+未选择素材。
+
+当前题目：
+暂无。
+
+请返回 JSON：
+{
+  "summary": "本次导入/检查/优化的简短说明",
+  "issues": [
+    {"severity": "info|warning|critical", "message": "问题描述", "questionIndex": 0, "sourceRef": "页码或行号"}
+  ],
+  "questions": [
+    {
+      "type": "single_choice|multiple_choice|true_false|short_answer",
+      "prompt": "题干",
+      "options": [{"id": "A", "text": "选项文本"}],
+      "correctOptionIds": ["A"],
+      "correctAnswer": "简答参考答案",
+      "explanation": "解析。缺失时留空",
+      "points": 1,
+      "conceptTags": ["知识点"],
+      "sourceRefs": [{"sourceId": "素材ID", "fileName": "文件名", "page": "页码", "row": "行号", "excerpt": "原文片段"}],
+      "confidence": 0.8,
+      "needsReview": false,
+      "aiSupplemented": true,
+      "issues": ["答案待确认"]
+    }
+  ]
+}"
+`;
+
+exports[`question-bank + work-assistant prompt builders (PR-1 E) > question-bank import snapshot 1`] = `
+"你是题库导入助手。任务是从教师上传的题库素材中忠实提取原始题目。
+
+规则：
+- 只提取素材中已有的题目、选项、答案、解析、知识点和来源位置。
+- 不要私自补写缺失答案或解析；不明确时设置 needsReview=true，并在 issues 中说明。
+- 题型只能是 single_choice、multiple_choice、true_false、short_answer。
+- 保留原题表达，不做润色改写。
+- 返回严格 JSON。"
+`;
+
+exports[`question-bank + work-assistant prompt builders (PR-1 E) > question-bank import snapshot 2`] = `
+"动作：import
+课程：理财
+课程描述：金融2024
+章节：复利
+小节：应用
+教师要求：侧重计算题
+
+课程素材：
+未选择素材。
+
+当前题目：
+暂无。
+
+请返回 JSON：
+{
+  "summary": "本次导入/检查/优化的简短说明",
+  "issues": [
+    {"severity": "info|warning|critical", "message": "问题描述", "questionIndex": 0, "sourceRef": "页码或行号"}
+  ],
+  "questions": [
+    {
+      "type": "single_choice|multiple_choice|true_false|short_answer",
+      "prompt": "题干",
+      "options": [{"id": "A", "text": "选项文本"}],
+      "correctOptionIds": ["A"],
+      "correctAnswer": "简答参考答案",
+      "explanation": "解析。缺失时留空",
+      "points": 1,
+      "conceptTags": ["知识点"],
+      "sourceRefs": [{"sourceId": "素材ID", "fileName": "文件名", "page": "页码", "row": "行号", "excerpt": "原文片段"}],
+      "confidence": 0.8,
+      "needsReview": false,
+      "aiSupplemented": false,
+      "issues": ["答案待确认"]
+    }
+  ]
+}"
+`;
+
+exports[`question-bank + work-assistant prompt builders (PR-1 E) > work-assistant lessonPolish snapshot 1`] = `
+"你是面向中国大陆中高职学校的一线教师工作助手。输出必须可由教师审核后使用，不要假装已经联网检索；如果缺少来源，请明确写“需教师补充材料/来源”。
+任务：完善教案。关注教学目标、重难点、课堂活动、评价任务、学生差异化支持和板书/话术建议。"
+`;
+
+exports[`question-bank + work-assistant prompt builders (PR-1 E) > work-assistant lessonPolish snapshot 2`] = `
+"工具：lessonPolish
+输出风格：structured
+严格度：balanced
+教师补充需求：强调互动
+搜索请求：不使用搜索
+文件识别报告：[]
+
+材料：
+教案草稿
+
+请返回 JSON：
+{
+  "title": "标题",
+  "summary": "总体判断",
+  "sections": [
+    {
+      "heading": "部分名称",
+      "diagnosis": "当前问题或判断",
+      "suggestions": ["可执行建议"],
+      "examples": ["可直接参考的表达、活动或解析"]
+    }
+  ],
+  "actionItems": ["教师下一步可做的动作"],
+  "cautions": ["需要教师复核或补充的点"],
+  "gradingTable": [
+    {
+      "student": "学生/试卷",
+      "question": "题号",
+      "score": "得分",
+      "feedback": "反馈",
+      "uncertainty": "不确定点"
+    }
+  ]
+}"
+`;

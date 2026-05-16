@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseReadable } from "@/lib/auth/course-access";
 import { deleteCourse, getCourseWithStructure } from "@/lib/services/course.service";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
 import { prisma } from "@/lib/db/prisma";
@@ -63,12 +63,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     );
     const updated = await prisma.course.update({ where: { id }, data: updateData });
     // PR-FIX-1 UX5: 安全敏感写入强制 audit（不依赖 ENABLE_AUDIT_LOGS）
-    await logAuditForced({
+    await logAuditEvent({
       action: "course.update",
+      actorRole,
       actorId: result.session.user.id,
       targetId: id,
       targetType: "course",
-      metadata: { fields: Object.keys(updateData), actorRole },
+      metadata: { fields: Object.keys(updateData)},
     });
     return success(updated);
   } catch (err) {

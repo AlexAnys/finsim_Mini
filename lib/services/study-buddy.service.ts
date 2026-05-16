@@ -5,8 +5,18 @@ import {
   assertTaskInstanceReadable,
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { getKnowledgeSourcesForStudyBuddy } from "@/lib/services/course-knowledge-source.service";
+import {
+  buildStudyBuddyReplyPrompt,
+  SOCRATIC_MODE_PROMPT,
+  DIRECT_MODE_PROMPT,
+  STUDY_BUDDY_REPLY_PROMPT_VERSION,
+} from "@/lib/ai/prompts/study-buddy-reply";
+import {
+  buildStudyBuddySummaryPrompt,
+  STUDY_BUDDY_SUMMARY_PROMPT_VERSION,
+} from "@/lib/ai/prompts/study-buddy-summary";
 
 type UserLike = { id: string; role: string; classId?: string | null };
 type StudyBuddyMessageRecord = {
@@ -73,16 +83,13 @@ export async function createPost(data: {
     resolvedCourseId = anyInst.courseId ?? undefined;
   } else if (data.courseId) {
     // Codex-P1-2: 自由问 + courseId → 校验学生属于该 course 的某 class（防跨课程 KS 泄漏）
-    // 学生 classId 必须 = Course.classId OR ∈ CourseClass.classId (CourseClasses 多班级关联)
+    // 通过 CourseClass M:N 关联校验（Course.classId 已弃用）
     const userClassId = data.user.classId;
     if (!userClassId) throw new Error("FORBIDDEN");
     const course = await prisma.course.findFirst({
       where: {
         id: data.courseId,
-        OR: [
-          { classId: userClassId },
-          { classes: { some: { classId: userClassId } } },
-        ],
+        classes: { some: { classId: userClassId } },
       },
       select: { id: true },
     });
@@ -137,9 +144,7 @@ async function generateReply(postId: string, userId: string) {
   if (!post) return;
 
   const messages = (post.messages as StudyBuddyMessageRecord[]) || [];
-  const modePrompt = post.mode === "socratic"
-    ? "使用苏格拉底式教学法：不直接给出答案，而是每次提 1-2 个引导性问题帮助学生自己发现答案。先肯定学生思考中正确的部分，再通过提问引导其完善。"
-    : "以清晰、分步骤的方式直接回答学生的问题。";
+  const modePrompt = post.mode === "socratic" ? SOCRATIC_MODE_PROMPT : DIRECT_MODE_PROMPT;
 
   const task = post.task;
   const taskInstance = post.taskInstance;
@@ -189,23 +194,22 @@ async function generateReply(postId: string, userId: string) {
       ? `优先使用下方教师补充课程素材；如素材不直接覆盖问题，再用通用金融知识补充并明确推断边界。`
       : `未引用具体素材：当前问题范围内未匹配到教师上传的素材。请基于课程概要 / 章节名 / 通用金融常识回答，并在回复开头明确标注"未引用具体素材，以下基于通用知识"。`;
 
+    const conversationHistory = messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n");
+    const builtReply = buildStudyBuddyReplyPrompt({
+      modePrompt,
+      fallbackInstructions,
+      materialInstructions,
+      taskContext,
+      materialContext,
+      taskName: task?.taskName,
+      hasMaterial,
+      conversationHistory,
+    });
     const reply = await aiService.aiGenerateText(
       "studyBuddyReply",
       userId,
-      `你是一位耐心的金融课程学习辅导助手。
-${modePrompt}
-${fallbackInstructions}
-${taskContext ? `任务背景资料:\n${taskContext}` : ""}
-${hasMaterial ? `教师补充课程素材:\n${materialContext}` : ""}
-${task?.taskName ? `任务: ${task.taskName}` : ""}
-
-规则：
-1. 不要使用 Markdown 符号（如 **、#、-、*），如需列点请每条独立换行并用数字编号（如 1. 2. 3.）。
-2. 注意上下文连贯，回答追问时参考之前的对话内容。
-3. ${materialInstructions}
-4. 绝不拒答 — 任何金融教学相关问题都应给出有教育价值的回答；只在问题完全偏离学习范畴时温和引导回到学习主题。
-5. 围绕课程内容展开，不要发散到无关话题。`,
-      `对话历史:\n${messages.map((m) => `${m.role === "student" ? "学生" : "助手"}: ${m.content}`).join("\n")}\n\n请回复：`,
+      builtReply.systemPrompt,
+      builtReply.userPrompt,
       {
         settingsUserId: taskInstance?.createdBy || task?.creatorId || userId,
         metadata: {
@@ -217,6 +221,7 @@ ${task?.taskName ? `任务: ${task.taskName}` : ""}
           hasMaterial,
           preview: post.isPreview,
         },
+        promptVersion: STUDY_BUDDY_REPLY_PROMPT_VERSION,
       },
     );
 
@@ -339,8 +344,9 @@ export async function hideStudyBuddyPost(postId: string, user: UserLike) {
     where: { id: postId },
     data: { hiddenAt: new Date(), hiddenBy: user.id },
   });
-  await logAuditForced({
+  await logAuditEvent({
     action: "study_buddy_post.hide",
+    actorRole: user.role === "admin" ? "admin" : user.id === post.studentId ? "owner" : "collaborator",
     actorId: user.id,
     targetId: postId,
     targetType: "StudyBuddyPost",
@@ -379,16 +385,18 @@ export async function generateSummary(taskId: string, user: UserLike) {
 
   const questionsText = posts.map((p) => p.question).join("\n---\n");
 
+  const builtSummary = buildStudyBuddySummaryPrompt({
+    postCount: posts.length,
+    questionsText,
+  });
   const result = await aiService.aiGenerateJSON(
     "studyBuddySummary",
     user.id,
-    "你是一位教育数据分析专家。请分析学生们在学习伙伴中提出的问题，找出高频问题和知识盲区。注意识别模式：相似的问题即使措辞不同也应归为同一类。",
-    `以下是 ${posts.length} 个学生提问:\n\n${questionsText}\n\n请返回 JSON:
-{
-  "topQuestions": [{"question": "高频问题", "count": 出现次数, "examples": ["原始问题示例"]}],
-  "knowledgeGaps": [{"topic": "知识盲区主题", "description": "描述", "frequency": 出现频率}]
-}`,
-    summarySchema
+    builtSummary.systemPrompt,
+    builtSummary.userPrompt,
+    summarySchema,
+    2,
+    { promptVersion: STUDY_BUDDY_SUMMARY_PROMPT_VERSION },
   );
 
   return prisma.studyBuddySummary.create({

@@ -222,79 +222,115 @@ describe("PR-FIX-1 A2 · server-derived task identity (anti-spoof)", () => {
   });
 });
 
-describe("PR-FIX-1 UX5 · forced audit (bypass ENABLE_AUDIT_LOGS env)", () => {
-  // 关键不变量：logAuditForced 不读 ENABLE_AUDIT_LOGS env，无论何值都应该尝试写
+describe("PR-1 D · logAuditEvent default-on + actorRole", () => {
+  // PR-1 D: ENABLE_AUDIT_LOGS env gate removed; logAuditEvent 必写、actorRole 必填
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
-  it("logAuditForced writes when ENABLE_AUDIT_LOGS != 'true' (regular logAudit would skip)", async () => {
+  it("writes AuditLog when ENABLE_AUDIT_LOGS=false (env gate removed)", async () => {
     vi.doMock("@/lib/db/prisma", () => ({
       prisma: {
-        auditLog: {
-          create: vi.fn().mockResolvedValue({ id: "log-1" }),
-        },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: "log-1" }) },
       },
     }));
-    const { logAuditForced } = await import("@/lib/services/audit.service");
+    const { logAuditEvent } = await import("@/lib/services/audit.service");
     const { prisma } = await import("@/lib/db/prisma");
     const oldEnv = process.env.ENABLE_AUDIT_LOGS;
-    process.env.ENABLE_AUDIT_LOGS = "false"; // 关闭
+    process.env.ENABLE_AUDIT_LOGS = "false";
 
-    await logAuditForced({
+    await logAuditEvent({
       action: "course.update",
+      actorRole: "owner",
       actorId: "t1",
       targetId: "c1",
       targetType: "course",
     });
 
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
-    expect(prisma.auditLog.create).toHaveBeenCalledWith({
-      data: {
-        action: "course.update",
-        actorId: "t1",
-        targetId: "c1",
-        targetType: "course",
-      },
-    });
+    const callArg = (prisma.auditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArg.data.action).toBe("course.update");
+    expect(callArg.data.metadata.actorRole).toBe("owner");
     process.env.ENABLE_AUDIT_LOGS = oldEnv;
   });
 
-  it("logAudit (regular) skips when env != 'true'", async () => {
+  it("writes AuditLog when ENABLE_AUDIT_LOGS unset", async () => {
     vi.doMock("@/lib/db/prisma", () => ({
       prisma: {
-        auditLog: {
-          create: vi.fn().mockResolvedValue({ id: "log-2" }),
-        },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: "log-2" }) },
       },
     }));
-    const { logAudit } = await import("@/lib/services/audit.service");
+    const { logAuditEvent } = await import("@/lib/services/audit.service");
     const { prisma } = await import("@/lib/db/prisma");
     const oldEnv = process.env.ENABLE_AUDIT_LOGS;
-    process.env.ENABLE_AUDIT_LOGS = "false";
+    delete process.env.ENABLE_AUDIT_LOGS;
 
-    await logAudit({
-      action: "x",
-      actorId: "y",
+    await logAuditEvent({
+      action: "test.action",
+      actorRole: "admin",
+      actorId: "u1",
     });
 
-    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
     process.env.ENABLE_AUDIT_LOGS = oldEnv;
   });
 
-  it("logAuditForced gracefully handles DB write failure (no throw)", async () => {
+  it("actorRole 写入 metadata（兼容现有 admin/audit UI 读路径）", async () => {
     vi.doMock("@/lib/db/prisma", () => ({
       prisma: {
-        auditLog: {
-          create: vi.fn().mockRejectedValue(new Error("DB down")),
-        },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: "log-3" }) },
       },
     }));
-    const { logAuditForced } = await import("@/lib/services/audit.service");
-    // 不应抛错
+    const { logAuditEvent } = await import("@/lib/services/audit.service");
+    const { prisma } = await import("@/lib/db/prisma");
+
+    await logAuditEvent({
+      action: "x",
+      actorRole: "collaborator",
+      actorId: "y",
+      metadata: { foo: "bar" },
+    });
+
+    const callArg = (prisma.auditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArg.data.metadata).toEqual({ foo: "bar", actorRole: "collaborator" });
+  });
+
+  it("gracefully handles DB write failure (no throw)", async () => {
+    vi.doMock("@/lib/db/prisma", () => ({
+      prisma: {
+        auditLog: { create: vi.fn().mockRejectedValue(new Error("DB down")) },
+      },
+    }));
+    const { logAuditEvent } = await import("@/lib/services/audit.service");
     await expect(
-      logAuditForced({ action: "x", actorId: "y" }),
+      logAuditEvent({ action: "x", actorRole: "owner", actorId: "y" }),
     ).resolves.toBeUndefined();
+  });
+
+  it("logAuditEventWithCourseRole 自动推导 actorRole 从 courseId+userId", async () => {
+    vi.doMock("@/lib/db/prisma", () => ({
+      prisma: {
+        auditLog: { create: vi.fn().mockResolvedValue({ id: "log-4" }) },
+        course: {
+          findUnique: vi.fn().mockResolvedValue({ createdBy: "user-1" }),
+        },
+        courseTeacher: { findUnique: vi.fn() },
+      },
+    }));
+    const { logAuditEventWithCourseRole } = await import(
+      "@/lib/services/audit.service"
+    );
+    const { prisma } = await import("@/lib/db/prisma");
+
+    await logAuditEventWithCourseRole({
+      action: "course.delete",
+      actorId: "user-1",
+      userRole: "teacher",
+      courseId: "course-1",
+    });
+
+    const callArg = (prisma.auditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArg.data.metadata.actorRole).toBe("owner");
   });
 });

@@ -88,13 +88,6 @@ enum AnnouncementStatus {
   archived
 }
 
-enum Visibility {
-  private
-  shared
-  department
-  public
-}
-
 enum GroupType {
   manual
   auto_score_bucket
@@ -221,8 +214,8 @@ model Class {
   id             String   @id @default(uuid())
   name           String   @unique @db.VarChar(100)
   code           String?  @db.VarChar(50)
+  // TODO: 读取存在但 UI 未渲染, 后续 PR 评估
   academicYear   String?  @db.VarChar(20)
-  departmentName String?  @db.VarChar(200)
   createdBy      String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -245,7 +238,8 @@ model Course {
   courseTitle  String   @db.VarChar(200)
   courseCode   String?  @db.VarChar(50)
   description String?  @db.Text
-  classId     String
+  /// @deprecated 待迁移期结束后删除（保留只为旧 row 兼容）。新代码用 CourseClass 关联；reader/writer 已收敛。
+  classId     String?
   versionId   String   @default("v1") @db.VarChar(20)
   createdBy   String
   createdAt         DateTime  @default(now())
@@ -253,7 +247,7 @@ model Course {
   semesterStartDate DateTime?
 
   creator        User           @relation("CourseCreator", fields: [createdBy], references: [id])
-  class          Class          @relation(fields: [classId], references: [id])
+  class          Class?         @relation(fields: [classId], references: [id])
   chapters       Chapter[]
   sections       Section[]
   contentBlocks  ContentBlock[]
@@ -345,11 +339,8 @@ model Task {
   taskType         TaskType
   taskName         String      @db.VarChar(200)
   requirements     String?     @db.Text
-  visibility       Visibility  @default(private)
   practiceEnabled  Boolean     @default(false)
   creatorId        String
-  courseName       String?     @db.VarChar(200)
-  chapterName      String?     @db.VarChar(200)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
@@ -365,7 +356,6 @@ model Task {
   studyBuddyPosts      StudyBuddyPost[]
   studyBuddySummaries  StudyBuddySummary[]
   importJobs           ImportJob[]
-  analytics            TaskInstanceAnalytics[] @relation("TaskAnalytics")
   analysisReports      AnalysisReport[]        @relation("ReportTask")
   knowledgeSources     CourseKnowledgeSource[]
 
@@ -514,8 +504,8 @@ model TaskInstance {
   classId          String
   groupIds         String[]
   courseId          String?
-  chapterId        String?
-  sectionId        String?
+  chapterId         String?
+  sectionId         String?
   slot             SlotType?
   dueAt            DateTime
   publishAt        DateTime?
@@ -536,7 +526,6 @@ model TaskInstance {
   section         Section?               @relation(fields: [sectionId], references: [id])
   creator         User                   @relation("TaskInstanceCreator", fields: [createdBy], references: [id])
   submissions     Submission[]
-  analytics       TaskInstanceAnalytics?
   taskPosts       TaskPost[]
   studyBuddyPosts StudyBuddyPost[]
   analysisReports AnalysisReport[]       @relation("ReportInstance")
@@ -806,25 +795,7 @@ model StudentGroupMember {
 }
 
 // ============================================
-// 表 28: TaskInstanceAnalytics（任务实例统计）
-// ============================================
-model TaskInstanceAnalytics {
-  id                   String   @id @default(uuid())
-  taskInstanceId       String   @unique
-  taskId               String
-  submissionCount      Int      @default(0)
-  avgScore             Decimal? @db.Decimal(10, 2)
-  scoreDist            Json?
-  quizQuestionStats    Json?
-  subjectiveRubricStats Json?
-  updatedAt            DateTime @updatedAt
-
-  taskInstance TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
-  task         Task         @relation("TaskAnalytics", fields: [taskId], references: [id])
-}
-
-// ============================================
-// 表 29: AnalysisReport（分析报告）
+// 表 28: AnalysisReport（分析报告）
 // ============================================
 model AnalysisReport {
   id             String   @id @default(uuid())
@@ -850,7 +821,7 @@ model AnalysisReport {
 }
 
 // ============================================
-// 表 30: ImportJob（导入任务）
+// 表 29: ImportJob（导入任务）
 // ============================================
 model ImportJob {
   id                 String          @id @default(uuid())
@@ -872,7 +843,7 @@ model ImportJob {
 }
 
 // ============================================
-// 表 31: CourseKnowledgeSource（课程知识素材）
+// 表 30: CourseKnowledgeSource（课程知识素材）
 // ============================================
 model CourseKnowledgeSource {
   id            String                @id @default(uuid())
@@ -913,7 +884,7 @@ model CourseKnowledgeSource {
 }
 
 // ============================================
-// 表 32: AsyncJob（异步任务）
+// 表 31: AsyncJob（异步任务）
 // ============================================
 model AsyncJob {
   id          String         @id @default(uuid())
@@ -941,7 +912,7 @@ model AsyncJob {
 }
 
 // ============================================
-// 表 33: TaskBuildDraft（任务构建草稿）
+// 表 32: TaskBuildDraft（任务构建草稿）
 // ============================================
 model TaskBuildDraft {
   id            String               @id @default(uuid())
@@ -979,7 +950,7 @@ model TaskBuildDraft {
 }
 
 // ============================================
-// 表 34: AiRun（AI 调用日志）
+// 表 33: AiRun（AI 调用日志）
 // ============================================
 model AiRun {
   id            String      @id @default(uuid())
@@ -1011,7 +982,7 @@ model AiRun {
 }
 
 // ============================================
-// 表 35: AiToolSetting（教师 AI 工具设置）
+// 表 34: AiToolSetting（教师 AI 工具设置）
 // ============================================
 model AiToolSetting {
   id                 String          @id @default(uuid())
@@ -1035,7 +1006,7 @@ model AiToolSetting {
 }
 
 // ============================================
-// 表 36: AuditLog（审计日志）
+// 表 35: AuditLog（审计日志）
 // ============================================
 model AuditLog {
   id         String   @id @default(uuid())
@@ -1054,7 +1025,7 @@ model AuditLog {
 }
 
 // ============================================
-// 表 34: CourseTeacher（课程协作教师）
+// 表 36: CourseTeacher（课程协作教师）
 // ============================================
 model CourseTeacher {
   id        String   @id @default(uuid())
@@ -1070,7 +1041,7 @@ model CourseTeacher {
 }
 
 // ============================================
-// 表 35: CourseClass（课程班级关联）
+// 表 37: CourseClass（课程班级关联）
 // ============================================
 model CourseClass {
   id        String   @id @default(uuid())

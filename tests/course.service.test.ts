@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/db/prisma", () => ({
   prisma: {
     course: { findUnique: vi.fn() },
-    courseClass: { delete: vi.fn() },
+    courseClass: { count: vi.fn(), delete: vi.fn() },
   },
 }));
 
@@ -15,23 +15,23 @@ describe("removeCourseClass", () => {
     vi.clearAllMocks();
   });
 
-  it("throws CANNOT_REMOVE_PRIMARY_CLASS when classId matches course.classId", async () => {
+  it("throws MUST_KEEP_AT_LEAST_ONE_CLASS when removing the only CourseClass", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-primary",
     });
+    (prisma.courseClass.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
 
-    await expect(removeCourseClass("course-1", "class-primary")).rejects.toThrow(
-      "CANNOT_REMOVE_PRIMARY_CLASS"
+    await expect(removeCourseClass("course-1", "class-only")).rejects.toThrow(
+      "MUST_KEEP_AT_LEAST_ONE_CLASS"
     );
     expect(prisma.courseClass.delete).not.toHaveBeenCalled();
   });
 
-  it("deletes CourseClass when classId differs from course.classId", async () => {
+  it("deletes CourseClass when at least one other association remains", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
-      classId: "class-primary",
     });
+    (prisma.courseClass.count as ReturnType<typeof vi.fn>).mockResolvedValue(1);
     (prisma.courseClass.delete as ReturnType<typeof vi.fn>).mockResolvedValue({
       courseId: "course-1",
       classId: "class-secondary",

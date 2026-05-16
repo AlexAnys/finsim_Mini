@@ -1,42 +1,69 @@
 import { prisma } from "@/lib/db/prisma";
+import { getCourseActorRole, type CourseActorRole } from "@/lib/auth/actor-role";
 
-export async function logAudit(data: {
+export type AuditActorRole = CourseActorRole | "system";
+
+/**
+ * PR-1 D: 写审计日志（合规追责）。
+ *
+ * - default-on：不再读 ENABLE_AUDIT_LOGS env，所有写入都尝试落库
+ * - 写入失败仍不阻塞主流程（catch + console.error）
+ * - actorRole 必填：caller 显式传（最优），或通过 courseId 自动 fallback 推导
+ *
+ * 历史：原 logAudit (env-gated) + logAuditForced 已合并为本函数。
+ */
+export async function logAuditEvent(data: {
   action: string;
+  actorRole: AuditActorRole;
   actorId?: string;
   targetId?: string;
   targetType?: string;
   metadata?: Record<string, unknown>;
 }) {
-  if (process.env.ENABLE_AUDIT_LOGS !== "true") return;
-
+  const mergedMetadata = {
+    ...(data.metadata ?? {}),
+    actorRole: data.actorRole,
+  };
   try {
-    await prisma.auditLog.create({ data: data as Parameters<typeof prisma.auditLog.create>[0]["data"] });
+    await prisma.auditLog.create({
+      data: {
+        action: data.action,
+        actorId: data.actorId,
+        targetId: data.targetId,
+        targetType: data.targetType,
+        metadata: mergedMetadata,
+      },
+    });
   } catch (error) {
-    // 审计日志失败不应阻塞主流程
     console.error("审计日志写入失败:", error);
   }
 }
 
 /**
- * PR-FIX-1 UX5: 安全敏感写入（DELETE/PATCH course/chapter/section/contentBlock + grade）
- * 强制写 audit，不依赖 ENABLE_AUDIT_LOGS env，满足合规追责需求。
+ * Caller 没现成 actorRole 时的便捷 wrapper：用 courseId + userRole 推导。
  *
- * 写入失败仍不阻塞主流程（catch + console.error），但 env 不能跳过。
+ * 适用：route handler 已知 courseId / userId / user.role 但还没算 actorRole。
+ * service-internal caller 若已有 actor role 应直接调 logAuditEvent，省一次 DB 查询。
  */
-export async function logAuditForced(data: {
+export async function logAuditEventWithCourseRole(data: {
   action: string;
-  actorId?: string;
+  actorId: string;
+  userRole: string;
+  courseId: string;
   targetId?: string;
   targetType?: string;
   metadata?: Record<string, unknown>;
 }) {
-  try {
-    await prisma.auditLog.create({ data: data as Parameters<typeof prisma.auditLog.create>[0]["data"] });
-  } catch (error) {
-    console.error("强制审计日志写入失败:", error);
-  }
+  const actorRole = await getCourseActorRole(data.courseId, data.actorId, data.userRole);
+  return logAuditEvent({
+    action: data.action,
+    actorRole,
+    actorId: data.actorId,
+    targetId: data.targetId,
+    targetType: data.targetType,
+    metadata: data.metadata,
+  });
 }
-
 
 /**
  * Unit 11 · admin/audit 列表查询。

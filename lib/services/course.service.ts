@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { logAuditForced } from "@/lib/services/audit.service";
+import { logAuditEvent } from "@/lib/services/audit.service";
 import { Prisma } from "@prisma/client";
 import { clampTake } from "@/lib/pagination";
 import type { SlotType, ContentBlockType } from "@prisma/client";
@@ -12,9 +12,10 @@ export function teacherCourseFilter(teacherId: string): Prisma.CourseWhereInput 
   return { OR: [{ createdBy: teacherId }, { teachers: { some: { teacherId } } }] };
 }
 
-// 班级课程过滤器：命中主班（Course.classId）或通过 CourseClass 关联的次班
+// 班级课程过滤器：通过 CourseClass M:N 关联匹配。Course.classId 已弃用 + writer 不再写入，
+// 旧 row 在 migration 时已 backfill 到 CourseClass，因此单源即可。
 export function courseClassFilter(classId: string): Prisma.CourseWhereInput {
-  return { OR: [{ classId }, { classes: { some: { classId } } }] };
+  return { classes: { some: { classId } } };
 }
 
 // ============================================
@@ -63,20 +64,22 @@ export async function createCourse(data: {
   classId: string;
   createdBy: string;
 }) {
-  const course = await prisma.course.create({
-    data: {
-      courseTitle: data.courseTitle,
-      courseCode: data.courseCode,
-      description: data.description,
-      classId: data.classId,
-      createdBy: data.createdBy,
-    },
+  // 同事务创建 Course + 首个 CourseClass，保证不会出现"course 没 class"中间态。
+  // Course.classId 已弃用，writer 不再写入，单一关联在 CourseClass。
+  return prisma.$transaction(async (tx) => {
+    const course = await tx.course.create({
+      data: {
+        courseTitle: data.courseTitle,
+        courseCode: data.courseCode,
+        description: data.description,
+        createdBy: data.createdBy,
+      },
+    });
+    await tx.courseClass.create({
+      data: { courseId: course.id, classId: data.classId },
+    });
+    return course;
   });
-  // Auto-create CourseClass record for the primary class
-  await prisma.courseClass.create({
-    data: { courseId: course.id, classId: data.classId },
-  });
-  return course;
 }
 
 export async function getCoursesByTeacher(
@@ -176,7 +179,11 @@ export async function addCourseClass(courseId: string, classId: string) {
 export async function removeCourseClass(courseId: string, classId: string) {
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new Error("COURSE_NOT_FOUND");
-  if (course.classId === classId) throw new Error("CANNOT_REMOVE_PRIMARY_CLASS");
+  // 至少保留 1 个 CourseClass — 防止 course 失去所有班级关联（无班级的 course 列表查询会消失）。
+  const remaining = await prisma.courseClass.count({
+    where: { courseId, NOT: { classId } },
+  });
+  if (remaining === 0) throw new Error("MUST_KEEP_AT_LEAST_ONE_CLASS");
 
   return prisma.courseClass.delete({
     where: { courseId_classId: { courseId, classId } },
@@ -196,9 +203,7 @@ export async function getCoursesByClass(
   options: { take?: number } = {},
 ) {
   return prisma.course.findMany({
-    where: {
-      OR: [{ classId }, { classes: { some: { classId } } }],
-    },
+    where: courseClassFilter(classId),
     include: { class: true, classes: { include: { class: true } } },
     orderBy: { createdAt: "desc" },
     take: clampTake(options.take, 100, 200),
@@ -450,12 +455,13 @@ export async function deleteCourse(courseId: string, userId: string) {
   }
 
   await prisma.course.delete({ where: { id: courseId } });
-  await logAuditForced({
+  // deleteCourse 已 guard "existing.createdBy === userId" → 必为 owner
+  await logAuditEvent({
     action: "course.delete",
+    actorRole: "owner",
     actorId: userId,
     targetId: courseId,
     targetType: "Course",
     metadata: { title: existing.courseTitle },
   });
 }
-
