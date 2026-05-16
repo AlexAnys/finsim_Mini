@@ -1,277 +1,120 @@
-# Spec — finsim 2026-05-14 全模块修复（65 bugs + 用户决策）
+# Spec — Code Quality PR-1 (2026-05-16)
 
 > ⚠️ **行为底线**：不走捷径 — 任何跳过 / 接受 < 100% acceptance 必须先 ask 用户，结果立刻写进 `.harness/spec.md` + commit。
 
-> Coordinator: claude (main agent) · Builder + QA: team `probe-demo`
-> Branch: `claude-demo-fixes` (created from main `98017c8`)
-> Dev DB 已备份：`.harness/dev-db-backup-2026-05-14.sql` (701K)
-> 演示账号：molly@qq.com / 123456（teacher） + alex/belle/charlie/dexter@qq.com / 11（students）
-
-## 用户决策（拍板固化）
-
-1. **真实自适应模式**：按知识点 + 题型难度（多选 0.8 > 简答 0.9 > 单选 0.5 > 判断 0.3）+ 答对率自适应，目标 ≤8 题诊断 ≥3 知识点掌握度；末尾输出"薄弱知识点报告"；规则引擎 + 简化贝叶斯混合
-2. **Study Buddy 自由问**：taskId 改 optional；有素材引素材（含 excerpt），无素材用章节名/课程概要兜底，**不能拒答**
-3. **演示账号 = molly@qq.com**，不切回 teacher1；不重做全局 seed；改造 molly 课的真实数据
-4. **AI 回帖不需审核**：Study Buddy AI 回帖即时可见；学生提问 + AI 回帖聚合到老师"Study Buddy 管理页"
-5. **协作教师权限上扬**：协作者**可改课程结构 + 可建班**（与 owner 接近，不再限制为只读）
-6. **任务管理常理功能**：实例可重开 + 任务总览页全 config 可见可改 + 删除盘点全实体覆盖
-7. **TaskBuildDraft 仍保留审核闭环**（任务发给学生前需老师审一遍）—— 区别于 SB AI 回帖（不审）
-
-## Bug 清单引用
-
-完整：`.harness/reports/bug_inventory_teacher_r1.md`（30 bugs）+ `.harness/reports/bug_inventory_student_r1.md`（35 bugs）
-
-下面 Unit 中的 `B-XXX` 编号对应这两份报告。
-
----
-
-## 当前 Phase 进度
-
-- ✅ **Phase 1 完整收官**（8 unit，演示稳定化）
-- ✅ **Phase 2 完整收官**（4 unit 全 r1 即收，演示承诺兑现）
-- ✅ **Phase 3 完整收官**（molly 真实演示数据建设，6 M-step 全 PASS）
-- 🔴 **Phase 4 必做**（8 项 unit/bug + 100% acceptance + 不允许 skip）— 见下文
-- ⏭️ **Phase 5 review + PR** 在 Phase 4 完整完成后做
-
----
-
-## Phase 1 — 核心 P0（已完成，归档参考）
-
-[Unit 1-7 详细 acceptance + scope + 风险 保持原状，已 PASS 不重复列]
-
----
-
-## Phase 2 — schema 改动 + 兑现演示承诺（已完成，归档参考）
-
-[Unit 8-11 详细 acceptance 保持原状，已 r1 即收不重复列]
-
----
-
-## Phase 3 — molly 真实演示数据建设（已完成，归档参考）
-
-详见 `.harness/reports/phase3_molly_seed_r1.md`。
-
----
-
-## Phase 4 — 剩余 polish + Phase 3 衍生 bug（**必做，禁止 skip**）
-
-**硬约束**：8 项每项 acceptance 100% PASS 才标 completed。任何想 skip 任何一项必须先 ask 用户。不允许 backlog 项。
-
-### Unit 17 — TaskInstance.taskSnapshot 字段消费
-
-**触发**：Unit 4 衍生缺陷。schema 已有 `TaskInstance.taskSnapshot Json?` 字段 + service create/publish 时已写快照，但学生 runner 直接读 `instance.task.*` live 数据 → 教师改 task 模板后正在跑的 instance 立即看到新题，学生答到一半题目变了 / graded sub 题目和当前题目不一致。
-
-**修**：probe r1 Unit 4 风险 + spec-amendments.md
-
-**Acceptance**：
-- 学生 runner（`app/(student)/tasks/[id]/page.tsx` + `app/(simulation)/sim/[id]/page.tsx`）优先读 `instance.taskSnapshot`，fallback `instance.task.*`
-- 加 type guard（taskSnapshot 是 Json，运行时 parse + 验证 shape）
-- 教师视图 `/teacher/instances/[id]` 保留读 live `instance.task.*`（看最新模板）
-- vitest 覆盖：snapshot 存在时优先读；snapshot 缺失时 fallback
-- 教师改 task 后，已发布且有 submission 的 instance 学生侧仍看到改前题目（实测）
-- 新发布的 instance 仍看到最新题目（因 publish 时 snapshot 包含当时 task）
-
-**Scope**：2 个 runner page.tsx + types guard + vitest
-
-**预计**：~2h，single commit
-
-**风险**：低（仅 frontend 读路径，不动 schema）
-
----
-
-### Phase3-A — quiz-question-tagger 首次 job 计数虚高
-
-**触发**：Phase 3 M-3 创建 adaptive quiz 后 async-job 跑完，result `tagged: 10` 但 DB knowledgeTagIds 全 `{}`。第二次手动 trigger 才真写入。adaptive quiz 无 tag 会 fallback 到 fixed 模式，影响演示。
-
-**Acceptance**：
-- 首次 async job 也真写入 knowledgeTagIds（DB query 验证）
-- result tagged 计数与 DB 实际写入数一致
-- 失败时 result.failed 正确反映 + error 字段写明原因
-- vitest 单测覆盖：mock LLM 返回 → 写入 DB → 验证 + 计数
-
-**Scope**：`lib/services/quiz-question-tagger.service.ts`（计数逻辑 / transaction）+ `lib/services/async-job.service.ts`（dispatcher 错误处理）+ vitest
-
-**预计**：~1h，single commit
-
-**风险**：低-中（计数 bug 排查，可能涉及 transaction commit 时序）
-
----
-
-### Unit 12 — 主观题 allowedAttachmentTypes 实接 + capture 拍照
-
-**修**：B-STU-SUBJ-1, B-STU-SUBJ-2
-
-**Acceptance**：
-- `components/subjective/subjective-runner.tsx` 接受 `allowedTypes: string[]` prop 替代硬编码 ALLOWED_EXTENSIONS
-- `app/(student)/tasks/[id]/page.tsx` 透传 `task.subjectiveConfig.allowedAttachmentTypes` 到 runner
-- 教师配置"只允许 pdf"时学生侧只能选 pdf（实测）
-- 拍照按钮：`<input type="file" accept="image/*" capture="environment">` 移动端唤起原生相机
-- 桌面浏览器拍照按钮降级为"上传图片"（不显示 capture 错误）
-
-**Scope**：`components/subjective/subjective-runner.tsx` + `app/(student)/tasks/[id]/page.tsx`
-
-**预计**：~1.5h
-
-**风险**：低
-
----
-
-### Unit 14 — 学生 dashboard 折叠 + AI buddy callout 视口
-
-**修**：B-STU-DASH-1, B-STU-DASH-3
-
-**Acceptance**：
-- 学生 dashboard "学习任务"卡当 tasks ≥ 6 时折叠到 5 项 + "查看全部"按钮（sheet 或新页）
-- 折叠展开状态 localStorage 持久化
-- AiBuddyCallout 在 < xl 视口（1280px）也可见（修 `hidden xl:flex` → 改 layout 或加 fallback）
-- 不破坏现有 ≥ xl 视口体验（pixel diff 实测）
-
-**Scope**：`components/dashboard/priority-tasks.tsx` + `components/dashboard/ai-buddy-callout.tsx` + `app/(student)/dashboard/page.tsx`
-
-**预计**：~1h
-
-**风险**：低
-
----
-
-### Unit 13 — 协作教师 dialog + 资源/讨论 tab 占位
-
-**修**：B-COURSE-02, B-STU-COURSES-1
-
-**Acceptance**：
-- 协作教师 dialog 显示当前协作者列表（API `/api/lms/courses/{id}/teachers` 返回的）+ 每行"移除"按钮
-- 移除走 DELETE + audit + 中文 confirm "确认移除 {name}？"
-- molly 自有课程 dialog 能正常打开（不 freeze）
-- 学生课程详情"资源 / 讨论"两个 tab 占位"将在后续版本中上线"改为：要么真显示功能（如只读资源列表 from CourseKnowledgeSource），要么完全隐藏 tab（不暴露占位）
-
-**Scope**：`components/course/teacher-collab-dialog.tsx`（或 inline）+ `app/(student)/courses/[id]/page.tsx`
-
-**预计**：~1h
-
-**风险**：低
-
----
-
-### Unit 15 — 一周洞察空数据 + 错误降级文案
-
-**修**：probe r1 M1-P1-3
-
-**Acceptance**：
-- `weekly-insight.service.ts` 在 `submissionCount === 0` 时**不调 AI**，直接返回固定空态文案"本周尚无已公布提交，先去任务详情公布成绩"+ CTA 链接到 release 页
-- 不再让 AI 编造 6 条机械重复"下周建议"
-- LLM 失败时错误降级文案按 err.message 分桶：超时 / 配额耗尽 / 模型未配置 / 网络错误（4 个中文）
-- 单测覆盖空数据短路 + 错误分桶映射
-
-**Scope**：`lib/services/weekly-insight.service.ts` + `lib/api-utils.ts`（错误码）+ vitest
-
-**预计**：~2h
-
-**风险**：低
-
----
-
-### Phase3-B — .doc (OLE2) 上传支持
-
-**修**：Phase 3 实操发现，老师可能直接上传旧 Word 格式
-
-**Acceptance**：选项 A 或 B 二选一（plan 阶段 builder 决策 + ask coordinator）：
-- **A.** 后端用 `antiword` 或类似工具解析 .doc → 与 .docx 同 storage flow
-- **B.** 前端检测 .doc 弹中文提示"请将 .doc 文件另存为 .docx 后再上传（Word 中『另存为 → Word 文档』）"，不让 POST 触发后端 400
-
-**Acceptance（实测）**：
-- 上传 .doc 不再返回 500 / 不友好 400
-- 中文错误信息（如选 B）清晰可操作
-- 若选 A，.doc structuredData 与 .docx 同样生成
-
-**Scope**：`lib/services/storage.service.ts` + `components/teacher-course-edit/upload-syllabus-dialog.tsx`（如选 B）
-
-**预计**：~1.5h
-
-**风险**：低（依赖选择，二选一）
-
----
-
-### Unit 16 — P2 扫尾
-
-**修**：probe r1 P2 + bug_inventory_*_r1.md 中所有 P2
-
-**Acceptance**：以下每项**全部 PASS**（不允许 partial skip）：
-
-仪表盘 P2：
-- modal 移动端 < sm 改全屏抽屉
-- 缓存命中态"重新生成"按钮加确认"覆盖 7 天缓存？"
-- LLM 错误降级文案分级（与 Unit 15 协作）
-- 学生权限测试 spot check（已 PASS 仅 sanity）
-
-课程 P2：
-- "+任务"/"+块"按钮升到 12-13px（B-P2-1）
-- "次班"术语换中文化（B-P2-2）
-- 课程列表"待批改"指标 tooltip 说明范围（B-P2-3）
-
-模拟对话 P2：
-- 教师查对话原文路径加快捷入口（B-P2-2）
-- 客户情绪条 mood 历史可视化（B-P2-3）
-- 30 轮硬截断前端 toast 提示（B-P2-4）
-- 语音失败 toast 加"或手动输入"备选 CTA（B-P2-6）
-
-测验/主观 P2：
-- "AI 优化原题"按钮加题目级悬停（B-Q-P2-4）
-- 教师 override 显示 AI 原分 + 老师改分对比（B-S-P2-3）
-
-StudyBuddy P2：
-- 教师 dashboard 顶层加"本周 SB 高频提问 Top 3"卡（B-SB-P2-4）
-- settingsUserId fallback 加 system default provider 兜底（B-SB-P2-5）
-
-数据洞察 P2：
-- recompute 完成 toast 提示（B-DI-P2-6）
-
-教师主导 P2：
-- `ENABLE_AUDIT_LOGS` env 改控制采样率而非全开关（B-PR-P2-4）
-
-学生侧 P2 6 项：
-- B-STU-P2-1 主观题三处分散 → 集中底部
-- B-STU-P2-2 "未来"→"未来 7 天"
-- B-STU-P2-3 grades 排序按钮可点 + 反馈
-- B-STU-P2-4 sim 头部"重来 / 结束"间距
-- B-STU-P2-5 sim 评分对照列 ScoringCriteria 维度
-- B-STU-P2-6 settings 邮箱只读文案位置
-
-**Scope**：跨多个组件 / 服务的小修
-
-**预计**：~3h（每项 < 10 min × ~20 项）
-
-**风险**：低（每项独立小修，可分多个 commit）
-
----
-
-## Phase 5 — 整体 code review + PR（仅在 Phase 4 全部 completed 后做）
-
-- 全 unit merge 到 `claude-demo-fixes` 后
-- 跑全量 `npx tsc --noEmit && npx vitest run && npm run lint`
-- code review report：结构 / 一致性 / 性能 / 必要小重构
-- update PR #12 描述（不开新 PR）→ CI quality + staging deploy → 用户 staging 实测 → squash merge
-
----
-
-## 工作流（每个 unit 严格遵守）
-
-1. **Builder 接手**：读 spec + 该 unit 引用的 bug 报告条目 + 触及文件，**计划自己输出"实现方案 + 文件清单 + 风险"给 coordinator 审一眼**（避免误读）
-2. **Builder 实现**：单 commit；每 commit 跑 `npx tsc --noEmit`；diff 控制 ≤ 200 行（schema 改动除外）
-3. **Builder 提交报告** `.harness/reports/build_unit{N}_r{M}.md`，列：改动文件 / 关键决策 / 自测结果
-4. **QA 独立验证**：read spec + build 报告 + 不读 builder 改动方案；用 Playwright 真浏览器跑 acceptance；写 `qa_unit{N}_r{M}.md`
-5. **Dynamic exit**：
-   - acceptance 100% PASS 且证据扎实（QA 三条件：独立证据链 + 全 deterministic + DB cleanup）→ unit completed → coordinator 标完成 → 进下个 unit
-   - FAIL 同样问题连续 3 轮 → 回 spec 重规划，**不要硬磨**
-6. **每个 unit completed 写一行到** `.harness/progress.tsv`
-7. **任何想 skip 任何一项 acceptance 必须先 ask 用户**（行为底线）
-
-## 不修的项（用户已表态 / 设计选择）
-
-- Study Buddy AI 回帖**不**走审核（与 TaskBuildDraft 不同）
-- 全局 seed 重做（用户决策：演示用 molly，造真实数据已完成）
+> Coordinator: claude (main agent) · Team: `probe-demo` (复用) · Branch: `claude-codequality-pr1`（base = main `56b49e8`）
+> 用户标准: 长期效果好 + 稳定 + 高质量 + 不走捷径
+> 来源: `.harness/spec-codereview-archive.md` 7 路 review + coordinator 综合 numbered candidates
+> User staging 兜底: 1 次 (PR-1 进 staging 后 5-10 min 真浏览器主线点)
+
+## 用户意图（原话）
+
+> "希望长期功能效果好 + 稳定 + 代码质量高 + 不走捷径。每次 PR 后 e2e 真测过才进下一步。10 个候选不要分太多批，最多 2 PR。我顶多新开 session 或你并行处理。"
+
+## 范围 — PR-1（4 候选并行）
+
+| 候选 | 名 | 改什么 | builder | 风险 |
+|---|---|---|---|---|
+| **A** | CI 测试基础 | playwright.config.ts (官方) + 5 主线 smoke 进 CI + 90 个 mutation route 加 200/401/403 三角 + 删 21 个 readFileSync grep 守 + 加 lib/db/test-helpers.ts 共享 fixture | builder-test-infra | 极低 (纯加 + 删死代码) |
+| **D** | 审计 default-on | 删 ENABLE_AUDIT_LOGS env gate + 合并 logAudit→logAuditForced (rename → logAuditEvent) + 给 publish/snapshot-update/title-update/grading 等漏掉 audit 的写操作补 audit + 加 actorRole 字段 | builder-audit | 极低 (审计表 append-only) |
+| **E** | AI prompt 集中 | 新 lib/ai/prompts/ 目录 (12 feature builder 文件) + 35 处 inline prompt 提到 builder + lib/services/ai-tool-settings.ts basePromptPreview 改成从 builder import 派生 + 每 builder 加 promptVersion 写到 AiRun.promptVersion | builder-ai-prompts | 低 (重构 prompt 字字不变) |
+| **I+J** | Schema 清理 | 删 TaskInstanceAnalytics 死表 + 删 Task.analytics 关系 + 删 Visibility enum + Task.visibility + 删 Task.courseName/chapterName 冗余 + 标 Course.classId deprecated（不删，留迁移期） + 改 5 处 OR pattern 收敛到 CourseClass + 删 Class.code/academicYear/departmentName 死字段 (verify 真死) | builder-schema-cleanup | 低 (Prisma 三步严格走 + 备份) |
+
+## Acceptance criteria（每候选独立 100% PASS 才进 PR）
+
+### 通用 acceptance（所有候选）
+1. ✅ `npx tsc --noEmit` 0 new error (baseline 6 pre-existing study-buddy errors 维持)
+2. ✅ `npx vitest run` 全过 + 0 regression
+3. ✅ `npm run lint` 0 error
+4. ✅ 改动 ≤ 1500 行 diff (单 PR 总和)
+5. ✅ 任何 schema 改动严守 CLAUDE.md "Prisma 三步" (migrate dev + generate + 重启 dev server + 验证页面)
+
+### A 专属 acceptance
+- ✅ `playwright.config.ts` 存在且有效 (browser=chromium / 单 worker / staging URL)
+- ✅ 5 主线 smoke 编写完: ① teacher login → 建 task instance → publish ② student login → 进 instance → 提交 simulation ③ AI grade → released ④ student SB 自由问 → AI reply ⑤ teacher 一周洞察 ≥1 教师有提交 → 出报告
+- ✅ `.github/workflows/ci.yml` 增加 playwright 主线 smoke step (可 fail-on-error 或 warning, builder 决定 + ask coord)
+- ✅ 90 mutation route 中至少 30 个有 200/401/403 三角测试 (按依赖热度选 + ask coord)
+- ✅ 21 个 readFileSync grep 守 (`tests/pr-*.test.ts` 系列) 删除或重写为真 RTL test
+- ✅ 加 `tests/_fixtures/prisma.ts` + `tests/_fixtures/users.ts` 共享 helper
+
+### D 专属 acceptance
+- ✅ `ENABLE_AUDIT_LOGS` env gate 删除 (audit.service.ts + .env.example + .env.production.example)
+- ✅ `logAudit` 函数删除 (rename `logAuditForced` → `logAuditEvent`，所有 caller 同步)
+- ✅ 给 PR #13 留下的两个 mutation 路径 (updateTaskInstance/updateTaskInstanceSnapshot) 加 audit
+- ✅ 给 grading auto-grade (gradeSimulation/gradeQuiz/gradeSubjective) 加 audit (action: ai_grading.complete with model+tokens metadata)
+- ✅ logAuditEvent 接口加 `actorRole` field (wrapper 内 fall back 用 getCourseActorRole 自动推导)
+- ✅ vitest 覆盖: assert publish/ai-grade/snapshot-update 在 ENABLE_AUDIT_LOGS 任意值都写 AuditLog
+- ✅ 真浏览器: molly 改 instance title → /admin/audit 看到 audit 行 + actorRole=owner
+
+### E 专属 acceptance
+- ✅ `lib/ai/prompts/` 目录建立, 12 个 feature 各 1 文件: `simulation-chat.ts` / `simulation-evaluate.ts` / `quiz-short-answer-grade.ts` / `quiz-concept-tags.ts` / `quiz-question-tagger.ts` / `subjective-grade.ts` / `study-buddy-reply.ts` / `study-buddy-summary.ts` / `socratic-hint.ts` / `weekly-insight.ts` / `insights-aggregate.ts` / `scope-insights.ts` (其余按 review-ai F-3 列表补)
+- ✅ 每个 builder 文件 export `{ buildSystemPrompt(opts), buildUserPrompt(opts), version: "v1" }`
+- ✅ 12 service 内 35 处 inline prompt 全部改成调 builder
+- ✅ AiRun.promptVersion 写真版本 (从 builder 取，不再硬编码 "v1")
+- ✅ `AI_TOOL_DEFINITIONS.basePromptPreview` 字段改成从 builder.buildSystemPrompt({}) 截取或派生 (单源)
+- ✅ vitest snapshot test 每 builder 一组 (锁 prompt 内容防漂移)
+- ✅ 真浏览器: molly /teacher/ai-settings 看到的 preview 与运行时 prompt 第一段一致 (人工 diff)
+
+### I+J 专属 acceptance
+- ✅ migration 包含: `DROP TABLE TaskInstanceAnalytics CASCADE` + `ALTER TABLE Task DROP COLUMN visibility, DROP COLUMN courseName, DROP COLUMN chapterName` + `DROP TYPE Visibility` + 标记 `Course.classId` deprecated 注释
+- ✅ Prisma 三步严格走: migrate dev + generate + 重启 dev server + 验证页面
+- ✅ Course.classId + CourseClass 双源 OR pattern 5 处 (dashboard.service.ts:184-185,224,237 / course.service.ts:199-202) 收敛到 CourseClass-only 查询
+- ✅ Class.code/academicYear/departmentName 验证真死后删 (grep 全 codebase 确认无 reader 后再删)
+- ✅ 旧 reader (dashboard.service computeLiveAnalytics 注释 "TaskInstanceAnalytics 死表") 注释清理
+- ✅ vitest 全过 + 真浏览器: molly /teacher/dashboard / /teacher/courses / /teacher/instances 完整加载
+
+### Cross-builder coordination
+- E 改 `lib/services/ai.service.ts` 内 prompt 段, D 也可能改 ai.service 的 audit 写入 — 两人 schedule 错开 commit (D 先 commit 然后 E rebase, 或 E 在不同 function 工作)
+- I+J 改 schema, 其他 builder vitest 跑前必须 `npx prisma generate` (CLAUDE.md "Prisma Gotchas")
+- A builder 完成后, 其他 builder 可以用 A 提供的 fixtures 写 vitest
+
+## Workflow（每 builder 严格遵守）
+
+1. **Builder 接手 spec** → 写 plan 报告 `.harness/plans/pr1_{name}_plan_r1.md` (实现方案 + 文件清单 + 风险) → SendMessage coord 1 句 plan summary
+2. **Coordinator 审 plan** → 批准/反馈 → builder 开始
+3. **Builder 实现** → 单 commit 或多 commit (按需，每 commit 跑 tsc + vitest 单 file) → 完成报告 `.harness/reports/build_pr1_{name}_r1.md`
+4. **Builder SendMessage coord** → "build done, ready for QA"
+5. **Coordinator spawn QA** (待 builder 全完成后批量 spawn 2 qa)
+6. **QA 真浏览器跑 acceptance** → 写 `.harness/reports/qa_pr1_{name}_r1.md`
+7. **Dynamic exit**: PASS 100% → 该候选 done; FAIL 同样问题连续 3 轮 → coord 介入重 plan
+8. **每候选 done 写一行 progress.tsv**
+9. **任何想 skip 任何 acceptance 必须先 ask coordinator，coord 必须 ask 用户**
+
+## QA 阶段（builder 全完成后）
+
+- **qa-pr1-smoke**: 在 staging 跑 5 条主线 smoke (Playwright on staging.finsim.anlanai.cn)
+  - 必须用真账号 (molly@qq.com / alex@qq.com 等 demo 账号)
+  - 任何 e2e 失败 → block PR
+- **qa-pr1-regression**: 全量 vitest + 4 候选每个的核心路径真浏览器抽样
+  - PR-1 整体 commit 后跑全量, 不分 candidate
+  - 抽样: A→CI 红绿验证 / D→/admin/audit 显示新 audit / E→teacher ai-settings preview / I+J→死表死字段读路径不挂
+
+## PR 推送
+
+- 4 candidate + qa 全 PASS → push 触发 GitHub PR 自动开
+- CI quality job (vitest + tsc + lint) + staging-deploy job 双绿
+- @用户 staging URL 5-10 min 真浏览器主线点
+- 用户 OK → squash merge → main → 生产部署 (~4 min)
+
+## 不在 PR-1 范围（明确排除）
+
+- 候选 B (JSON 边界) → PR-2
+- 候选 C (route 搬 service) → 长期 backlog 5-10 小 PR
+- 候选 F (AI 安全) → PR-2
+- 候选 G (权限合并 + JWT) → PR-2
+- 候选 H (PR #13 followup) → PR-2 (PR #13 已 merge, 可顺手做)
 
 ## 风险登记
 
-- Phase 4 各 unit 都不动 Phase 1-3 已完成的核心闭环（Anti-regression：每 unit 跑 vitest 1049 baseline 必须仍全过）
-- Phase3-A bug 排查可能发现 transaction commit 时序问题，需深入 prisma client
-- 用户可能在 Phase 4 期间 rewind 到之前对话点续作 — HANDOFF.md 已经同步 Phase 4 必做清单，rewind 后任何 session 接手读 HANDOFF 即可续作
+- **Schema 改动 destructive**：I+J 删 4 个表/字段，**必须 prod DB 备份后** migrate (CI staging 自动用 ephemeral DB，prod 用户 merge 前必须备份；coord 在 PR description 显式写 "需 prod 备份"提醒用户)
+- **Audit 表写入压力**：D default-on 后 audit 量上升，监测 audit 表大小与查询性能 (review-arch 已确认 (action) + (createdAt) 索引匹配)
+- **prompt registry 改动**：E 改 prompt 字字不变，但若 builder 误改单个字符，AI 行为可能漂移 — vitest snapshot test 防止
+- **CI playwright fail-on-error**：A 加 playwright 进 CI 可能 flaky (staging 共享栈)，builder 决策 fail-on-warn 还是 fail-on-error — ask coord 后定
+- **跨 worktree commit 顺序**：A/D/E/I+J 4 个 builder 用 isolation: "worktree" 隔离工作, coord 整合时按依赖序 cherry-pick (建议: A → D → I+J → E, 因为 E 可能用到 A 的 fixtures + D 的 audit 已落地)
+
+## 接力
+
+会话结束前 coord 更新 `.harness/HANDOFF.md`，列:
+- PR-1 进度 (which candidate done / qa pending / merged?)
+- PR-2 候选清单 (待 PR-1 merge 后做)
+- Backlog 候选 C 长期跟踪
