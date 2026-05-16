@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Clock,
@@ -13,8 +14,10 @@ import {
   Send,
   RotateCcw,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +49,7 @@ export interface InstanceHeaderProps {
   onExport: () => void;
   onRemind: () => void;
   onStartGrading: () => void;
+  onTitleSave?: (nextTitle: string) => Promise<void>;
 }
 
 const typeLabels: Record<string, string> = {
@@ -80,6 +84,137 @@ const slotLabels: Record<string, string> = {
   post_class: "课后",
 };
 
+function EditableTitle({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (next: string) => Promise<void>;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const composingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isEditing) setDraft(value);
+  }, [value, isEditing]);
+
+  useEffect(() => {
+    if (isEditing) inputRef.current?.focus();
+  }, [isEditing]);
+
+  const startEdit = () => {
+    setDraft(value);
+    setError(null);
+    setIsEditing(true);
+  };
+
+  const cancel = () => {
+    setIsEditing(false);
+    setDraft(value);
+    setError(null);
+  };
+
+  const commit = async () => {
+    const trimmed = draft.trim();
+    if (trimmed.length === 0) {
+      setError("标题不能为空");
+      return;
+    }
+    if (trimmed.length > 200) {
+      setError("标题不能超过 200 字");
+      return;
+    }
+    if (trimmed === value) {
+      cancel();
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(trimmed);
+      setIsEditing(false);
+    } catch {
+      // 父组件已 toast；保持编辑态让用户重试
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isEditing) {
+    return (
+      <div className="flex items-center gap-2">
+        <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink md:text-[26px]">
+          {value}
+        </h1>
+        <button
+          type="button"
+          aria-label="编辑标题"
+          onClick={startEdit}
+          className="inline-flex size-7 items-center justify-center rounded text-ink-5 hover:bg-paper-alt hover:text-ink-3"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <Input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !composingRef.current) {
+              e.preventDefault();
+              void commit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              cancel();
+            }
+          }}
+          disabled={saving}
+          maxLength={200}
+          className="h-9 max-w-[480px] text-[18px] font-semibold md:text-[22px]"
+        />
+        <Button
+          size="sm"
+          onClick={() => void commit()}
+          disabled={saving}
+          aria-label="保存标题"
+        >
+          {saving ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+          保存
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={cancel}
+          disabled={saving}
+          aria-label="取消编辑"
+        >
+          <X className="size-3" />
+          取消
+        </Button>
+      </div>
+      {error && (
+        <span className="text-xs text-destructive">{error}</span>
+      )}
+    </div>
+  );
+}
+
 export function InstanceHeader({
   instance,
   actionLoading,
@@ -91,6 +226,7 @@ export function InstanceHeader({
   onExport,
   onRemind,
   onStartGrading,
+  onTitleSave,
 }: InstanceHeaderProps) {
   const dueDate = new Date(instance.dueAt);
   const dueText = isNaN(dueDate.getTime())
@@ -162,9 +298,13 @@ export function InstanceHeader({
               </span>
             )}
           </div>
-          <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink md:text-[26px]">
-            {instance.title}
-          </h1>
+          {onTitleSave ? (
+            <EditableTitle value={instance.title} onSave={onTitleSave} />
+          ) : (
+            <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-ink md:text-[26px]">
+              {instance.title}
+            </h1>
+          )}
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-4">
             <span className="inline-flex items-center gap-1">
               <Clock className="size-3" />

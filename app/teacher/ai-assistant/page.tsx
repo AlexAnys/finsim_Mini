@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BookOpenCheck,
@@ -9,6 +9,7 @@ import {
   Copy,
   FileCheck2,
   Loader2,
+  Pencil,
   RotateCcw,
   SearchCheck,
   Settings2,
@@ -25,28 +26,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { LessonPolishResult } from "@/components/ai-assistant/lesson-polish-result";
+import { IdeologyMiningResult } from "@/components/ai-assistant/ideology-mining-result";
+import { QuestionAnalysisResult } from "@/components/ai-assistant/question-analysis-result";
+import { ExamCheckResult } from "@/components/ai-assistant/exam-check-result";
+import {
+  usePersistedJob,
+  readActiveTool,
+  writeActiveTool,
+  clearPersistedJob,
+  type AiToolKey,
+  type PersistedAiResult,
+  type PersistedAsyncJob,
+} from "@/lib/hooks/use-persisted-job";
 
-type ToolKey = "lessonPolish" | "ideologyMining" | "questionAnalysis" | "examCheck";
+type ToolKey = AiToolKey;
 
-interface AiResult {
-  title: string;
-  summary: string;
-  sections: Array<{ heading: string; diagnosis: string; suggestions: string[]; examples: string[] }>;
-  actionItems: string[];
-  cautions: string[];
-  gradingTable: Array<{ student: string; question: string; score: string; feedback: string; uncertainty: string }>;
-  fallback?: boolean;
-  fileReports?: Array<{ fileName: string; status: string; error?: string; textLength: number }>;
-  searchStatus?: string;
-}
-
-interface AsyncJobSnapshot {
-  id: string;
-  status: "queued" | "running" | "succeeded" | "failed" | "canceled";
-  progress: number;
-  error?: string | null;
-  result?: AiResult | null;
-}
+type AiResult = PersistedAiResult;
+type AsyncJobSnapshot = PersistedAsyncJob;
 
 const TOOLS: Array<{
   key: ToolKey;
@@ -86,7 +83,8 @@ const TOOLS: Array<{
 ];
 
 export default function AIAssistantPage() {
-  const [activeTool, setActiveTool] = useState<ToolKey>("lessonPolish");
+  const [activeTool, setActiveToolRaw] = useState<ToolKey>("lessonPolish");
+  const [viewMode, setViewMode] = useState<"read" | "edit">("read");
   const [text, setText] = useState("");
   const [teacherRequest, setTeacherRequest] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -99,6 +97,90 @@ export default function AIAssistantPage() {
   const [originalResult, setOriginalResult] = useState<AiResult | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
+  const { state: persisted, hydrated, update: persistPatch, reset: persistReset } =
+    usePersistedJob(activeTool);
+
+  // 切回工具时一次性同步 5 input + job + result + originalResult（hook hydrate 后）
+  useEffect(() => {
+    if (!hydrated) return;
+    setText(persisted.text);
+    setTeacherRequest(persisted.teacherRequest);
+    setOutputStyle(persisted.outputStyle);
+    setStrictness(persisted.strictness);
+    setEnableSearch(persisted.enableSearch);
+    setJob(persisted.job);
+    setResult(persisted.result);
+    setOriginalResult(persisted.originalResult);
+    setViewMode(persisted.viewMode ?? "read");
+    // files 不持久（File 无法序列化），切回需要重传
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTool, hydrated]);
+
+  // 切工具时同步首选项
+  const setActiveTool = useCallback((next: ToolKey) => {
+    setActiveToolRaw(next);
+    writeActiveTool(next);
+  }, []);
+
+  // 首次挂载：恢复 activeTool
+  useEffect(() => {
+    const saved = readActiveTool();
+    if (saved && saved !== "lessonPolish") setActiveToolRaw(saved);
+  }, []);
+
+  // hydrate 后若 cache 里有未完成 job，立即拉一次最新状态（触发轮询接管）
+  useEffect(() => {
+    if (!hydrated || !persisted.job?.id) return;
+    const cachedJob = persisted.job;
+    if (cachedJob.status !== "queued" && cachedJob.status !== "running") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/async-jobs/${cachedJob.id}`);
+        if (res.status === 403 || res.status === 404) {
+          if (!cancelled) {
+            persistReset();
+            setJob(null);
+            setResult(null);
+            setOriginalResult(null);
+          }
+          return;
+        }
+        const json = await res.json();
+        if (!json.success || cancelled) return;
+        const next = json.data as AsyncJobSnapshot;
+        setJob(next);
+        if (next.status === "succeeded" && next.result) {
+          setOriginalResult(next.result);
+          setResult(next.result);
+        }
+      } catch {
+        // 网络错误，保留 cache，下一轮轮询继续
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  // 把当前 in-memory state 持续写回 cache（debounce 不必要，localStorage 同步快）
+  useEffect(() => {
+    if (!hydrated) return;
+    persistPatch({
+      text,
+      teacherRequest,
+      outputStyle,
+      strictness,
+      enableSearch,
+      job,
+      result,
+      originalResult,
+      viewMode,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, teacherRequest, outputStyle, strictness, enableSearch, job, result, originalResult, viewMode, hydrated]);
+
   const active = useMemo(() => TOOLS.find((tool) => tool.key === activeTool) ?? TOOLS[0], [activeTool]);
   const Icon = active.icon;
   const processing = job?.status === "queued" || job?.status === "running";
@@ -110,6 +192,14 @@ export default function AIAssistantPage() {
     const timer = window.setInterval(async () => {
       try {
         const res = await fetch(`/api/async-jobs/${job.id}`);
+        if (res.status === 403 || res.status === 404) {
+          if (cancelled) return;
+          clearPersistedJob(activeTool);
+          setJob(null);
+          setResult(null);
+          setOriginalResult(null);
+          return;
+        }
         const json = await res.json();
         if (!json.success || cancelled) return;
         const next = json.data as AsyncJobSnapshot;
@@ -127,7 +217,7 @@ export default function AIAssistantPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [job?.id, processing]);
+  }, [job?.id, processing, activeTool]);
 
   async function runTool() {
     if (!text.trim() && files.length === 0 && !teacherRequest.trim()) {
@@ -155,6 +245,7 @@ export default function AIAssistantPage() {
         return;
       }
       setJob(json.data.job as AsyncJobSnapshot);
+      setViewMode("read");
       toast.success("已提交后台分析，结果会自动刷新");
     } catch {
       toast.error("网络错误，请稍后重试");
@@ -395,9 +486,31 @@ export default function AIAssistantPage() {
               <div className="space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-ink-4">
-                    结果可直接编辑；复制时会使用当前编辑后的内容。
+                    {viewMode === "read"
+                      ? "默认阅读模式；点「编辑」可直接修改。"
+                      : "结果可直接编辑；复制时会使用当前编辑后的内容。"}
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setViewMode((current) => (current === "read" ? "edit" : "read"))
+                      }
+                    >
+                      {viewMode === "read" ? (
+                        <>
+                          <Pencil className="mr-1.5 size-3.5" />
+                          编辑
+                        </>
+                      ) : (
+                        <>
+                          <BookOpenCheck className="mr-1.5 size-3.5" />
+                          完成阅读
+                        </>
+                      )}
+                    </Button>
                     <Button type="button" variant="outline" size="sm" onClick={resetResult} disabled={!originalResult}>
                       <RotateCcw className="mr-1.5 size-3.5" />
                       复原
@@ -409,119 +522,7 @@ export default function AIAssistantPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>标题</Label>
-                  <Input value={result.title} onChange={(event) => patchResult({ title: event.target.value })} />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>总体判断</Label>
-                  <Textarea
-                    value={result.summary}
-                    onChange={(event) => patchResult({ summary: event.target.value })}
-                    rows={4}
-                  />
-                </div>
-
-                {result.fileReports && result.fileReports.length > 0 && (
-                  <div className="rounded-lg border border-line bg-paper-alt p-3">
-                    <div className="text-xs font-semibold text-ink-2">文件识别</div>
-                    <div className="mt-2 grid gap-1.5">
-                      {result.fileReports.map((file) => (
-                        <div key={file.fileName} className="flex items-center justify-between gap-3 text-xs">
-                          <span className="truncate text-ink-3">{file.fileName}</span>
-                          <span className={file.status === "ready" ? "shrink-0 text-success" : "shrink-0 text-warn"}>
-                            {fileStatusLabel(file.status)} · {file.textLength} 字
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  {result.sections.map((section, index) => (
-                    <div key={`${section.heading}-${index}`} className="rounded-lg border border-line bg-paper p-4">
-                      <div className="grid gap-3">
-                        <div className="space-y-2">
-                          <Label>分段标题</Label>
-                          <Input
-                            value={section.heading}
-                            onChange={(event) => patchSection(index, { heading: event.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>诊断</Label>
-                          <Textarea
-                            value={section.diagnosis}
-                            onChange={(event) => patchSection(index, { diagnosis: event.target.value })}
-                            rows={3}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>建议（一行一条）</Label>
-                          <Textarea
-                            value={section.suggestions.join("\n")}
-                            onChange={(event) => patchSection(index, { suggestions: linesFromText(event.target.value) })}
-                            rows={4}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>示例/表达（一行一条）</Label>
-                          <Textarea
-                            value={section.examples.join("\n")}
-                            onChange={(event) => patchSection(index, { examples: linesFromText(event.target.value) })}
-                            rows={3}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {result.gradingTable.length > 0 && (
-                  <div className="overflow-hidden rounded-lg border border-line">
-                    <table className="w-full text-sm">
-                      <thead className="bg-paper-alt text-left text-ink-4">
-                        <tr>
-                          <th className="px-3 py-2">学生</th>
-                          <th className="px-3 py-2">题号</th>
-                          <th className="px-3 py-2">得分</th>
-                          <th className="px-3 py-2">反馈</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.gradingTable.map((row, index) => (
-                          <tr key={index} className="border-t border-line">
-                            <td className="px-3 py-2">{row.student || "-"}</td>
-                            <td className="px-3 py-2">{row.question || "-"}</td>
-                            <td className="px-3 py-2">{row.score || "-"}</td>
-                            <td className="px-3 py-2">{row.feedback || row.uncertainty || "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>下一步动作（一行一条）</Label>
-                    <Textarea
-                      value={result.actionItems.join("\n")}
-                      onChange={(event) => patchResult({ actionItems: linesFromText(event.target.value) })}
-                      rows={5}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>需复核事项（一行一条）</Label>
-                    <Textarea
-                      value={result.cautions.join("\n")}
-                      onChange={(event) => patchResult({ cautions: linesFromText(event.target.value) })}
-                      rows={5}
-                    />
-                  </div>
-                </div>
+                {renderResultByTool(activeTool, result, patchResult, patchSection, viewMode)}
               </div>
             )}
           </CardContent>
@@ -595,24 +596,25 @@ function jobStatusLabel(status: AsyncJobSnapshot["status"]) {
   }
 }
 
-function fileStatusLabel(status: string) {
-  switch (status) {
-    case "ready":
-      return "文本可用";
-    case "ocr_required":
-      return "需要 OCR";
-    case "failed":
-      return "识别失败";
+function renderResultByTool(
+  toolKey: ToolKey,
+  result: AiResult,
+  patchResult: (patch: Partial<AiResult>) => void,
+  patchSection: (index: number, patch: Partial<AiResult["sections"][number]>) => void,
+  viewMode: "read" | "edit",
+) {
+  const props = { result, patchResult, patchSection, viewMode };
+  switch (toolKey) {
+    case "ideologyMining":
+      return <IdeologyMiningResult {...props} />;
+    case "questionAnalysis":
+      return <QuestionAnalysisResult {...props} />;
+    case "examCheck":
+      return <ExamCheckResult {...props} />;
+    case "lessonPolish":
     default:
-      return status;
+      return <LessonPolishResult {...props} />;
   }
-}
-
-function linesFromText(text: string) {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
 }
 
 function formatResultForCopy(result: AiResult) {

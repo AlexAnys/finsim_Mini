@@ -1,11 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Loader2, Sparkles, Users } from "lucide-react";
+import { Bot, Loader2, MessageSquareText, Sparkles, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface StudyBuddyAnalyticsTabProps {
   courseId: string;
@@ -160,7 +170,216 @@ export function CourseStudyBuddyAnalyticsTab({ courseId }: StudyBuddyAnalyticsTa
           </Card>
         ))}
       </div>
+
+      <PendingQuestionsList courseId={courseId} />
     </div>
+  );
+}
+
+interface SbPostLite {
+  id: string;
+  title: string;
+  question: string;
+  aiReply: string | null;
+  status: "pending" | "answered" | "error";
+  anonymous: boolean;
+  createdAt: string;
+  student: { id: string; name: string | null; email: string };
+  taskInstance: {
+    title: string;
+    chapter: { title: string } | null;
+    section: { title: string } | null;
+  } | null;
+  isFreeForm: boolean;
+}
+
+function PendingQuestionsList({ courseId }: { courseId: string }) {
+  const [posts, setPosts] = useState<SbPostLite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SbPostLite | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const fetchPosts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/teacher/study-buddy/posts?courseId=${courseId}&scope=pending`,
+      );
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "加载未答疑列表失败");
+        return;
+      }
+      setPosts(json.data.posts as SbPostLite[]);
+    } catch {
+      toast.error("网络错误");
+    } finally {
+      setLoading(false);
+    }
+  }, [courseId]);
+
+  useEffect(() => {
+    void fetchPosts();
+  }, [fetchPosts]);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingId(deleteTarget.id);
+    try {
+      const res = await fetch(`/api/study-buddy/posts/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "删除失败");
+        return;
+      }
+      toast.success("已删除");
+      setPosts((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch {
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <Card data-section="pending-questions">
+      <CardHeader>
+        <CardTitle className="text-base">未答疑列表</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            加载中...
+          </div>
+        ) : posts.length === 0 ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <MessageSquareText className="size-4" />
+            本课程暂无未答疑提问
+          </p>
+        ) : (
+          posts.map((post) => {
+            const expanded = expandedId === post.id;
+            const ti = post.taskInstance;
+            return (
+              <div
+                key={post.id}
+                className="rounded-md border border-line bg-surface p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                      {post.isFreeForm ? (
+                        <Badge variant="secondary" className="text-[10.5px]">
+                          自由问
+                        </Badge>
+                      ) : (
+                        ti && (
+                          <span className="text-[11.5px] text-ink-4">
+                            {ti.chapter?.title ? `${ti.chapter.title} / ` : ""}
+                            {ti.section?.title ? `${ti.section.title} / ` : ""}
+                            {ti.title}
+                          </span>
+                        )
+                      )}
+                      {post.anonymous && (
+                        <Badge variant="outline" className="text-[10.5px]">
+                          匿名
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium leading-snug">
+                      {post.title}
+                    </p>
+                    <div className="mt-0.5 text-[11.5px] text-ink-4">
+                      {post.anonymous
+                        ? "（匿名学生）"
+                        : post.student.name || post.student.email}{" "}
+                      · {new Date(post.createdAt).toLocaleString("zh-CN")}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setExpandedId(expanded ? null : post.id)
+                      }
+                    >
+                      {expanded ? "收起" : "展开"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeleteTarget(post)}
+                      className="text-destructive hover:text-destructive"
+                      aria-label="删除该提问"
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                </div>
+                {expanded && (
+                  <div className="mt-3 space-y-2 border-t border-line-2 pt-3">
+                    <div>
+                      <div className="mb-1 text-[11.5px] font-medium text-ink-4">
+                        学生提问
+                      </div>
+                      <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-2">
+                        {post.question}
+                      </p>
+                    </div>
+                    {post.aiReply && (
+                      <div>
+                        <div className="mb-1 text-[11.5px] font-medium text-ink-4">
+                          AI 回复
+                        </div>
+                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-2">
+                          {post.aiReply}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingId) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除（隐藏）此提问</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认删除「{deleteTarget?.title}」？此操作会把帖子从老师与学生的列表中移除（软删，DB 仍保留记录）。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingId}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={!!deletingId}>
+              {deletingId ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }
 

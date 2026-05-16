@@ -90,6 +90,8 @@ export function handleServiceError(err: unknown) {
         return notFound("任务实例不存在");
       case "TASK_INSTANCE_SCOPE_MISMATCH":
         return error("TASK_INSTANCE_SCOPE_MISMATCH", "任务实例与当前课程/章节/小节不匹配", 400);
+      case "TASK_TYPE_MISMATCH":
+        return error("TASK_TYPE_MISMATCH", "任务类型不匹配，无法修改", 400);
       case "TASK_NOT_FOUND":
         return notFound("任务不存在");
       case "TASK_CONFIG_INCOMPLETE":

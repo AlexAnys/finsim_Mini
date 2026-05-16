@@ -191,14 +191,16 @@ describe("Fix 4 · 测试连接接口", () => {
 
 describe("Fix 4 · AI 设置 UI 真实下拉 + 测试按钮", () => {
   it("UI Provider <Select> 用 providers 数组渲染（真实多项）", () => {
-    const src = readFile("app/teacher/ai-settings/page.tsx");
+    // Unit B1: 抽离到 components/ai-workbench/settings-tab.tsx
+    const src = readFile("components/ai-workbench/settings-tab.tsx");
     // 渲染来自 listAiToolSettings 返回的 providerOptions
     expect(src).toMatch(/providers\.map\(\(provider\) =>/);
     expect(src).toContain("<SelectItem");
   });
 
   it("「测试连接」按钮 + testConnection() 函数", () => {
-    const src = readFile("app/teacher/ai-settings/page.tsx");
+    // Unit B1: 抽离到 components/ai-workbench/settings-tab.tsx
+    const src = readFile("components/ai-workbench/settings-tab.tsx");
     expect(src).toContain("测试连接");
     expect(src).toContain("async function testConnection");
     expect(src).toContain("/api/ai/tool-settings/test-connection");
@@ -207,7 +209,8 @@ describe("Fix 4 · AI 设置 UI 真实下拉 + 测试按钮", () => {
   });
 
   it("ToolSetting 接口的 provider 字段保留（未硬编码成 \"mimo\" 字面量类型）", () => {
-    const src = readFile("app/teacher/ai-settings/page.tsx");
+    // Unit B1: 抽离到 components/ai-workbench/settings-tab.tsx
+    const src = readFile("components/ai-workbench/settings-tab.tsx");
     // ToolSetting.provider 是 string，不是 string literal "mimo"
     expect(src).toMatch(/provider:\s*string;/);
   });

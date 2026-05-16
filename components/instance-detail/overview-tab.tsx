@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Flame, Sparkles, CheckCircle2, Clock, Calendar } from "lucide-react";
+import { Flame, Sparkles, CheckCircle2, Clock, Calendar, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   buildFunnel,
@@ -25,6 +25,7 @@ export interface OverviewTabProps {
   onRemind: () => void;
   onStartGrading: () => void;
   onPreviewStudent: () => void;
+  onEditSnapshot?: () => void;
 }
 
 export function OverviewTab({
@@ -33,6 +34,7 @@ export function OverviewTab({
   onRemind,
   onStartGrading,
   onPreviewStudent,
+  onEditSnapshot,
 }: OverviewTabProps) {
   const funnel = useMemo(() => buildFunnel(stats), [stats]);
 
@@ -113,6 +115,18 @@ export function OverviewTab({
           >
             预览学生视角
           </Button>
+          {onEditSnapshot && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 w-full"
+              onClick={onEditSnapshot}
+              data-action="edit-snapshot"
+            >
+              <Pencil className="mr-1 size-3.5" />
+              编辑配置
+            </Button>
+          )}
         </section>
       </div>
 

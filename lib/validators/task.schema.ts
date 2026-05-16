@@ -144,6 +144,36 @@ export const updateTaskInstanceSchema = z.object({
   status: z.enum(["draft", "published", "closed", "archived"]).optional(),
 });
 
+// Unit A1: 教师编辑 instance.taskSnapshot（影响学生看到的配置）
+// 三态 discriminated union；taskType 必填用于 dispatch + 后端守 task.id/taskType 不变
+export const updateInstanceSnapshotSimulationSchema = z.object({
+  taskType: z.literal("simulation"),
+  simulationConfig: simulationConfigSchema.partial().optional(),
+  scoringCriteria: z.array(scoringCriterionSchema).optional(),
+  allocationSections: z.array(allocationSectionSchema).optional(),
+});
+
+export const updateInstanceSnapshotQuizSchema = z.object({
+  taskType: z.literal("quiz"),
+  quizConfig: quizConfigSchema.partial().optional(),
+  quizQuestions: z.array(quizQuestionSchema).optional(),
+  scoringCriteria: z.array(scoringCriterionSchema).optional(),
+});
+
+export const updateInstanceSnapshotSubjectiveSchema = z.object({
+  taskType: z.literal("subjective"),
+  subjectiveConfig: subjectiveConfigSchema.partial().optional(),
+  scoringCriteria: z.array(scoringCriterionSchema).optional(),
+});
+
+export const updateTaskInstanceSnapshotSchema = z.discriminatedUnion("taskType", [
+  updateInstanceSnapshotSimulationSchema,
+  updateInstanceSnapshotQuizSchema,
+  updateInstanceSnapshotSubjectiveSchema,
+]);
+
+export type UpdateTaskInstanceSnapshotInput = z.infer<typeof updateTaskInstanceSnapshotSchema>;
+
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type CreateTaskInstanceInput = z.infer<typeof createTaskInstanceSchema>;

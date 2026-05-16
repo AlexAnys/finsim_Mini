@@ -45,6 +45,15 @@ export async function GET(request: NextRequest) {
       return success({ posts: [], stats: { total: 0, pending: 0, answered: 0, students: 0 } });
     }
 
+    // Unit B2: 可选 courseId 过滤（用于课程详情 SB 统计 tab）。
+    // 安全约束：客户端传的 courseId 必须先与 owner+collab 课程列表交集；
+    // 未授权的 courseId 静默返空，避免 enum scanning。
+    const filterCourseId = searchParams.get("courseId");
+    if (filterCourseId && !courseIds.includes(filterCourseId)) {
+      return success({ posts: [], stats: { total: 0, pending: 0, answered: 0, students: 0 } });
+    }
+    const effectiveCourseIds = filterCourseId ? [filterCourseId] : courseIds;
+
     const statusFilter =
       scope === "pending"
         ? { status: "pending" as const }
@@ -59,9 +68,9 @@ export async function GET(request: NextRequest) {
         ...statusFilter,
         OR: [
           // task-bound：通过 taskInstance.courseId
-          { taskInstance: { courseId: { in: courseIds } } },
+          { taskInstance: { courseId: { in: effectiveCourseIds } } },
           // free-form 或 Unit 6 后 task-bound 反推：直接通过 post.courseId
-          { courseId: { in: courseIds } },
+          { courseId: { in: effectiveCourseIds } },
         ],
       },
       include: {

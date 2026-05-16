@@ -76,8 +76,9 @@ describe("production UI copy guards", () => {
   });
 
   it("AI settings search state clearly says search is disabled", () => {
+    // Unit B1: 抽离到 components/ai-workbench/settings-tab.tsx
     const file = readFileSync(
-      join(process.cwd(), "app/teacher/ai-settings/page.tsx"),
+      join(process.cwd(), "components/ai-workbench/settings-tab.tsx"),
       "utf-8",
     );
 
