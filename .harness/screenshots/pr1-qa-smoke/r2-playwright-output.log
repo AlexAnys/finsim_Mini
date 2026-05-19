@@ -1,0 +1,20 @@
+
+Running 5 tests using 1 worker
+
+  ✓  1 [chromium] › tests/e2e/smoke/01-teacher-create-publish.spec.ts:9:5 › smoke-01 teacher 建任务 → 建实例 → publish (2.9s)
+  ✓  2 [chromium] › tests/e2e/smoke/02-student-submit-simulation.spec.ts:10:5 › smoke-02 teacher 建 sim → student 提交 (4.5s)
+  ✓  3 [chromium] › tests/e2e/smoke/03-ai-grade-release.spec.ts:10:5 › smoke-03 teacher 手动 grade + release → student 看到分数 (5.6s)
+  ✓  4 [chromium] › tests/e2e/smoke/04-sb-free-question.spec.ts:10:5 › smoke-04 student 自由问 SB (2.6s)
+  ✓  5 [chromium] › tests/e2e/smoke/05-weekly-insight.spec.ts:10:5 › smoke-05 admin 触发 weekly-insight cron (2.4s)
+
+  5 passed (19.5s)
+
+Running 5 tests using 1 worker
+
+  ✓  1 [chromium] › tests/e2e/smoke/01-teacher-create-publish.spec.ts:9:5 › smoke-01 teacher 建任务 → 建实例 → publish (2.4s)
+  ✓  2 [chromium] › tests/e2e/smoke/02-student-submit-simulation.spec.ts:10:5 › smoke-02 teacher 建 sim → student 提交 (3.7s)
+  ✓  3 [chromium] › tests/e2e/smoke/03-ai-grade-release.spec.ts:10:5 › smoke-03 teacher 手动 grade + release → student 看到分数 (4.2s)
+  ✓  4 [chromium] › tests/e2e/smoke/04-sb-free-question.spec.ts:10:5 › smoke-04 student 自由问 SB (1.9s)
+  ✓  5 [chromium] › tests/e2e/smoke/05-weekly-insight.spec.ts:10:5 › smoke-05 admin 触发 weekly-insight cron (1.8s)
+
+  5 passed (15.0s)

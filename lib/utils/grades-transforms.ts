@@ -28,6 +28,25 @@ export interface GradeRow {
   courseName: string | null;
   /** 课程 id — 用于 courseColorForId tag 色派生 */
   courseId: string | null;
+  /**
+   * PR-15 bug 6a: criterion id → name 映射的真源
+   * `evaluation.rubricBreakdown[].criterionId` 是 ScoringCriterion.id (CUID)；
+   * panel 用此数组建 Map 显示中文 name 而非 CUID。getSubmissions include 透传。
+   * 教师 list 等 caller 不读，多余字段不影响。
+   */
+  scoringCriteria: Array<{ id: string; name: string; maxPoints: number }> | null;
+  /**
+   * PR-15 bug 6b: 模拟对话 transcript（来自 SimulationSubmission.transcript Json）。
+   * defensive filter: 只保留 role ∈ {student, ai} 且 text 非空字符串的消息，
+   * 防 schema drift (mood 8 档新增、AI 返不规则 payload) 让 UI 不爆。
+   * TODO: PR-2 候选 B (lib/validators/transcript.schema.ts) 落地后用 schema.parse 替换 defensive filter。
+   */
+  transcript: Array<{
+    id?: string;
+    role: 'student' | 'ai';
+    text: string;
+    timestamp?: string;
+  }> | null;
 }
 
 export interface ByTypeStat {
@@ -200,7 +219,13 @@ export interface RawSubmissionLite {
   gradedAt: string | null;
   releasedAt?: string | null;
   analysisStatus?: SubmissionAnalysisStatus;
-  task?: { id?: string; taskName?: string; taskType?: string };
+  task?: {
+    id?: string;
+    taskName?: string;
+    taskType?: string;
+    /** PR-15 bug 6a: getSubmissions include 透传 — Joiner 用 c.id → c.name */
+    scoringCriteria?: Array<{ id: string; name: string; maxPoints: number; order?: number }>;
+  };
   taskInstance?: { id?: string; title?: string };
 }
 
@@ -234,6 +259,34 @@ export function joinSubmissions(
       else if (s.status === "graded") analysisStatus = "analyzed_unreleased";
       else analysisStatus = "pending";
     }
+    // PR-15 bug 6a: criterion.id → name 真源 (CUID 不再显示给学生)
+    const scoringCriteria = Array.isArray(s.task?.scoringCriteria)
+      ? s.task!.scoringCriteria.map((c) => ({
+          id: c.id,
+          name: c.name,
+          maxPoints: c.maxPoints,
+        }))
+      : null;
+    // PR-15 bug 6b: transcript defensive filter — 只保留 schema 兼容的对话消息
+    const rawTranscript = (s.simulationSubmission as { transcript?: unknown } | null | undefined)
+      ?.transcript;
+    const transcript = Array.isArray(rawTranscript)
+      ? (rawTranscript as Array<Record<string, unknown>>)
+          .filter(
+            (m) =>
+              m &&
+              typeof m === 'object' &&
+              typeof (m as { text?: unknown }).text === 'string' &&
+              ((m as { role?: unknown }).role === 'student' ||
+                (m as { role?: unknown }).role === 'ai'),
+          )
+          .map((m) => ({
+            id: typeof m.id === 'string' ? m.id : undefined,
+            role: m.role as 'student' | 'ai',
+            text: m.text as string,
+            timestamp: typeof m.timestamp === 'string' ? m.timestamp : undefined,
+          }))
+      : null;
     return {
       id: s.id,
       taskId: s.taskId,
@@ -256,6 +309,8 @@ export function joinSubmissions(
       instanceTitle,
       courseName,
       courseId,
+      scoringCriteria,
+      transcript,
     };
   });
 }

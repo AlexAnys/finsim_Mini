@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Bot, Loader2, MessageSquareText, Sparkles, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  PostThreadDialog,
+  type StudyBuddyPostThread,
+} from "@/components/study-buddy/post-thread-dialog";
 
 interface StudyBuddyAnalyticsTabProps {
   courseId: string;
@@ -44,6 +56,29 @@ interface StudyBuddyAnalyticsData {
   } | null;
   aiError: string | null;
 }
+
+interface RawPost {
+  id: string;
+  title: string;
+  question: string;
+  aiReply: string | null;
+  status: "pending" | "answered" | "error";
+  anonymous: boolean;
+  createdAt: string;
+  student: { id: string; name: string | null; email: string };
+  task: { id: string; taskName: string } | null;
+  taskInstance: {
+    id: string;
+    title: string;
+    courseId: string;
+    chapter: { id: string; title: string } | null;
+    section: { id: string; title: string } | null;
+  } | null;
+  messages: Array<{ role: string; content: string; createdAt?: string }> | null;
+  isFreeForm: boolean;
+}
+
+const VISIBLE_CARDS = 12;
 
 export function CourseStudyBuddyAnalyticsTab({ courseId }: StudyBuddyAnalyticsTabProps) {
   const [data, setData] = useState<StudyBuddyAnalyticsData | null>(null);
@@ -85,94 +120,340 @@ export function CourseStudyBuddyAnalyticsTab({ courseId }: StudyBuddyAnalyticsTa
     );
   }
 
-  if (!data || data.totalQuestions === 0) {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Bot className="mb-3 size-8 text-muted-foreground" />
-          <h3 className="text-base font-semibold">暂无学生提问</h3>
-          <p className="mt-1 text-sm text-muted-foreground">学生在学习伙伴中提问后，这里会按章节和任务汇总。</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  // PR-15 bug 3: 即使 analytics endpoint (task-bound only) 返回 0，
+  // 也要渲染高频问题卡（含自由问）。零状态由 HighFrequencyQuestionsGrid 内部 + 任务分组卡内部各自负责。
+  const hasAnyData = data && data.totalQuestions > 0;
+  const totalQuestions = data?.totalQuestions ?? 0;
+  const pendingQuestions = data?.pendingQuestions ?? 0;
+  const activeStudents = data?.activeStudents ?? 0;
+  const aiSummary = data?.aiSummary ?? null;
+  const groups = data?.groups ?? [];
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Metric label="学生提问" value={data.totalQuestions} />
-        <Metric label="未完成回复" value={data.pendingQuestions} />
-        <Metric label="参与学生" value={data.activeStudents} />
+        <Metric label="学生提问" value={totalQuestions} />
+        <Metric label="未完成回复" value={pendingQuestions} />
+        <Metric label="参与学生" value={activeStudents} />
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle className="text-base">AI 问题总结</CardTitle>
-          <Button size="sm" onClick={() => load(true)} disabled={summarizing}>
-            {summarizing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}
-            生成总结
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {data.aiSummary ? (
-            <div className="grid gap-4 md:grid-cols-3">
-              <SummaryBlock title="主要问题" items={data.aiSummary.keyQuestions} />
-              <SummaryBlock title="知识盲区" items={data.aiSummary.knowledgeGaps} />
-              <SummaryBlock title="补讲建议" items={data.aiSummary.teachingSuggestions} />
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">先展示确定性统计；需要时可生成 AI 聚类总结。</p>
-          )}
-        </CardContent>
-      </Card>
+      {hasAnyData && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle className="text-base">AI 问题总结</CardTitle>
+            <Button size="sm" onClick={() => load(true)} disabled={summarizing}>
+              {summarizing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}
+              生成总结
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {aiSummary ? (
+              <div className="grid gap-4 md:grid-cols-3">
+                <SummaryBlock title="主要问题" items={aiSummary.keyQuestions} />
+                <SummaryBlock title="知识盲区" items={aiSummary.knowledgeGaps} />
+                <SummaryBlock title="补讲建议" items={aiSummary.teachingSuggestions} />
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">先展示确定性统计；需要时可生成 AI 聚类总结。</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <div className="space-y-2">
-        {data.groups.map((group, index) => (
-          <Card key={`${group.taskTitle}-${index}`}>
-            <CardContent className="p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{group.taskType}</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {group.chapterTitle} / {group.sectionTitle}
+      <HighFrequencyQuestionsGrid courseId={courseId} />
+
+      {hasAnyData && groups.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">按任务分组（高频问题来源）</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              按任务聚合学生提问，与上方「高频问题」互补。
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {groups.map((group, index) => (
+              <div
+                key={`${group.taskTitle}-${index}`}
+                className="rounded-md border border-line p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{group.taskType}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {group.chapterTitle} / {group.sectionTitle}
+                      </span>
+                    </div>
+                    <h4 className="mt-1 truncate text-sm font-semibold">{group.taskTitle}</h4>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span>{group.questionCount} 问</span>
+                    {group.pendingCount > 0 && <Badge variant="secondary">{group.pendingCount} 未回复</Badge>}
+                    <span className="inline-flex items-center gap-1 text-muted-foreground">
+                      <Users className="size-3" />
+                      {group.students.length}
                     </span>
                   </div>
-                  <h4 className="mt-1 truncate text-sm font-semibold">{group.taskTitle}</h4>
                 </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <span>{group.questionCount} 问</span>
-                  {group.pendingCount > 0 && <Badge variant="secondary">{group.pendingCount} 未回复</Badge>}
-                  <span className="inline-flex items-center gap-1 text-muted-foreground">
-                    <Users className="size-3" />
-                    {group.students.length}
-                  </span>
-                </div>
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_220px]">
-                <div className="space-y-1">
-                  {group.examples.slice(0, 3).map((question, i) => (
-                    <p key={i} className="rounded-md bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
-                      {question}
-                    </p>
-                  ))}
-                </div>
-                <div className="space-y-1">
-                  {group.students.slice(0, 4).map((student) => (
-                    <div key={student.id} className="flex justify-between rounded-md border px-2 py-1 text-xs">
-                      <span className="truncate">{student.name}</span>
-                      <span>{student.count}</span>
-                    </div>
-                  ))}
+                <div className="mt-3 grid gap-3 md:grid-cols-[1fr_220px]">
+                  <div className="space-y-1">
+                    {group.examples.slice(0, 3).map((question, i) => (
+                      <p key={i} className="rounded-md bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
+                        {question}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    {group.students.slice(0, 4).map((student) => (
+                      <div key={student.id} className="flex justify-between rounded-md border px-2 py-1 text-xs">
+                        <span className="truncate">{student.name}</span>
+                        <span>{student.count}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <PendingQuestionsList courseId={courseId} />
     </div>
+  );
+}
+
+function HighFrequencyQuestionsGrid({ courseId }: { courseId: string }) {
+  const [posts, setPosts] = useState<RawPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [chapterId, setChapterId] = useState<string>("all");
+  const [sectionId, setSectionId] = useState<string>("all");
+  const [openPost, setOpenPost] = useState<RawPost | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/teacher/study-buddy/posts?courseId=${courseId}&scope=all&take=200`,
+        );
+        const json = await res.json();
+        if (cancelled) return;
+        if (!json.success) {
+          toast.error(json.error?.message || "加载学生提问失败");
+          return;
+        }
+        setPosts((json.data.posts as RawPost[]) ?? []);
+      } catch {
+        if (!cancelled) toast.error("网络错误");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
+  const chapterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of posts) {
+      const ch = p.taskInstance?.chapter;
+      if (ch?.id) map.set(ch.id, ch.title);
+    }
+    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+  }, [posts]);
+
+  const sectionOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of posts) {
+      const sec = p.taskInstance?.section;
+      const ch = p.taskInstance?.chapter;
+      if (sec?.id && (chapterId === "all" || ch?.id === chapterId)) {
+        map.set(sec.id, sec.title);
+      }
+    }
+    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+  }, [posts, chapterId]);
+
+  useEffect(() => {
+    if (sectionId !== "all" && !sectionOptions.some((s) => s.id === sectionId)) {
+      setSectionId("all");
+    }
+  }, [sectionId, sectionOptions]);
+
+  const filteredPosts = useMemo(() => {
+    return posts.filter((p) => {
+      if (chapterId !== "all") {
+        if (p.taskInstance?.chapter?.id !== chapterId) return false;
+      }
+      if (sectionId !== "all") {
+        if (p.taskInstance?.section?.id !== sectionId) return false;
+      }
+      return true;
+    });
+  }, [posts, chapterId, sectionId]);
+
+  const rankedPosts = useMemo(() => {
+    return [...filteredPosts].sort((a, b) => {
+      const t = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      if (t !== 0) return t;
+      return a.id.localeCompare(b.id);
+    });
+  }, [filteredPosts]);
+
+  const visible = rankedPosts.slice(0, VISIBLE_CARDS);
+  const remaining = Math.max(0, rankedPosts.length - VISIBLE_CARDS);
+
+  return (
+    <Card data-section="high-freq-questions">
+      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <CardTitle className="text-base">高频问题</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            按时间倒序展示前 {VISIBLE_CARDS} 条提问；点击卡片查看完整对话。
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={chapterId} onValueChange={setChapterId}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="章节" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部章节</SelectItem>
+              {chapterOptions.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sectionId} onValueChange={setSectionId}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="小节" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部小节</SelectItem>
+              {sectionOptions.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            加载提问中…
+          </div>
+        ) : visible.length === 0 ? (
+          <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+            <MessageSquareText className="size-4" />
+            当前筛选下没有提问
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visible.map((p) => (
+                <QuestionCard
+                  key={p.id}
+                  post={p}
+                  onOpen={() => setOpenPost(p)}
+                />
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                共 {filteredPosts.length} 条匹配
+                {remaining > 0 ? ` · 仅展示前 ${VISIBLE_CARDS} 条` : ""}
+              </span>
+              {remaining > 0 && (
+                <Link
+                  href="/teacher/study-buddy"
+                  className="text-brand hover:underline"
+                >
+                  查看全部 →
+                </Link>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+
+      <PostThreadDialog
+        open={openPost !== null}
+        onOpenChange={(open) => {
+          if (!open) setOpenPost(null);
+        }}
+        post={openPost ? toThreadPost(openPost) : null}
+      />
+    </Card>
+  );
+}
+
+function toThreadPost(p: RawPost): StudyBuddyPostThread {
+  return {
+    id: p.id,
+    title: p.title,
+    question: p.question,
+    aiReply: p.aiReply,
+    status: p.status,
+    anonymous: p.anonymous,
+    createdAt: p.createdAt,
+    student: p.student,
+    taskInstance: p.taskInstance
+      ? {
+          title: p.taskInstance.title,
+          chapter: p.taskInstance.chapter,
+          section: p.taskInstance.section,
+        }
+      : null,
+    messages: p.messages ?? [],
+    isFreeForm: p.isFreeForm,
+  };
+}
+
+function QuestionCard({ post, onOpen }: { post: RawPost; onOpen: () => void }) {
+  const ch = post.taskInstance?.chapter?.title;
+  const sec = post.taskInstance?.section?.title;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex h-full flex-col rounded-md border border-line bg-surface p-3 text-left transition hover:border-brand hover:bg-paper"
+    >
+      <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
+        {post.isFreeForm ? (
+          <Badge variant="secondary" className="text-[10.5px]">
+            自由问
+          </Badge>
+        ) : (
+          <span className="text-ink-4">
+            {ch ? ch : "未绑定章节"}
+            {sec ? ` / ${sec}` : ""}
+          </span>
+        )}
+        {post.status === "pending" && (
+          <Badge variant="outline" className="border-warn/40 text-warn">
+            未回复
+          </Badge>
+        )}
+      </div>
+      <p className="mt-1.5 line-clamp-2 text-[13px] font-medium leading-snug text-ink">
+        {post.title}
+      </p>
+      <p className="mt-1 line-clamp-2 text-[11.5px] text-ink-4">
+        {post.question}
+      </p>
+      <div className="mt-auto pt-2 text-[10.5px] text-ink-5">
+        {new Date(post.createdAt).toLocaleString("zh-CN")}
+      </div>
+    </button>
   );
 }
 

@@ -203,6 +203,8 @@ export async function approveTaskBuildDraft(draftId: string, actorId: string) {
  *
  * 支持 optional tx 参数：with-task route 把 draft reserve + create 包同一
  * transaction，防止部分提交（额外 instance 持久化但 draft 状态没 flip）。
+ *
+ * 严格模式：只接受 status === "approved"。仅用于审核页 → 课程页发布的两阶段流程。
  */
 export async function markTaskBuildDraftPublished(
   draftId: string,
@@ -214,12 +216,45 @@ export async function markTaskBuildDraftPublished(
       data: { status: "published" },
     });
   } catch (err) {
-    // P2025: Record to update not found（id 不存在 或 status 不是 approved）
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2025"
     ) {
       throw new Error("TASK_BUILD_DRAFT_NOT_APPROVED_FOR_PUBLISH");
+    }
+    throw err;
+  }
+}
+
+/**
+ * PR-15 bug 1 修法：放宽 publish 状态约束以支持 wizard 一步发布。
+ *
+ * 场景：用户从 inline section row 点开 draft / ready / approved 状态的草稿
+ * → wizard 改完字段 → 点"创建并发布"。原 `markTaskBuildDraftPublished` 只接
+ * status === "approved"，导致 ready/draft 经 wizard 发布后 draft 没 flip，
+ * 仍残留在 inline 列表（filter 排除了 published 但没排除 ready/draft）。
+ *
+ * 接受集合：draft / ready / approved（不接受 queued / processing — 异步 job
+ * 还在跑，状态机不允许跨阶段跳；不接受 failed — 失败的草稿应先 retry）。
+ *
+ * race guard 同 `markTaskBuildDraftPublished`：where 条件失败抛 P2025
+ * → 映射为 TASK_BUILD_DRAFT_NOT_FOUND_OR_PUBLISHED（不区分"不存在 vs 已 publish"）。
+ */
+export async function markTaskBuildDraftPublishedFromWizard(
+  draftId: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  try {
+    return await client.taskBuildDraft.update({
+      where: { id: draftId, status: { in: ["draft", "ready", "approved"] } },
+      data: { status: "published" },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2025"
+    ) {
+      throw new Error("TASK_BUILD_DRAFT_NOT_FOUND_OR_PUBLISHED");
     }
     throw err;
   }

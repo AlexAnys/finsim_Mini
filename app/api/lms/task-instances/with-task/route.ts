@@ -9,7 +9,7 @@ import {
 } from "@/lib/services/task-instance.service";
 import {
   getTaskBuildDraft,
-  markTaskBuildDraftPublished,
+  markTaskBuildDraftPublishedFromWizard,
 } from "@/lib/services/task-build-draft.service";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createPublishedTaskWithInstanceSchema } from "@/lib/validators/task.schema";
@@ -44,8 +44,10 @@ export async function POST(request: NextRequest) {
     const classMatches = course.classes.some((cc) => cc.classId === data.instance.classId);
     if (!classMatches) throw new Error("CLASS_COURSE_MISMATCH");
 
-    // Unit 10: 若发布请求带 taskBuildDraftId，必须验证 draft.status === "approved"
-    // 手工创建任务（无 draft）不受此约束
+    // PR-15 bug 1: wizard 发布 draft 路径放宽到 (draft/ready/approved) 三态。
+    // 旧路径（审核页 → 课程页 publish）仍走严格 approved-only `markTaskBuildDraftPublished`，
+    // 但 with-task 是当前唯一调用方，统一改成 wizard 兼容版本。
+    // 手工创建任务（无 draft）不受此约束。
     // 注：scope 校验保留前置（友好错误），真正的 status flip 在 transaction 内做 atomic
     if (data.taskBuildDraftId) {
       const draft = await getTaskBuildDraft(data.taskBuildDraftId);
@@ -56,13 +58,13 @@ export async function POST(request: NextRequest) {
 
     // Codex-P1-r4: atomic publish — 把 draft status flip + create task+instance 包同一 transaction，
     // 防并发请求两个老师同时 publish 同一 draft 时只有一个 flip 成功但两个 instance 都已持久化。
-    // conditional update `where: { id, status: "approved" }` 让 status 转换在 DB 层面 atomic；
+    // conditional update `where: { id, status: { in: [...] } }` 让 status 转换在 DB 层面 atomic；
     // race loser 抛 P2025 → 整个 transaction 回滚 → 不创 instance。
     let output: Awaited<ReturnType<typeof createPublishedTaskWithInstance>>;
     let needsTaggerJob = false;
     if (data.taskBuildDraftId) {
       output = await prisma.$transaction(async (tx) => {
-        await markTaskBuildDraftPublished(data.taskBuildDraftId!, tx);
+        await markTaskBuildDraftPublishedFromWizard(data.taskBuildDraftId!, tx);
         return createPublishedTaskWithInstanceInTransaction(tx, user.id, data);
       });
       needsTaggerJob =

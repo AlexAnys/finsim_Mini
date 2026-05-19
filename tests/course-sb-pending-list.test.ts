@@ -104,7 +104,8 @@ describe("Unit B2 · Anti-regression", () => {
     // 现有 section markers
     expect(src).toContain("AI 问题总结");
     expect(src).toContain("生成总结");
-    expect(src).toContain("data.groups.map");
+    // PR-15 bug 3: 重构后从 data.groups.map 改为 destructured groups.map（同义）
+    expect(src).toContain("groups.map");
     // 新 section
     expect(src).toContain("PendingQuestionsList");
   });

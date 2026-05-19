@@ -63,3 +63,8 @@ agent_docs/export/
 .harness/spec-builder-deploy-rewrite.md
 .harness/r5-analytics-static-research.md
 .harness/dev-db-backup-*.sql
+
+# playwright artifacts (per-run output, not source)
+test-results/
+playwright-report/
+tests/_debug_qa/

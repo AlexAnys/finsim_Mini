@@ -114,6 +114,12 @@ export function handleServiceError(err: unknown) {
           "草稿尚未审核通过，请先在审核页批准 AI 原稿",
           400,
         );
+      case "TASK_BUILD_DRAFT_NOT_FOUND_OR_PUBLISHED":
+        return error(
+          "TASK_BUILD_DRAFT_NOT_FOUND_OR_PUBLISHED",
+          "任务草稿不存在或已发布，请刷新课程页",
+          400,
+        );
       case "SUBMISSION_NOT_FOUND":
         return notFound("提交不存在");
       case "FILE_NOT_FOUND":

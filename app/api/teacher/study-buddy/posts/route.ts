@@ -61,11 +61,26 @@ export async function GET(request: NextRequest) {
           ? { status: "answered" as const }
           : {};
 
+    // PR-15 bug 4: 可选 taskInstanceId 过滤（任务详情 SB mini 模块用）。
+    // 安全：taskInstance 必须属于已 assert 的 effectiveCourseIds 之一；
+    // 不匹配静默返空，避免跨课枚举。
+    const filterTaskInstanceId = searchParams.get("taskInstanceId");
+    if (filterTaskInstanceId) {
+      const ti = await prisma.taskInstance.findUnique({
+        where: { id: filterTaskInstanceId },
+        select: { courseId: true },
+      });
+      if (!ti || !ti.courseId || !effectiveCourseIds.includes(ti.courseId)) {
+        return success({ posts: [], stats: { total: 0, pending: 0, answered: 0, students: 0 } });
+      }
+    }
+
     const posts = await prisma.studyBuddyPost.findMany({
       where: {
         hiddenAt: null,
         isPreview: false,
         ...statusFilter,
+        ...(filterTaskInstanceId && { taskInstanceId: filterTaskInstanceId }),
         OR: [
           // task-bound：通过 taskInstance.courseId
           { taskInstance: { courseId: { in: effectiveCourseIds } } },

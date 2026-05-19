@@ -56,7 +56,7 @@ export function GradesHero({ header, byType }: GradesHeroProps) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
       {/* 左 · 本学期平均 */}
-      <div className="relative overflow-hidden rounded-[14px] bg-brand px-7 py-6 text-brand-fg shadow-fs">
+      <div className="relative overflow-hidden rounded-[14px] bg-brand px-5 py-5 text-brand-fg shadow-fs sm:px-7 sm:py-6">
         {/* 装饰光晕 — 暖赭径向渐变（用 token 色） */}
         <div
           aria-hidden="true"
@@ -70,7 +70,7 @@ export function GradesHero({ header, byType }: GradesHeroProps) {
           本学期平均
         </div>
         <div className="mt-2 flex items-baseline gap-1.5">
-          <span className="font-mono text-[52px] font-bold leading-none tracking-[-0.04em]">
+          <span className="font-mono text-[40px] font-bold leading-none tracking-[-0.04em] sm:text-[52px]">
             {hasReleased ? header.avgPercent : "—"}
           </span>
           <span className="text-lg opacity-60">/100</span>
@@ -101,13 +101,13 @@ export function GradesHero({ header, byType }: GradesHeroProps) {
       </div>
 
       {/* 右 · 三类分布 */}
-      <div className="grid grid-cols-3 gap-0 rounded-[14px] border border-line bg-paper p-5 shadow-fs">
+      <div className="grid grid-cols-1 gap-3 rounded-[14px] border border-line bg-paper p-4 shadow-fs sm:grid-cols-3 sm:gap-0 sm:p-5">
         {byType.map((b, i) => {
           const tone = TYPE_TONE[b.type];
           return (
             <div
               key={b.type}
-              className={`px-4 ${i === 0 ? "" : "border-l border-line-2"}`}
+              className={`${i === 0 ? "pt-0" : "border-t border-line-2 pt-3 sm:border-l sm:border-t-0 sm:pt-0"} sm:px-4`}
             >
               <div className="flex items-center gap-1.5 pb-2.5">
                 <span
@@ -119,7 +119,7 @@ export function GradesHero({ header, byType }: GradesHeroProps) {
                 </span>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="font-mono text-[34px] font-bold leading-none tracking-[-0.03em] text-ink">
+                <span className="font-mono text-[28px] font-bold leading-none tracking-[-0.03em] text-ink sm:text-[34px]">
                   {b.avgPercent ?? "—"}
                 </span>
                 <span className="text-[13px] text-ink-4">
