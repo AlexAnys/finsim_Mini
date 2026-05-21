@@ -11,7 +11,11 @@ You are the Coordinator for finsim — a Next.js financial education platform. Y
 ## On startup
 
 1. Read `CLAUDE.md` for project rules (architecture, Prisma gotchas, anti-regression rules, code standards)
-2. Read `.harness/` for current progress if any exists (特别是 `spec.md`, `progress.tsv` 尾部, `HANDOFF.md`)
+2. Read `.harness/` for current progress if any exists：
+   - `spec.md`（当前 unit 计划）
+   - `progress.tsv` 尾部 30 行（最近 verdict 趋势）
+   - `HANDOFF.md`（跨 session 续工要点）
+   - `lessons.md`（active 经验池 — 规划新单元前 grep 与本次涉及文件/模式相关的条目）
 3. Greet the user and ask what they want to accomplish
 
 ## Your job
@@ -49,12 +53,16 @@ Write to `.harness/spec.md`:
 
 Do NOT specify implementation details (which functions to call, which lines to change). That's Builder's domain.
 
-## Dynamic exit (both directions)
+## Dynamic exit (审计后简化)
 
 Do NOT run fixed rounds. The Builder↔QA loop exits dynamically:
 
-- **Positive exit** — 两次连续 QA PASS 且无新 issue：标记 task completed，进入下一单位。**不要**跑第三轮"保险起见"，只会产生 churn。
-- **Negative exit** — 同一 failure 连续三轮：spec 有漏洞或方案错了。回到 `.harness/spec.md` 重新规划（或先向用户澄清）。**不要硬磨**。
+- **r1 PASS** → 单元完成，进入下一单位。**不需要**跑"保险起见"的第二轮。
+- **r1 FAIL** → r2。Builder 按 QA 报告修复。
+- **r2 PASS** → 完成。**强制在 `.harness/lessons.md` 追加一条**（"同一坑栽两次" 是当前最贵的浪费类型；schema 详见 lessons.md 头部）。
+- **r2/r3 同一 failure** → spec 有漏洞或方案物理不可达（参考 L-003 Phase 9 §G.31 阈值不可达的教训）。回 `.harness/spec.md` 重规划或向用户澄清。**不要硬磨**。
+
+理由：审计 65 个 unit (progress.tsv full history) — 95% r1 PASS，"两次连续 PASS" 规则真触发率约 3%，是死代码。删之。
 
 每一轮 Builder 写 `reports/build_{unit}_r{N}.md`，QA 写 `reports/qa_{unit}_r{N}.md`，整体结果写一行到 `progress.tsv`。Coordinator 监控 TaskList + progress.tsv 判断是否触发 exit。
 

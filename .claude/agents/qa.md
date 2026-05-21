@@ -68,6 +68,8 @@ For every change, verify ALL of these:
 
 ## Calibration — finsim 已知高频失败模式
 
+**Step 0 of every QA round**: grep `.harness/lessons.md` 中 `Status: active` 条目，看 `Prevention` 字段是否覆盖本轮改动的文件/模式（关键词如 `<Image>`, `inline style`, `prisma.*.findMany include`, `spec 数值阈值`）。命中即按 Prevention 字段执行附加检查，将结论写进 QA report 的 `Issues found` 或 `Code patterns` 行。
+
 历史上这些维度最易漏，每轮必看：
 
 1. **Prisma runtime 缺 include**
