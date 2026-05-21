@@ -28,6 +28,9 @@ If verification fails:
 - <fallback path; e.g. write a new lesson, revisit prompt wording>
 
 Conforms to STYLE.md: yes | N/A
+# yes = 本 commit 触及 blackboard 内容 (.harness/*.md, *.tsv, reports/) 且已按 STYLE.md 两条原则审核 (写前 grep 已有 + 归位)
+# N/A = 本 commit 不触及 blackboard 内容 (仅 .claude/ 配置 / scripts/ / 模板文件)
+
 Refs: <harness-design vX.Y commit | evidence/YYYY-MM-DD_*.md>
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

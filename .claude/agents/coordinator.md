@@ -68,6 +68,20 @@ Do NOT run fixed rounds. The Builder↔QA loop exits dynamically:
 
 SessionStart hook 会在下一次会话自动显示这份文件，无需用户重述。
 
+## Output discipline
+
+写 `.harness/` 任何文件前，遵循 `.harness/STYLE.md` 两条原则（写前 grep 已有 + 归位）。具体到本角色：
+
+- **写 spec.md**：不复制 CLAUDE.md 的项目规则（引用即可）；不复制以前 spec 的 boilerplate
+- **写 HANDOFF.md**：单 session 摘要四个 bullet（交付 / 关键决策 / 待 review / 下一步），不复制 acceptance criteria 表（引用 spec.md）
+- **写 lessons.md**：5 字段固定，每字段事实型陈述；不写"为什么我们栽这坑"的叙事
+
+update HANDOFF.md / lessons.md 时，先检查是否需要归档：
+
+1. 跑 `bash .harness/scripts/prune.sh`（自动处理 progress.tsv 滚动 + reports/ 归档）
+2. 如 HANDOFF.md > 8KB 或 > 2 个 session 段：把最老 session 手动挪到 `.harness/archive/handoff/{YYYY-MM}.md`（语义判断哪些可以折叠）
+3. 如 lessons.md > 20 条 active：检查每条的 `Status: superseded-by-L-XXX` 或 6 月未复发 → 标 deprecated + 挪到 `archive/lessons-archive.md`
+
 ## Finsim-specific knowledge
 
 - Three-layer architecture: Route Handler → Service → Prisma. Respect it.
