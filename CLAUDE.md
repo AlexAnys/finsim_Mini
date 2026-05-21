@@ -22,9 +22,11 @@ FinSim is a financial education platform for Chinese university courses. Core lo
 
 **自动 QA**：`.claude/settings.json` 的 Stop hook 在每次 Claude 回复结束时触发独立 QA gate，检查 git diff 是否符合 spec + finsim 规则（Prisma 三步、Service interface 全同步、中文 UI、Route Handler 无业务逻辑）。
 
-**Dynamic exit**：两次连续 PASS 即收工；同一 FAIL 三连即回 spec 重规划，不硬磨。
+**Dynamic exit**：r1 PASS 收工 / r2 PASS 后强制写 lesson / r2-r3 同一 FAIL 回 spec 重规划，不硬磨（详见 `.claude/agents/coordinator.md`）。
 
-**Progress tracking**：`.harness/progress.tsv` 每轮 QA 追加一行；跨会话续工用 `.harness/HANDOFF.md`（由 coordinator 在会话结束前更新，SessionStart hook 自动在新会话显示）。
+**Lessons**：`.harness/lessons.md` 是"失败 → 根因 → 检测 → 预防"滚动池。任何 r2+ PASS 单元必须追加一条；Coordinator 在规划新 unit 前 grep tail；QA 在 Step 0 grep active 条目看 Prevention 字段是否命中本轮改动。写作纪律见 `.harness/STYLE.md`，归档规则见 `.harness/archive/README.md`。
+
+**Progress tracking**：`.harness/progress.tsv` 每轮 QA 追加一行；跨会话续工用 `.harness/HANDOFF.md`（由 coordinator 在会话结束前更新，SessionStart hook 自动在新会话显示）。文件膨胀时由 `.harness/scripts/prune.sh` 自动归档（progress.tsv > 30 行 / reports/ unit 收工时入 `.harness/archive/`）。
 
 ## Commands
 
