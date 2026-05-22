@@ -293,7 +293,9 @@ function buildInitialState(taskType: TaskTypeKey, snapshot: Record<string, unkno
   };
 }
 
-function buildPatchBody(taskType: TaskTypeKey, state: FormState) {
+// Slice 2 (B1): 用户清空可选字段时显式发 null（service 收到 null → delete from snapshot）。
+// 旧实现把空值映射为 undefined → JSON.stringify drop → service 浅 merge 保留旧值 = 清空失效。
+export function buildPatchBody(taskType: TaskTypeKey, state: FormState) {
   if (taskType === "simulation") {
     const s = state as SimulationFormState;
     return {
@@ -301,7 +303,7 @@ function buildPatchBody(taskType: TaskTypeKey, state: FormState) {
       simulationConfig: {
         scenario: s.scenario,
         openingLine: s.openingLine,
-        dialogueRequirements: s.dialogueRequirements || undefined,
+        dialogueRequirements: s.dialogueRequirements.trim() ? s.dialogueRequirements : null,
         strictnessLevel: s.strictnessLevel,
       },
       scoringCriteria: s.scoringCriteria,
@@ -313,10 +315,10 @@ function buildPatchBody(taskType: TaskTypeKey, state: FormState) {
       taskType: "quiz" as const,
       quizConfig: {
         mode: q.mode,
-        timeLimitMinutes: q.timeLimitMinutes,
-        maxQuestions: q.maxQuestions,
-        startDifficulty: q.startDifficulty,
-        difficultyStep: q.difficultyStep,
+        timeLimitMinutes: q.timeLimitMinutes ?? null,
+        maxQuestions: q.maxQuestions ?? null,
+        startDifficulty: q.startDifficulty ?? null,
+        difficultyStep: q.difficultyStep ?? null,
       },
     };
   }
