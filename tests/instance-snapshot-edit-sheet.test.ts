@@ -84,7 +84,7 @@ describe("Unit A1 r1b · 3 taskType 分支表单", () => {
   });
 });
 
-describe("Unit A1 r1b · graded 警告 AlertDialog 三按钮", () => {
+describe("Unit A1 r1b · graded 警告 AlertDialog 两按钮", () => {
   it("含 AlertDialog 并 gradedCount > 0 时触发", () => {
     const src = readFile("components/instance-detail/snapshot-edit-sheet.tsx");
     expect(src).toContain("<AlertDialog");
@@ -92,17 +92,13 @@ describe("Unit A1 r1b · graded 警告 AlertDialog 三按钮", () => {
     expect(src).toMatch(/if \(gradedCount > 0\) \{[\s\S]*?setWarningOpen\(true\)/);
   });
 
-  it("AlertDialog 三按钮文案: 取消 / 复制为新任务 / 我知道，仍然保存", () => {
+  it("AlertDialog 两按钮文案: 取消 / 我知道，仍然保存", () => {
+    // Slice 5 (B4): 删除假占位「复制为新任务」按钮；保留 description 文字作引导路径
     const src = readFile("components/instance-detail/snapshot-edit-sheet.tsx");
     expect(src).toContain("AlertDialogCancel");
-    expect(src).toContain("复制为新任务");
     expect(src).toContain("我知道，仍然保存");
-  });
-
-  it("「复制为新任务」disabled + tooltip「即将上线」", () => {
-    const src = readFile("components/instance-detail/snapshot-edit-sheet.tsx");
-    expect(src).toMatch(/disabled[\s\S]*?title="即将上线，敬请期待"/);
-    expect(src).toContain('data-action="copy-as-new"');
+    // 描述文字仍含「复制为新任务」作建议路径
+    expect(src).toContain("复制为新任务");
   });
 });
 

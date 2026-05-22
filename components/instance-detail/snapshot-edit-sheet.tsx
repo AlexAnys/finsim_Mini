@@ -199,14 +199,6 @@ export function SnapshotEditSheet({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>取消</AlertDialogCancel>
-            <Button
-              variant="outline"
-              disabled
-              title="即将上线，敬请期待"
-              data-action="copy-as-new"
-            >
-              复制为新任务
-            </Button>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
