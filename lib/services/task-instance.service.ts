@@ -58,6 +58,18 @@ async function isAuthorizedForInstance(instance: { createdBy: string; courseId: 
   return !!collab;
 }
 
+// Slice 1 (B1): patch 中某 key=null 表示"清空"，service 显式删除该 key。
+// 在浅 merge 之后跑一遍，把 null 值的键从 merged 里 delete。
+function applyClearSemantics(
+  merged: Record<string, unknown>,
+  patch: Record<string, unknown> | undefined,
+): void {
+  if (!patch) return;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete merged[k];
+  }
+}
+
 export async function createTaskInstance(createdBy: string, input: CreateTaskInstanceInput) {
   return prisma.taskInstance.create({
     data: {
@@ -378,6 +390,7 @@ export async function closeTaskInstance(instanceId: string, actorId: string) {
 // - auth: 仅 createdBy 或课程协作教师
 // - 校验 patch.taskType 必须等于 instance.taskType（防止跨类型篡改）
 // - taskSnapshot 是 Json 字段，deep-merge 顶层键；不允许覆盖 id / taskType / taskName
+// - Slice 1 (B1): 嵌套 config 内 key=null 表示"清空"（service delete from merged）
 // - 返回 { instance, gradedCount }：UI 根据 graded 数显示警告
 export async function updateTaskInstanceSnapshot(
   instanceId: string,
@@ -409,7 +422,9 @@ export async function updateTaskInstanceSnapshot(
   if (patch.taskType === "simulation") {
     if (patch.simulationConfig !== undefined) {
       const currentSim = (currentSnapshot.simulationConfig ?? {}) as Record<string, unknown>;
-      mergedSnapshot.simulationConfig = { ...currentSim, ...patch.simulationConfig };
+      const nextSim: Record<string, unknown> = { ...currentSim, ...patch.simulationConfig };
+      applyClearSemantics(nextSim, patch.simulationConfig as Record<string, unknown>);
+      mergedSnapshot.simulationConfig = nextSim;
     }
     if (patch.scoringCriteria !== undefined) {
       mergedSnapshot.scoringCriteria = patch.scoringCriteria;
@@ -420,7 +435,9 @@ export async function updateTaskInstanceSnapshot(
   } else if (patch.taskType === "quiz") {
     if (patch.quizConfig !== undefined) {
       const currentQuiz = (currentSnapshot.quizConfig ?? {}) as Record<string, unknown>;
-      mergedSnapshot.quizConfig = { ...currentQuiz, ...patch.quizConfig };
+      const nextQuiz: Record<string, unknown> = { ...currentQuiz, ...patch.quizConfig };
+      applyClearSemantics(nextQuiz, patch.quizConfig as Record<string, unknown>);
+      mergedSnapshot.quizConfig = nextQuiz;
     }
     if (patch.quizQuestions !== undefined) {
       mergedSnapshot.quizQuestions = patch.quizQuestions;
@@ -431,7 +448,9 @@ export async function updateTaskInstanceSnapshot(
   } else if (patch.taskType === "subjective") {
     if (patch.subjectiveConfig !== undefined) {
       const currentSub = (currentSnapshot.subjectiveConfig ?? {}) as Record<string, unknown>;
-      mergedSnapshot.subjectiveConfig = { ...currentSub, ...patch.subjectiveConfig };
+      const nextSub: Record<string, unknown> = { ...currentSub, ...patch.subjectiveConfig };
+      applyClearSemantics(nextSub, patch.subjectiveConfig as Record<string, unknown>);
+      mergedSnapshot.subjectiveConfig = nextSub;
     }
     if (patch.scoringCriteria !== undefined) {
       mergedSnapshot.scoringCriteria = patch.scoringCriteria;

@@ -142,23 +142,45 @@ export const updateTaskInstanceSchema = z.object({
 
 // Unit A1: 教师编辑 instance.taskSnapshot（影响学生看到的配置）
 // 三态 discriminated union；taskType 必填用于 dispatch + 后端守 task.id/taskType 不变
+//
+// Slice 1 (B1): patch 内 optional 标量字段允许 `null` = clear 语义。
+// service 收到 null 显式从 snapshot 删除该 key；缺字段（undefined）保留旧值。
+const simulationConfigPatchSchema = simulationConfigSchema.partial().extend({
+  dialogueRequirements: z.string().nullable().optional(),
+  studyBuddyContext: z.string().nullable().optional(),
+  evaluatorPersona: z.string().nullable().optional(),
+  systemPrompt: z.string().nullable().optional(),
+});
+
+const quizConfigPatchSchema = quizConfigSchema.partial().extend({
+  timeLimitMinutes: z.number().int().min(1).nullable().optional(),
+  maxQuestions: z.number().int().min(1).nullable().optional(),
+  startDifficulty: z.number().int().min(1).max(5).nullable().optional(),
+  difficultyStep: z.number().int().min(1).nullable().optional(),
+});
+
+const subjectiveConfigPatchSchema = subjectiveConfigSchema.partial().extend({
+  referenceAnswer: z.string().nullable().optional(),
+  evaluatorPersona: z.string().nullable().optional(),
+});
+
 export const updateInstanceSnapshotSimulationSchema = z.object({
   taskType: z.literal("simulation"),
-  simulationConfig: simulationConfigSchema.partial().optional(),
+  simulationConfig: simulationConfigPatchSchema.optional(),
   scoringCriteria: z.array(scoringCriterionSchema).optional(),
   allocationSections: z.array(allocationSectionSchema).optional(),
 });
 
 export const updateInstanceSnapshotQuizSchema = z.object({
   taskType: z.literal("quiz"),
-  quizConfig: quizConfigSchema.partial().optional(),
+  quizConfig: quizConfigPatchSchema.optional(),
   quizQuestions: z.array(quizQuestionSchema).optional(),
   scoringCriteria: z.array(scoringCriterionSchema).optional(),
 });
 
 export const updateInstanceSnapshotSubjectiveSchema = z.object({
   taskType: z.literal("subjective"),
-  subjectiveConfig: subjectiveConfigSchema.partial().optional(),
+  subjectiveConfig: subjectiveConfigPatchSchema.optional(),
   scoringCriteria: z.array(scoringCriterionSchema).optional(),
 });
 
