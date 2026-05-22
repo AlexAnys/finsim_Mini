@@ -145,7 +145,7 @@ describe("Unit A1 r1a · service 源结构", () => {
 
   it("service auth 检查走 isAuthorizedForInstance + 不匹配抛 FORBIDDEN", () => {
     const src = readFile("lib/services/task-instance.service.ts");
-    expect(src).toMatch(/isAuthorizedForInstance\(existing, createdBy\)/);
+    expect(src).toMatch(/isAuthorizedForInstance\(existing, createdBy, userRole\)/);
     expect(src).toMatch(/throw new Error\("FORBIDDEN"\)/);
   });
 
