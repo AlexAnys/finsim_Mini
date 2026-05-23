@@ -10,6 +10,7 @@ import {
   Paperclip,
   TimerOff,
   Undo2,
+  MessagesSquare,
 } from "lucide-react";
 import {
   Sheet,
@@ -33,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { buildLatePenaltyDisplay, type LatePenalty } from "@/lib/utils/late-penalty";
+import { countStudentTurns } from "@/lib/utils/transcript-stats";
 
 interface ScoringCriterion {
   id: string;
@@ -612,8 +614,14 @@ function AnswerPanel({ detail }: { detail: SubmissionDetail }) {
     if (transcript.length === 0) {
       return <EmptyAnswer label="暂无对话记录" />;
     }
+    // S2 (P3): 对话轮次 = 学生发言条数（本场景轮次比 timestamp 更具代表性）
+    const studentTurns = countStudentTurns(transcript);
     return (
       <div className="space-y-2.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-ink-5">
+          <MessagesSquare className="size-3.5" aria-hidden="true" />
+          对话轮次：<b className="tabular-nums text-ink-3">{studentTurns}</b>
+        </div>
         {transcript.map((m, i) => {
           const isStudent = m.role === "student";
           return (

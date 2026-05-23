@@ -24,6 +24,7 @@ import {
   type TranscriptMessage,
 } from "@/lib/types";
 import { buildLatePenaltyDisplay } from "@/lib/utils/late-penalty";
+import { countStudentTurns } from "@/lib/utils/transcript-stats";
 import Link from "next/link";
 
 interface ScoringCriterion {
@@ -69,6 +70,8 @@ export function EvaluationView({
   const scoreColor = getScoreColor(evaluation.totalScore, evaluation.maxScore);
   // S1 (P1): 迟交扣分明细 — 已批改提交携带时显示；preview 评估无 latePenalty → null（无副作用）
   const latePenalty = buildLatePenaltyDisplay(evaluation);
+  // S2 (P3): 对话轮次 = 学生发言条数（本场景轮次比 timestamp 更具代表性）
+  const studentTurns = countStudentTurns(messages);
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
@@ -229,9 +232,15 @@ export function EvaluationView({
           {/* Conversation transcript */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageSquare className="size-4" />
-                完整对话记录
+              <CardTitle className="flex items-center justify-between gap-2 text-base">
+                <span className="flex items-center gap-2">
+                  <MessageSquare className="size-4" />
+                  完整对话记录
+                </span>
+                {/* S2 (P3): 对话轮次 = 学生发言条数 */}
+                <span className="text-sm font-normal text-muted-foreground tabular-nums">
+                  对话轮次：<b className="text-foreground">{studentTurns}</b>
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
