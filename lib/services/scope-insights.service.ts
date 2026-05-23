@@ -155,7 +155,7 @@ export async function getScopeSimulationInsights(
   const cacheCutoff = new Date(now.getTime() - CACHE_TTL_MS);
 
   if (options?.forceFresh && options.teacherId) {
-    assertAiFeatureCooldown(options.teacherId, "scopeInsights");
+    assertAiFeatureCooldown(options.teacherId, `scopeInsights:${scopeHash}`);
   }
 
   if (!options?.forceFresh) {
@@ -834,7 +834,7 @@ export async function getScopeTeachingAdvice(
   const cacheCutoff = new Date(now.getTime() - CACHE_TTL_MS);
 
   if (options?.forceFresh && options.teacherId) {
-    assertAiFeatureCooldown(options.teacherId, "scopeTeachingAdvice");
+    assertAiFeatureCooldown(options.teacherId, `scopeTeachingAdvice:${scopeHash}`);
   }
 
   if (!options?.forceFresh) {
