@@ -10,6 +10,7 @@ import {
   Award,
   Loader2,
   ArrowLeft,
+  TimerOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,8 @@ import {
   type AssetAllocation,
   type TranscriptMessage,
 } from "@/lib/types";
+import { buildLatePenaltyDisplay } from "@/lib/utils/late-penalty";
+import { countStudentTurns } from "@/lib/utils/transcript-stats";
 import Link from "next/link";
 
 interface ScoringCriterion {
@@ -65,6 +68,10 @@ export function EvaluationView({
   isPreview,
 }: EvaluationViewProps) {
   const scoreColor = getScoreColor(evaluation.totalScore, evaluation.maxScore);
+  // S1 (P1): 迟交扣分明细 — 已批改提交携带时显示；preview 评估无 latePenalty → null（无副作用）
+  const latePenalty = buildLatePenaltyDisplay(evaluation);
+  // S2 (P3): 对话轮次 = 学生发言条数（本场景轮次比 timestamp 更具代表性）
+  const studentTurns = countStudentTurns(messages);
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
@@ -98,6 +105,34 @@ export function EvaluationView({
               </div>
             </CardContent>
           </Card>
+
+          {/* S1 (P1): 迟交扣分归因 — 解释「单项得分之和（原始分）」与「最终得分」的差额来源 */}
+          {latePenalty && (
+            <Card className="border-orange-200 bg-orange-50/60">
+              <CardContent className="py-4">
+                <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-orange-700">
+                  <TimerOff className="size-4" />
+                  {latePenalty.label}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
+                  <span>
+                    原始得分 <b>{latePenalty.originalScore}</b>
+                  </span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="text-red-600">
+                    迟交扣分 −{latePenalty.penaltyAmount}（{latePenalty.ratePercent}%）
+                  </span>
+                  <span className="text-muted-foreground">→</span>
+                  <span>
+                    最终得分 <b>{latePenalty.adjustedScore}</b>
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  下方单项得分为扣分前原始分，其合计 = 原始得分；最终得分已扣减迟交罚分。
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Allocation summary */}
           {allocations.length > 0 && (
@@ -197,9 +232,15 @@ export function EvaluationView({
           {/* Conversation transcript */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageSquare className="size-4" />
-                完整对话记录
+              <CardTitle className="flex items-center justify-between gap-2 text-base">
+                <span className="flex items-center gap-2">
+                  <MessageSquare className="size-4" />
+                  完整对话记录
+                </span>
+                {/* S2 (P3): 对话轮次 = 学生发言条数 */}
+                <span className="text-sm font-normal text-muted-foreground tabular-nums">
+                  对话轮次：<b className="text-foreground">{studentTurns}</b>
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">

@@ -8,7 +8,9 @@ import {
   SkipForward,
   ChevronRight,
   Paperclip,
+  TimerOff,
   Undo2,
+  MessagesSquare,
 } from "lucide-react";
 import {
   Sheet,
@@ -31,6 +33,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { buildLatePenaltyDisplay, type LatePenalty } from "@/lib/utils/late-penalty";
+import { countStudentTurns } from "@/lib/utils/transcript-stats";
+import { ObjectiveBehaviorCard } from "@/components/instance-detail/objective-behavior-card";
 
 interface ScoringCriterion {
   id: string;
@@ -58,6 +63,9 @@ interface SubmissionDetail {
   simulationSubmission?: {
     transcript?: Array<{ role: string; text: string; timestamp?: string }> | null;
     evaluation?: GradeEvaluation | null;
+    // S4b: 客观行为卡数据源（getSubmissionById 已 include；assets 嵌套 sections.items）
+    assets?: unknown;
+    conceptTags?: string[] | null;
   } | null;
   quizSubmission?: {
     answers?: Array<{ questionId: string; answer: string | string[]; isCorrect?: boolean }> | null;
@@ -82,6 +90,8 @@ interface GradeEvaluation {
     // Unit 9: 评分依据
     evidence?: Array<{ studentText: string; comment: string; unverified?: boolean }>;
   }>;
+  // S1 (P1): 迟交扣分明细（grading.service 写入；applied=false / 缺失 → 不展示）
+  latePenalty?: LatePenalty;
   confidence?: number;
 }
 
@@ -180,6 +190,9 @@ export function GradingDrawer({
   );
 
   const evaluation = useMemo(() => (detail ? pickEvaluation(detail) : null), [detail]);
+  // S1 (P1): AI 评分建议的 totalScore 是扣分后分（85→68），rubric 维度之和是原始分（85）。
+  // 展示扣分行解释二者差额；applied=false / 缺失 → null（不渲染）。
+  const latePenalty = useMemo(() => buildLatePenaltyDisplay(evaluation), [evaluation]);
 
   const handleScoreChange = (criterionId: string, value: number, max: number) => {
     setCriteriaScores((prev) => ({
@@ -326,6 +339,31 @@ export function GradingDrawer({
                             </span>
                           )}
                         </div>
+                        {/* S1 (P1): 迟交扣分明细 — 解释「维度之和（原始分）」与「AI 总分（扣分后）」差额 */}
+                        {latePenalty && (
+                          <div className="mt-1.5 rounded-md border border-warn/30 bg-warn-soft/60 px-2 py-1.5 text-[11px] text-ink-3">
+                            <div className="mb-0.5 flex items-center gap-1 font-semibold text-warn">
+                              <TimerOff className="size-3" aria-hidden="true" />
+                              {latePenalty.label}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 tabular-nums">
+                              <span>
+                                原始 <b className="text-ink">{latePenalty.originalScore}</b>
+                              </span>
+                              <span className="text-ink-5">→</span>
+                              <span className="text-danger">
+                                −{latePenalty.penaltyAmount}（{latePenalty.ratePercent}%）
+                              </span>
+                              <span className="text-ink-5">→</span>
+                              <span>
+                                最终 <b className="text-ink">{latePenalty.adjustedScore}</b>
+                              </span>
+                            </div>
+                            <div className="mt-0.5 text-[10px] leading-relaxed text-ink-5">
+                              下方各维度为扣分前原始分（合计 = 原始得分）。
+                            </div>
+                          </div>
+                        )}
                         {evaluation.feedback && (
                           <p className="mt-1.5 line-clamp-3 text-[11.5px] leading-relaxed text-ink-4">
                             {evaluation.feedback}
@@ -334,6 +372,16 @@ export function GradingDrawer({
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* S4b: 个体客观行为卡 — 仅 simulation 提交，与上方 AI 评分并列对照 */}
+                {detail.task.taskType === "simulation" && detail.simulationSubmission && (
+                  <ObjectiveBehaviorCard
+                    transcript={detail.simulationSubmission.transcript}
+                    assets={detail.simulationSubmission.assets}
+                    conceptTags={detail.simulationSubmission.conceptTags}
+                    evaluation={evaluation}
+                  />
                 )}
 
                 <div>
@@ -580,8 +628,14 @@ function AnswerPanel({ detail }: { detail: SubmissionDetail }) {
     if (transcript.length === 0) {
       return <EmptyAnswer label="暂无对话记录" />;
     }
+    // S2 (P3): 对话轮次 = 学生发言条数（本场景轮次比 timestamp 更具代表性）
+    const studentTurns = countStudentTurns(transcript);
     return (
       <div className="space-y-2.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-ink-5">
+          <MessagesSquare className="size-3.5" aria-hidden="true" />
+          对话轮次：<b className="tabular-nums text-ink-3">{studentTurns}</b>
+        </div>
         {transcript.map((m, i) => {
           const isStudent = m.role === "student";
           return (

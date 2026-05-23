@@ -1,4 +1,6 @@
 // API 响应类型
+import type { LatePenalty } from "@/lib/utils/late-penalty";
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
@@ -104,6 +106,8 @@ export interface SimulationEvaluation {
   maxScore: number;
   feedback: string;
   rubricBreakdown: RubricBreakdown[];
+  // S1 (P1): 迟交扣分明细（grading.service 批改时写入；preview/未扣分场景缺失或 applied=false）
+  latePenalty?: LatePenalty;
 }
 
 export interface QuizBreakdown {
@@ -119,6 +123,8 @@ export interface QuizEvaluation {
   maxScore: number;
   feedback: string;
   quizBreakdown: QuizBreakdown[];
+  // S1 (P1): 迟交扣分明细（grading.service 批改时写入；preview/未扣分场景缺失或 applied=false）
+  latePenalty?: LatePenalty;
 }
 
 export interface SubjectiveEvaluation {
@@ -126,6 +132,8 @@ export interface SubjectiveEvaluation {
   maxScore: number;
   feedback: string;
   rubricBreakdown: RubricBreakdown[];
+  // S1 (P1): 迟交扣分明细（grading.service 批改时写入；preview/未扣分场景缺失或 applied=false）
+  latePenalty?: LatePenalty;
 }
 
 // 对话消息
