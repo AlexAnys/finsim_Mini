@@ -68,3 +68,17 @@ agent_docs/export/
 test-results/
 playwright-report/
 tests/_debug_qa/
+
+# 密钥 / 凭据（开源前防泄密；*.pem 已在上方 misc 段覆盖）
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+secrets.json
+credentials.json
+gha-creds-*.json

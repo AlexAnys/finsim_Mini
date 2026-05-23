@@ -3,7 +3,11 @@
 
   <h1>finsim · 灵析</h1>
 
-  <p><strong>面向中国高校金融教育的 AI 教学平台</strong></p>
+  <p><strong>面向中职财经专业的智能教学平台</strong></p>
+
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/协议-AGPL--3.0-blue.svg" alt="协议 AGPL-3.0" /></a>
+  </p>
 
   <p>
     教师建任务 · 学生在 AI 客户对话 / 测验 / 主观题中作答 · AI 批改 · 教师公布 · 数据洞察反哺备课
@@ -239,8 +243,8 @@ gh pr checks                 # 看 CI 状态
 
 ## 贡献
 
-仓库目前对外不开放贡献。如有合作 / 问题，请联系仓库 admin。
+欢迎通过 issue 反馈问题、通过 Pull Request 参与改进。提交贡献即表示你同意以本项目的开源协议（AGPL-3.0）授权你的贡献。商务合作或其他问题，请联系仓库 admin。
 
 ## 协议
 
-私有仓库，所有权利保留。
+本项目基于 [GNU Affero 通用公共许可证 v3.0（AGPL-3.0）](LICENSE) 开源，完整条款见仓库根目录 [`LICENSE`](LICENSE) 文件。
