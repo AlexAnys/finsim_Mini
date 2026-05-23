@@ -113,7 +113,7 @@ describe("buildAllocationProfile", () => {
         {
           label: "我的配置",
           items: [
-            { label: "沪深300指数基金", value: 40 }, // 基金→权益
+            { label: "沪深300指数基金", value: 40 }, // 指数基金→权益
             { label: "国债", value: 30 }, // 低风险
             { label: "黄金", value: 30 }, // 既非权益也非低风险 → other
           ],
@@ -123,6 +123,26 @@ describe("buildAllocationProfile", () => {
     expect(p!.equityPercent).toBe(40);
     expect(p!.lowRiskPercent).toBe(30);
     expect(p!.otherPercent).toBe(30);
+  });
+
+  it("货币/短债基金先命中低风险，不被「基金→权益」兜底误判", () => {
+    // coordinator 核查项：判定顺序必须 低风险关键词 先于「基金→权益」兜底，
+    // 否则货币基金 / 短债基金会被误归权益敞口。
+    const p = buildAllocationProfile({
+      sections: [
+        {
+          label: "我的配置",
+          items: [
+            { label: "货币基金", value: 30 }, // 含「货币」→ 低风险（非权益）
+            { label: "短债基金", value: 20 }, // 含「短债」→ 低风险（非权益）
+            { label: "股票型基金", value: 50 }, // 含「股」→ 权益
+          ],
+        },
+      ],
+    });
+    expect(p!.lowRiskPercent).toBe(50); // 货币基金30 + 短债基金20
+    expect(p!.equityPercent).toBe(50); // 仅股票型基金
+    expect(p!.otherPercent).toBe(0);
   });
 
   it("空/缺失 assets：返回 null（无副作用）", () => {
@@ -207,6 +227,18 @@ describe("canonicalizeConceptTag (同义归并)", () => {
   it("同义碎片归并到规范名（风险披露/风险揭示→风险揭示；合规披露/合规销售→合规）", () => {
     expect(canonicalizeConceptTag("风险披露")).toBe(canonicalizeConceptTag("风险揭示"));
     expect(canonicalizeConceptTag("合规披露")).toBe(canonicalizeConceptTag("合规销售"));
+  });
+
+  it("B：投资期限 / 投资期限匹配 归并（coordinator 从生产 conceptTags 确认存在）", () => {
+    expect(canonicalizeConceptTag("投资期限")).toBe(canonicalizeConceptTag("投资期限匹配"));
+  });
+
+  it("B：独立单例概念不被误并（流动性管理/目标日期投资/投资目标/教育金规划各自独立）", () => {
+    // coordinator 明确：这些是独立概念、非同义，原样保留各不相同
+    const tags = ["流动性管理", "目标日期投资", "投资目标", "教育金规划"];
+    const canon = tags.map(canonicalizeConceptTag);
+    expect(new Set(canon).size).toBe(4); // 互不相等
+    for (let i = 0; i < tags.length; i++) expect(canon[i]).toBe(tags[i]); // 原样
   });
 
   it("trim + 未知 tag 原样返回（不丢数据）", () => {
