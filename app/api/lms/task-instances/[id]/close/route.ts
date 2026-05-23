@@ -12,7 +12,8 @@ export async function POST(
 
   try {
     const { id } = await params;
-    const instance = await closeTaskInstance(id, result.session.user.id);
+    const { user } = result.session;
+    const instance = await closeTaskInstance(id, user.id, user.role);
     return success(instance);
   } catch (err) {
     return handleServiceError(err);

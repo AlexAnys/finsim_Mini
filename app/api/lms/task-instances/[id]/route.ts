@@ -43,7 +43,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
-    const instance = await updateTaskInstance(id, result.session.user.id, parsed.data);
+    const { user } = result.session;
+    const instance = await updateTaskInstance(id, user.id, parsed.data, user.role);
     return success(instance);
   } catch (err) {
     return handleServiceError(err);
@@ -56,7 +57,8 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
 
   try {
     const { id } = await params;
-    await deleteTaskInstance(id, result.session.user.id);
+    const { user } = result.session;
+    await deleteTaskInstance(id, user.id, user.role);
     return success({ deleted: true });
   } catch (err) {
     return handleServiceError(err);

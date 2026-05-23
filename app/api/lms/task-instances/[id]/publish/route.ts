@@ -13,7 +13,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   try {
     const { id } = await params;
     const { user } = result.session;
-    const instance = await publishTaskInstance(id, user.id);
+    const instance = await publishTaskInstance(id, user.id, user.role);
 
     // PR-1 D: 推断 actorRole（publish 是高危状态变更，必须留痕）
     const instRec = await prisma.taskInstance.findUnique({

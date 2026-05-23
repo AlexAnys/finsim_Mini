@@ -23,7 +23,7 @@ export async function PATCH(
       return validationError("请求参数错误", parsed.error.flatten());
     }
     const { user } = result.session;
-    const data = await updateTaskInstanceSnapshot(id, user.id, parsed.data);
+    const data = await updateTaskInstanceSnapshot(id, user.id, parsed.data, user.role);
     return success(data);
   } catch (err) {
     return handleServiceError(err);

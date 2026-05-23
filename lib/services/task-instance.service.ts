@@ -49,13 +49,32 @@ export function assertTaskReadyForPublish(task: PublishableTaskConfig) {
   }
 }
 
-async function isAuthorizedForInstance(instance: { createdBy: string; courseId: string | null }, userId: string): Promise<boolean> {
+// Slice 4 (B3): admin 应能管理所有 instance（review_arch F-4）。
+// userRole === "admin" 短路；否则按原逻辑查 createdBy + courseTeacher 协作。
+async function isAuthorizedForInstance(
+  instance: { createdBy: string; courseId: string | null },
+  userId: string,
+  userRole?: string,
+): Promise<boolean> {
+  if (userRole === "admin") return true;
   if (instance.createdBy === userId) return true;
   if (!instance.courseId) return false;
   const collab = await prisma.courseTeacher.findUnique({
     where: { courseId_teacherId: { courseId: instance.courseId, teacherId: userId } },
   });
   return !!collab;
+}
+
+// Slice 1 (B1): patch 中某 key=null 表示"清空"，service 显式删除该 key。
+// 在浅 merge 之后跑一遍，把 null 值的键从 merged 里 delete。
+function applyClearSemantics(
+  merged: Record<string, unknown>,
+  patch: Record<string, unknown> | undefined,
+): void {
+  if (!patch) return;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete merged[k];
+  }
 }
 
 export async function createTaskInstance(createdBy: string, input: CreateTaskInstanceInput) {
@@ -160,7 +179,11 @@ export async function createPublishedTaskWithInstance(
   return output;
 }
 
-export async function publishTaskInstance(instanceId: string, createdBy: string) {
+export async function publishTaskInstance(
+  instanceId: string,
+  createdBy: string,
+  userRole?: string,
+) {
   const instance = await prisma.taskInstance.findUnique({
     where: { id: instanceId },
     include: {
@@ -170,7 +193,7 @@ export async function publishTaskInstance(instanceId: string, createdBy: string)
     },
   });
 
-  if (!instance || !(await isAuthorizedForInstance(instance, createdBy))) {
+  if (!instance || !(await isAuthorizedForInstance(instance, createdBy, userRole))) {
     throw new Error("FORBIDDEN");
   }
   if (instance.status !== "draft") {
@@ -252,10 +275,11 @@ export async function getTaskInstanceById(instanceId: string) {
 export async function updateTaskInstance(
   instanceId: string,
   createdBy: string,
-  input: UpdateTaskInstanceInput
+  input: UpdateTaskInstanceInput,
+  userRole?: string,
 ) {
   const existing = await prisma.taskInstance.findUnique({ where: { id: instanceId } });
-  if (!existing || !(await isAuthorizedForInstance(existing, createdBy))) {
+  if (!existing || !(await isAuthorizedForInstance(existing, createdBy, userRole))) {
     throw new Error("FORBIDDEN");
   }
 
@@ -285,12 +309,16 @@ export async function updateTaskInstance(
   return updated;
 }
 
-export async function deleteTaskInstance(instanceId: string, createdBy: string) {
+export async function deleteTaskInstance(
+  instanceId: string,
+  createdBy: string,
+  userRole?: string,
+) {
   const existing = await prisma.taskInstance.findUnique({
     where: { id: instanceId },
     select: { id: true, status: true, createdBy: true, courseId: true, title: true },
   });
-  if (!existing || !(await isAuthorizedForInstance(existing, createdBy))) {
+  if (!existing || !(await isAuthorizedForInstance(existing, createdBy, userRole))) {
     throw new Error("FORBIDDEN");
   }
   if (existing.status !== "draft" && existing.status !== "closed") {
@@ -318,12 +346,16 @@ export async function deleteTaskInstance(instanceId: string, createdBy: string) 
  * Reopen a closed task instance. Status closed -> published. 写 audit。
  * 用于"误关后挽回"场景，是任务实例状态机第三态。
  */
-export async function reopenTaskInstance(instanceId: string, actorId: string) {
+export async function reopenTaskInstance(
+  instanceId: string,
+  actorId: string,
+  userRole?: string,
+) {
   const existing = await prisma.taskInstance.findUnique({
     where: { id: instanceId },
     select: { id: true, status: true, createdBy: true, courseId: true, title: true },
   });
-  if (!existing || !(await isAuthorizedForInstance(existing, actorId))) {
+  if (!existing || !(await isAuthorizedForInstance(existing, actorId, userRole))) {
     throw new Error("FORBIDDEN");
   }
   if (existing.status !== "closed") {
@@ -348,12 +380,16 @@ export async function reopenTaskInstance(instanceId: string, actorId: string) {
  * Close a published task instance. Status published -> closed. 写 audit。
  * 关闭后学生 assertTaskInstanceReadable 会拒绝读取（403），已提交的 submission 仍可通过 /grades 查看。
  */
-export async function closeTaskInstance(instanceId: string, actorId: string) {
+export async function closeTaskInstance(
+  instanceId: string,
+  actorId: string,
+  userRole?: string,
+) {
   const existing = await prisma.taskInstance.findUnique({
     where: { id: instanceId },
     select: { id: true, status: true, createdBy: true, courseId: true, title: true },
   });
-  if (!existing || !(await isAuthorizedForInstance(existing, actorId))) {
+  if (!existing || !(await isAuthorizedForInstance(existing, actorId, userRole))) {
     throw new Error("FORBIDDEN");
   }
   if (existing.status !== "published") {
@@ -375,14 +411,16 @@ export async function closeTaskInstance(instanceId: string, actorId: string) {
 }
 
 // Unit A1: 教师在 overview 改 instance 的 taskSnapshot（学生看到的配置）。
-// - auth: 仅 createdBy 或课程协作教师
+// - auth: createdBy / 课程协作教师 / admin（Slice 4）
 // - 校验 patch.taskType 必须等于 instance.taskType（防止跨类型篡改）
 // - taskSnapshot 是 Json 字段，deep-merge 顶层键；不允许覆盖 id / taskType / taskName
+// - Slice 1 (B1): 嵌套 config 内 key=null 表示"清空"（service delete from merged）
 // - 返回 { instance, gradedCount }：UI 根据 graded 数显示警告
 export async function updateTaskInstanceSnapshot(
   instanceId: string,
   createdBy: string,
   patch: UpdateTaskInstanceSnapshotInput,
+  userRole?: string,
 ) {
   const existing = await prisma.taskInstance.findUnique({
     where: { id: instanceId },
@@ -395,7 +433,7 @@ export async function updateTaskInstanceSnapshot(
     },
   });
   if (!existing) throw new Error("INSTANCE_NOT_FOUND");
-  if (!(await isAuthorizedForInstance(existing, createdBy))) {
+  if (!(await isAuthorizedForInstance(existing, createdBy, userRole))) {
     throw new Error("FORBIDDEN");
   }
   if (existing.taskType !== patch.taskType) {
@@ -409,7 +447,9 @@ export async function updateTaskInstanceSnapshot(
   if (patch.taskType === "simulation") {
     if (patch.simulationConfig !== undefined) {
       const currentSim = (currentSnapshot.simulationConfig ?? {}) as Record<string, unknown>;
-      mergedSnapshot.simulationConfig = { ...currentSim, ...patch.simulationConfig };
+      const nextSim: Record<string, unknown> = { ...currentSim, ...patch.simulationConfig };
+      applyClearSemantics(nextSim, patch.simulationConfig as Record<string, unknown>);
+      mergedSnapshot.simulationConfig = nextSim;
     }
     if (patch.scoringCriteria !== undefined) {
       mergedSnapshot.scoringCriteria = patch.scoringCriteria;
@@ -420,7 +460,9 @@ export async function updateTaskInstanceSnapshot(
   } else if (patch.taskType === "quiz") {
     if (patch.quizConfig !== undefined) {
       const currentQuiz = (currentSnapshot.quizConfig ?? {}) as Record<string, unknown>;
-      mergedSnapshot.quizConfig = { ...currentQuiz, ...patch.quizConfig };
+      const nextQuiz: Record<string, unknown> = { ...currentQuiz, ...patch.quizConfig };
+      applyClearSemantics(nextQuiz, patch.quizConfig as Record<string, unknown>);
+      mergedSnapshot.quizConfig = nextQuiz;
     }
     if (patch.quizQuestions !== undefined) {
       mergedSnapshot.quizQuestions = patch.quizQuestions;
@@ -431,7 +473,9 @@ export async function updateTaskInstanceSnapshot(
   } else if (patch.taskType === "subjective") {
     if (patch.subjectiveConfig !== undefined) {
       const currentSub = (currentSnapshot.subjectiveConfig ?? {}) as Record<string, unknown>;
-      mergedSnapshot.subjectiveConfig = { ...currentSub, ...patch.subjectiveConfig };
+      const nextSub: Record<string, unknown> = { ...currentSub, ...patch.subjectiveConfig };
+      applyClearSemantics(nextSub, patch.subjectiveConfig as Record<string, unknown>);
+      mergedSnapshot.subjectiveConfig = nextSub;
     }
     if (patch.scoringCriteria !== undefined) {
       mergedSnapshot.scoringCriteria = patch.scoringCriteria;
