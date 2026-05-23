@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -411,10 +412,11 @@ export function AnalyticsV2Dashboard() {
           teachingAdvice: json.data.teachingAdvice ?? null,
         });
       } else {
-        setError(json.error?.message ?? "重新生成失败");
+        // 重新生成失败为瞬时错误：保留已加载内容，仅 toast 提示，绝不触发顶层 CenteredState 白屏。
+        toast.error(json.error?.message ?? "重新生成失败");
       }
     } catch {
-      setError("重新生成失败");
+      toast.error("重新生成失败");
     } finally {
       setScopeInsightsRefreshing(false);
     }
@@ -508,7 +510,6 @@ export function AnalyticsV2Dashboard() {
   async function startRecompute() {
     if (!courseId || recomputeStarting || isJobRunning(recomputeJob)) return;
     setRecomputeStarting(true);
-    setError(null);
     try {
       const params = new URLSearchParams(searchParams.toString());
       const res = await fetch(`/api/lms/analytics-v2/recompute?${params.toString()}`, {
@@ -518,10 +519,11 @@ export function AnalyticsV2Dashboard() {
       if (json.success) {
         setRecomputeJob(json.data.job);
       } else {
-        setError(json.error?.message ?? "启动重算失败");
+        // 启动重算失败为瞬时错误：保留已加载内容，仅 toast 提示，绝不触发顶层 CenteredState 白屏。
+        toast.error(json.error?.message ?? "启动重算失败");
       }
     } catch {
-      setError("启动重算失败");
+      toast.error("启动重算失败");
     } finally {
       setRecomputeStarting(false);
     }

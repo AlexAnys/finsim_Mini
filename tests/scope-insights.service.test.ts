@@ -21,6 +21,7 @@ vi.mock("@/lib/services/ai.service", () => ({
 
 import { prisma } from "@/lib/db/prisma";
 import { aiGenerateJSON } from "@/lib/services/ai.service";
+import { __clearAiThrottleState } from "@/lib/services/ai-throttle.service";
 import {
   computeScopeHash,
   getScopeSimulationInsights,
@@ -32,6 +33,7 @@ const mk = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __clearAiThrottleState();
   mk(prisma.analysisReport.findFirst).mockResolvedValue(null);
   mk(prisma.analysisReport.create).mockResolvedValue({ id: "ar-1" });
   mk(prisma.analysisReport.update).mockResolvedValue({ id: "ar-1" });
@@ -161,6 +163,42 @@ describe("getScopeSimulationInsights — LLM fallback", () => {
 
     expect(result.source).toBe("cache");
     expect(prisma.analysisReport.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("getScopeSimulationInsights — scope-aware force cooldown", () => {
+  // 换范围（不同 scopeHash）后强制重新生成不应被冷却拦截；
+  // 同范围 60s 内强制重新生成仍须被拦（保留 anti-spam）。
+  beforeEach(() => {
+    // 范围内无实例 → fresh 路径提前返回空，无需 mock AI。
+    mk(prisma.taskInstance.findMany).mockResolvedValue([]);
+    mk(prisma.submission.findMany).mockResolvedValue([]);
+  });
+
+  it("does NOT throw cooldown when the SAME teacher forces a refresh on a DIFFERENT scope", async () => {
+    await getScopeSimulationInsights(
+      { courseId: "course-1" },
+      { forceFresh: true, teacherId: "t-1" },
+    );
+    await expect(
+      getScopeSimulationInsights(
+        { courseId: "course-2" },
+        { forceFresh: true, teacherId: "t-1" },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("STILL throws cooldown when the SAME teacher forces a refresh on the SAME scope within 60s", async () => {
+    await getScopeSimulationInsights(
+      { courseId: "course-1" },
+      { forceFresh: true, teacherId: "t-1" },
+    );
+    await expect(
+      getScopeSimulationInsights(
+        { courseId: "course-1" },
+        { forceFresh: true, teacherId: "t-1" },
+      ),
+    ).rejects.toThrow(/AI_FEATURE_COOLDOWN/);
   });
 });
 
