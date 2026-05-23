@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { buildLatePenaltyDisplay, type LatePenalty } from "@/lib/utils/late-penalty";
 import { countStudentTurns } from "@/lib/utils/transcript-stats";
+import { ObjectiveBehaviorCard } from "@/components/instance-detail/objective-behavior-card";
 
 interface ScoringCriterion {
   id: string;
@@ -62,6 +63,9 @@ interface SubmissionDetail {
   simulationSubmission?: {
     transcript?: Array<{ role: string; text: string; timestamp?: string }> | null;
     evaluation?: GradeEvaluation | null;
+    // S4b: 客观行为卡数据源（getSubmissionById 已 include；assets 嵌套 sections.items）
+    assets?: unknown;
+    conceptTags?: string[] | null;
   } | null;
   quizSubmission?: {
     answers?: Array<{ questionId: string; answer: string | string[]; isCorrect?: boolean }> | null;
@@ -368,6 +372,16 @@ export function GradingDrawer({
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* S4b: 个体客观行为卡 — 仅 simulation 提交，与上方 AI 评分并列对照 */}
+                {detail.task.taskType === "simulation" && detail.simulationSubmission && (
+                  <ObjectiveBehaviorCard
+                    transcript={detail.simulationSubmission.transcript}
+                    assets={detail.simulationSubmission.assets}
+                    conceptTags={detail.simulationSubmission.conceptTags}
+                    evaluation={evaluation}
+                  />
                 )}
 
                 <div>
