@@ -162,6 +162,29 @@ describe("buildAllocationProfile", () => {
     expect(p!.totalPercent).toBe(40);
     expect(p!.lowRiskPercent).toBe(40);
   });
+
+  it("c272 真实配置回归：权益~5% 真值锁定（嵌套 sections.items）", () => {
+    // 来自生产 instance c272 的真实学生配置（合计 100）。用户核心关切：权益类仅占 5%。
+    // section/item 用真实标签；classifyAsset 匹配 item+section 拼接串。
+    const p = buildAllocationProfile({
+      sections: [
+        { label: "应急金", items: [{ label: "活期", value: 10 }] },
+        { label: "大额存单", items: [{ label: "定期", value: 40 }] },
+        { label: "短债", items: [{ label: "货币基金", value: 30 }] },
+        { label: "稳健固收+", items: [{ label: "稳健固收+", value: 15 }] },
+        { label: "权益基金", items: [{ label: "权益基金", value: 5 }] },
+      ],
+    });
+    expect(p).not.toBeNull();
+    // 合计=100
+    expect(p!.totalPercent).toBe(100);
+    expect(p!.isComplete).toBe(true);
+    // 核心：权益类只占 5%（仅"权益基金"命中权益关键词）
+    expect(p!.equityPercent).toBe(5);
+    // 活期/定期/存单/短债/货币/固收 全归低风险 → 95；other=0
+    expect(p!.lowRiskPercent).toBe(95);
+    expect(p!.otherPercent).toBe(0);
+  });
 });
 
 // ──────────────── 3. 维度短板 + 迟交对账（原始分）────────────────
