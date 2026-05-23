@@ -30,7 +30,7 @@
 - **学生**：在「模拟对话」里扮演理财顾问与 AI 客户多轮对话；在测验里作答；在主观题里写报告
 - **AI**：扮演真实客户、批改答卷、聚合班级数据、给老师生成下周教学建议
 
-技术形态：单体 Next.js 14 应用 + Postgres，所有 AI 经统一 provider 抽象层调用，部署在阿里云单台 ECS（Caddy 反代 + Docker Compose）。约 5 万行 TypeScript / 38 个 Prisma 模型 / 71 个 vitest 文件 846 个测试。
+技术形态：单体 Next.js 14 应用 + Postgres，所有 AI 经统一 provider 抽象层调用，部署在阿里云单台 ECS（Caddy 反代 + Docker Compose）。约 8 万行 TypeScript / 37 个 Prisma 模型 / 34 个 Service / 105 个 vitest 文件 1110 个测试 + 5 条 Playwright 主线 smoke 进 CI。
 
 ## 快速开始
 
@@ -74,14 +74,19 @@ Route Handler **不允许**含业务逻辑；Service **不允许**直接返回 N
 | `quiz` | 单/多选 / 判断 / 简答 | `QuizConfig` + `QuizQuestion[]` | `QuizRunner` | 客观题自动判 + 简答 AI 评 |
 | `subjective` | 报告 / 论述 / 附件 | `SubjectiveConfig` | `SubjectiveRunner` | AI 评分 + rubric |
 
-### AI Provider 抽象
+### AI Provider 抽象 + Prompt Registry
 
 所有 AI 调用走 `lib/services/ai.service.ts`：
 
 - 默认 provider = MiMo（小米 OpenAI 兼容）；fallback = MiMo；OCR 路径独立可选 qwen-vl-ocr / mimo-v2-omni
-- `aiGenerateJSON` 的 retry loop：第二轮失败时自动追加「请只输出严格 JSON」提示；JSON-required feature（weeklyInsight / importParse / questionAnalysis 等）强制关闭 reasoning mode
+- **Prompt registry**：`lib/ai/prompts/` 集中 23 个 feature builder 文件（simulation-chat / evaluate / quiz-grade / study-buddy / weekly-insight 等），每个 export `{ buildSystemPrompt, buildUserPrompt, version }`。教师 UI `/teacher/ai-settings` preview 从 builder **派生单源**，避免文案与运行时漂移
+- `aiGenerateJSON` 的 retry loop：第二轮失败时自动追加「请只输出严格 JSON」提示；JSON-required feature 强制关闭 reasoning mode
 - `extractJSON` 用平衡括号扫描，避开 thinking 模型 reasoning 文本污染
-- 所有调用记 `AiRun` 表（feature / provider / model / 输入输出 / 耗时 / 状态），便于追溯准确度
+- 所有调用记 `AiRun` 表（feature / provider / model / promptVersion / 输入输出 / tokens / 耗时 / 状态），便于追溯准确度
+
+### 审计 (default-on)
+
+所有破坏性写操作（create / update / publish / delete / grade）经 `logAuditEvent` 写入 `AuditLog`（含 `actorRole` 自动推导 owner / collaborator / admin）。**默认开启**，不再受 env gate 控制。
 
 ### 数据流：一份学生提交的生命周期
 
@@ -108,16 +113,24 @@ components/
   quiz/                测验 runner + 题目导航
   subjective/          报告/论述 runner + 富文本 + 附件
   analytics-v2/        数据洞察看板（KPI / 成绩分布 / 任务表现 / Study Buddy / AI 教学建议）
+  study-buddy/         共享 PostThreadDialog（统计页 + 任务详情 SB mini 复用）
   task-wizard/         教师建任务 4 步向导
   teacher-course-edit/ 课程编辑器（章节小节 / 题库 / 大纲）
 lib/
-  services/            38 个 Service：所有业务逻辑
-  auth/                requireAuth / requireRole / course-access
+  ai/prompts/          23 个 prompt builder 文件（feature 级单源，AiRun.promptVersion 写真版本）
+  services/            34 个 Service：所有业务逻辑
+  auth/                requireAuth / requireRole / course-access / actor-role
   db/                  Prisma client + 共享 includes
   validators/          Zod schema
 prisma/
-  schema.prisma        38 个 model
-  migrations/          线性增量迁移
+  schema.prisma        37 个 model
+  migrations/          24 个线性增量迁移
+tests/
+  *.test.ts            105 vitest 文件 / 1110 测试
+  _fixtures/           共享 mock helper (prisma / users / requests)
+  api/                 30 个 mutation route × 200/401/403 三角测试
+  ai-prompts/          每 prompt builder 的 snapshot test
+  e2e/smoke/           5 条核心主线（teacher publish / student submit / AI grade / SB / 一周洞察）进 CI
 agent_docs/            部署、运维、专题文档
 .github/workflows/     CI / Deploy / Deploy-staging / Cleanup-staging
 ```
@@ -130,7 +143,7 @@ agent_docs/            部署、运维、专题文档
 - **认证**：next-auth (Auth.js) v5，邮箱密码 + 角色 (admin / teacher / student)
 - **AI**：Vercel AI SDK + OpenAI 兼容 provider（主：MiMo / 备：Qwen / OCR：Qwen-VL）
 - **图表**：Recharts（班级成绩分布 / 趋势 / KPI sparkline）
-- **测试**：vitest（71 文件 / 846 测试）+ 真浏览器 QA（gstack browse）
+- **测试**：vitest（105 文件 / 1110 测试）+ Playwright 真浏览器 e2e（5 主线 smoke 进 CI fail-on-error）
 - **部署**：Docker Compose + Caddy + 阿里云 ECS（cn-shanghai）
 
 ## 开发与发布工作流
@@ -143,7 +156,7 @@ feat 分支 → push → 自动开 PR
 GitHub Actions 并行：
   · ci.yml#quality           typecheck / lint / vitest
   · ci.yml#core-change-label 触摸 auth/grading/schema/deploy 时打红色 label
-  · deploy-staging.yml       部到 https://staging.finsim.anlanai.cn
+  · deploy-staging.yml       部到 https://staging.finsim.anlanai.cn + 5 主线 Playwright smoke
   ↓
 PR 评论自动出现 staging URL
   ↓
@@ -163,7 +176,8 @@ cleanup-staging.yml 关 staging（仅当当前 staging 是这个 PR 时）
 npm run dev                  # localhost:3000
 npx tsc --noEmit             # 类型检查
 npm run lint                 # ESLint
-npx vitest run               # 全套测试
+npx vitest run               # 全套测试 (105 文件 / 1110)
+BASE_URL=http://localhost:3000 npx playwright test tests/e2e/smoke/   # 本地真浏览器 5 主线
 
 # 数据库
 npx prisma migrate dev       # 新 migration（开发）
@@ -184,17 +198,33 @@ gh pr checks                 # 看 CI 状态
 |---|---|
 | 教师端核心闭环（建任务 / 发布 / 批改 / 数据洞察） | ✅ 已上线，使用中 |
 | 学生端三 runner（quiz / subjective / simulation） | ✅ 已上线 |
-| AI 批改与一周洞察 | ✅ 上线，准确度持续 review 中 |
+| AI 批改与一周洞察 | ✅ 上线 |
 | 题库 PDF 导入 | ✅ Regex 主路径覆盖 80% 中文格式 + AI fallback |
-| 手机端适配 | ✅ md 断点；simulation 底部三 tab 切换 |
-| Staging 兜底环境 | ✅ 每个 PR 自动起 |
+| 手机端适配 | ✅ runner + grades + dashboard 全 md 断点适配 |
+| Staging 兜底环境 | ✅ 每个 PR 自动起 + 5 主线 Playwright smoke 自跑 |
+| 测试自动护栏 | ✅ CI 跑 vitest + 5 主线 smoke fail-on-error；30 mutation route 三角测试 |
+| 审计完整性 | ✅ default-on + actorRole 字段；ai_grading.complete/failed 留痕 |
+| AI prompt 治理 | ✅ 23 文件 registry；basePromptPreview 派生单源；AiRun.promptVersion |
+| Schema 减负 | ✅ TaskInstanceAnalytics 死表 + Visibility 死 enum + Task 冗余字段已清；Course.classId 标 deprecated 留迁移期 |
 | 多 agent 并发开发 | ✅ feature 分支 + PR 流程隔离 |
+
+### 近期重大更新（2026-05）
+
+- **PR #14**（代码质量整治）：7 路并行 review → 4 candidates 落地 — 测试基础设施进 CI / 审计 default-on / AI prompt registry / schema 死字段清理。净 +6767/-4472。
+- **PR #15**（6 UX bug 修复）：用户 staging 反馈的老师草稿状态机 + Study Buddy 卡片网格 + 任务详情 SB mini + 学生评分 P0（维度 CUID → 真实中文名 + transcript 时间轴 + 移动端响应式）+ dashboard 滚动。
+- **PR #13**（任务实例编辑）：A2 inline 标题编辑 + C1-B AI 助手 localStorage 持久化 + A1 instance snapshot 编辑（Zod discriminated union）。
+- **PR #12**（演示视频全模块兑现）：12 unit + molly 真实演示数据建设（chapter slot / structuredData / IRT adaptive quiz / SB excerpt / TaskBuildDraft approved 状态机 / AiRun 留痕 / hiddenAt 删除盘点）。
 
 ### 现存工程债（公开记录）
 
-- AI 客户人格与评分稳定性的系统性 review 进行中（独立 codex session）
-- Study Buddy 数据需更多真实使用样本才能聚合
-- 服务器内存 3.5G，build 高峰需依赖 swap，未来可能升配
+- **PR-2 已规划 4 候选**（来自 PR #14 review 综合）：
+  - **B JSON 边界**：6 个 Json 字段加 zod schema + read 处 parse + versioned snapshot
+  - **F AI 安全**：prompt injection boundary + rate-limit 改用 AiRun 表数据源 + 6 处 catch 统一 classifier
+  - **G 权限合并**：`assertTaskInstanceWritable` 合 `isAuthorizedForInstance` + `assertScopeHierarchy` 抽象 + JWT 改密码不轮转修复
+  - **H PR #13 followup**：双 endpoint 合并（`PATCH /[id]` + `/[id]/snapshot`）+ 4 个 `*-result.tsx` 收 config 表 + 清空字段语义
+- **长期 backlog 候选 C（route 业务下沉 service）**：26 个 route 仍直接 `await prisma`，拆 5-10 个小 PR 分月推进（每 ≤200 行）
+- **Study Buddy 数据**：需更多真实使用样本才能聚合
+- **服务器内存** 3.5G，build 高峰需依赖 swap，未来可能升配
 
 ## 文档导航
 
@@ -205,6 +235,7 @@ gh pr checks                 # 看 CI 状态
 | [`agent_docs/deployment.md`](agent_docs/deployment.md) | 服务器、Docker、Caddy、CI/CD 细节 |
 | [`CLAUDE.md`](CLAUDE.md) | Claude Code 在本仓库的工作守则（架构 + Prisma 规则 + 反退化条款） |
 | `agent_docs/*.md` | 历史专题文档（一周洞察 / 部署历程 / 学校反馈） |
+| `.harness/spec-codereview-archive.md` | 7 路 codebase review 综合 + 10 numbered candidates（PR #14 起点） |
 
 ## 贡献
 
