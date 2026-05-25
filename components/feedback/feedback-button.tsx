@@ -28,7 +28,11 @@ interface ShotResult {
 }
 
 /**
- * 客户端截图：动态加载 html2canvas（懒加载分包，不拖首屏），降采样 + JPEG 压缩。
+ * 客户端截图：动态加载 modern-screenshot（懒加载分包，不拖首屏），降采样 + JPEG 压缩。
+ *
+ * 为什么用 modern-screenshot 而非 html2canvas：项目用 Tailwind v4，调色板 + shadcn 组件
+ * 大量 emit `oklch()` 颜色函数；html2canvas 自解析 CSS、不识别 oklch → 渲染恒抛错 → 截图恒空。
+ * modern-screenshot 走 foreignObject/SVG 序列化，由**浏览器原生渲染**，oklch 等现代 CSS 原生支持。
  *
  * 契约（AC5 + R2）：**客户端保证产出 ≤ FEEDBACK_SCREENSHOT_MAX_CHARS**。
  * - 首轮 q0.6；若超限再降到 q0.4 重试一次（多救回一些大页面）。
@@ -37,20 +41,26 @@ interface ShotResult {
  */
 async function captureScreenshot(): Promise<ShotResult> {
   try {
-    const { default: html2canvas } = await import("html2canvas");
-    const canvas = await html2canvas(document.body, {
+    const { domToJpeg } = await import("modern-screenshot");
+    const node = document.documentElement;
+    let dataUrl = await domToJpeg(node, {
       scale: 0.5, // 降采样：一半分辨率
-      logging: false,
-      useCORS: true,
-      windowWidth: document.documentElement.clientWidth,
-      windowHeight: document.documentElement.clientHeight,
+      quality: 0.6,
+      backgroundColor: "#ffffff",
+      width: document.documentElement.clientWidth,
+      height: document.documentElement.clientHeight,
     });
-    let dataUrl = canvas.toDataURL("image/jpeg", 0.6);
     if (dataUrl.length > FEEDBACK_SCREENSHOT_MAX_CHARS) {
       // 二次压缩：更低质量再试一次
-      dataUrl = canvas.toDataURL("image/jpeg", 0.4);
+      dataUrl = await domToJpeg(node, {
+        scale: 0.5,
+        quality: 0.4,
+        backgroundColor: "#ffffff",
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+      });
     }
-    if (dataUrl.length > FEEDBACK_SCREENSHOT_MAX_CHARS) {
+    if (!dataUrl || dataUrl.length > FEEDBACK_SCREENSHOT_MAX_CHARS) {
       return { dataUrl: null, reason: "too_large" };
     }
     return { dataUrl, reason: "ok" };
@@ -71,10 +81,11 @@ export function FeedbackButton() {
   // 仅登录用户可见（登录 / 注册页未登录 → 不渲染，R6 边界）
   if (status !== "authenticated") return null;
 
-  // 全屏 sim 页（(simulation)/sim/[id]）布局密集，右下角是「提交给客户」提交钮、
-  // 底部居中是「发送」、底栏满布操作——FAB 在此与原操作碰撞（AC4）。沉浸式答题模式下
-  // 隐藏全局 FAB，避免遮挡/拦截原操作；其余所有登录页照常显示。
-  if (pathname?.startsWith("/sim/")) return null;
+  // 全屏 sim 页（(simulation)/sim/[id]）右下角是「提交给客户」提交钮、底部居中是「发送」+
+  // 对话输入框、顶栏右侧是重来/结束对话——默认右下定位会与「提交给客户」碰撞（AC4）。
+  // sim 也是「任意界面」，学生在 sim 里遇 bug 是高价值反馈，保留按钮 → 在 sim 页把 FAB
+  // 挪到**左下角**（实测该区仅左栏情景说明 inert 内容，无任何 sim 交互控件）。
+  const isSimPage = pathname?.startsWith("/sim/") ?? false;
 
   function reset() {
     setType("issue");
@@ -138,7 +149,11 @@ export function FeedbackButton() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="反馈"
-        className="fixed bottom-5 right-5 z-40 size-12 rounded-full p-0 shadow-lg shadow-black/15"
+        className={cn(
+          "fixed bottom-5 z-40 size-12 rounded-full p-0 shadow-lg shadow-black/15",
+          // sim 页挪左下避开右下「提交给客户」；其余页右下角默认
+          isSimPage ? "left-5" : "right-5",
+        )}
       >
         <MessageSquarePlus className="size-5" />
       </Button>
