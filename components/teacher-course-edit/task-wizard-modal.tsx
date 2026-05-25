@@ -948,11 +948,8 @@ export function TaskWizardModal({
 
   async function handleSubmit() {
     if (!context) return;
-    // Unit 10: 若该 wizard 关联的 draft 状态是 ready（AI 已生成但未批准），拦截发布
-    if (editingDraftId && editingDraftStatus === "ready") {
-      toast.error("草稿还未审核，请先点击「审核」批准 AI 原稿后再发布。");
-      return;
-    }
+    // task-publish-gate: AI 审稿是「软提醒」而非 block —— ready 草稿允许直接创建并发布。
+    // 提醒由第 4 步 WizardStepReview 的非阻塞 banner 承载（见 reviewReminder）。
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = {
@@ -1366,6 +1363,8 @@ export function TaskWizardModal({
                 allowAttachment={form.allowAttachment}
                 maxAttachments={form.maxAttachments}
                 draftSourceLabel={draftSourceLabel}
+                draftStatus={editingDraftStatus}
+                draftId={editingDraftId}
               />
             )}
 
