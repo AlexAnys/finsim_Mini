@@ -165,6 +165,16 @@ enum ReleaseMode {
   auto
 }
 
+enum FeedbackType {
+  issue   // 报告问题
+  feature // 想要功能
+}
+
+enum FeedbackStatus {
+  new     // 待处理
+  handled // 已处理
+}
+
 // ============================================
 // 表 1: User（用户）
 // ============================================
@@ -202,6 +212,7 @@ model User {
   aiRuns             AiRun[]              @relation("AiRunUser")
   auditLogs          AuditLog[]           @relation("AuditActor")
   collaboratingCourses CourseTeacher[]    @relation("CourseCollaborator")
+  feedbacks            Feedback[]          @relation("FeedbackAuthor")
 
   @@index([role])
   @@index([classId])
@@ -1056,4 +1067,31 @@ model CourseClass {
 
   @@unique([courseId, classId])
   @@index([classId])
+}
+
+// ============================================
+// 表 38: Feedback（用户反馈 — 报告问题 / 想要功能）
+// ============================================
+// 任意登录用户提交；进系统内置收件箱（不直连 GitHub）。
+// 仅管理员可读取列表与改状态。截图为客户端降采样后的 base64 dataURL，可空（截图失败优雅降级）。
+model Feedback {
+  id           String         @id @default(uuid())
+  userId       String
+  userRole     Role
+  type         FeedbackType
+  content      String         @db.Text
+  pageUrl      String         @db.VarChar(2000)
+  screenshot   String?        @db.Text // base64 dataURL，客户端降采样后；可空（采集失败降级）
+  recentErrors Json? // 页面近期 console / 网络错误数组
+  viewport     String?        @db.VarChar(40) // 如 "1440x900"
+  userAgent    String?        @db.Text
+  status       FeedbackStatus @default(new)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user User @relation("FeedbackAuthor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
 }
