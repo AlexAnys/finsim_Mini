@@ -26,6 +26,7 @@ describe("assertCourseAccessForStudent", () => {
   it("CourseClass match passes (Course.classId 已弃用)", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
+      deletedAt: null,
       classes: [{ classId: "class-A" }],
     });
     await expect(
@@ -36,6 +37,7 @@ describe("assertCourseAccessForStudent", () => {
   it("CourseClass secondary class match passes", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
+      deletedAt: null,
       classes: [{ classId: "class-A" }, { classId: "class-B" }, { classId: "class-C" }],
     });
     await expect(
@@ -106,6 +108,7 @@ describe("assertCourseReadable (role dispatch)", () => {
   it("student in CourseClass passes (delegates to assertCourseAccessForStudent)", async () => {
     (prisma.course.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "course-1",
+      deletedAt: null,
       classes: [{ classId: "class-A" }],
     });
     await expect(

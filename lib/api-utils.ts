@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 
 export function success<T>(data: T, status = 200) {
   return NextResponse.json({ success: true, data }, { status });
@@ -41,6 +42,20 @@ export function serverError(message = "服务器内部错误") {
 }
 
 export function handleServiceError(err: unknown) {
+  // Prisma 外键约束失败（P2003）：此前落到 default → 裸 500。映射为带 code 的中文兜底，
+  // 便于前端按 code 分支提示。课程归档方案下含内容章节走 Cascade 已不再触发，但其余写路径
+  // 仍可能命中（兜底防御）。
+  if (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === "P2003"
+  ) {
+    return error(
+      "FK_CONSTRAINT_FAILED",
+      "操作失败：存在关联数据，请先处理相关内容后再试",
+      409,
+    );
+  }
+
   if (err instanceof Error) {
     if (err.message.startsWith("AI_PROVIDER_NOT_CONFIGURED")) {
       return error("AI_NOT_CONFIGURED", "AI 服务未配置", 500);
@@ -188,6 +203,10 @@ export function handleServiceError(err: unknown) {
           "该课程下仍有章节内容，无法删除。请先清空所有章节后再试。",
           400,
         );
+      case "PURGE_TITLE_MISMATCH":
+        return error("PURGE_TITLE_MISMATCH", "课程名称输入不一致，已取消彻底删除", 400);
+      case "COURSE_ARCHIVED":
+        return error("COURSE_ARCHIVED", "该课程已删除（在回收站中），请先恢复后再操作", 409);
       case "SUBMISSION_NOT_GRADED_YET":
         return error("SUBMISSION_NOT_GRADED_YET", "该提交尚未批改，无法撤销", 400);
       case "STUDY_BUDDY_POST_NOT_FOUND":

@@ -18,6 +18,7 @@ vi.mock("@/lib/auth/guards", () => ({
 
 vi.mock("@/lib/auth/course-access", () => ({
   assertCourseAccess: vi.fn(),
+  assertCourseNotArchived: vi.fn(),
 }));
 
 vi.mock("@/lib/services/task-build-draft.service", () => ({

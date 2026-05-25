@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { BookOpen, Loader2, AlertCircle, Plus } from "lucide-react";
+import { BookOpen, Loader2, AlertCircle, Plus, Trash2, RotateCcw, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +72,209 @@ interface ClassItem {
   _count: { students: number };
 }
 
+interface ArchivedCourse {
+  id: string;
+  courseTitle: string;
+  courseCode: string | null;
+  deletedAt: string | null;
+  _count?: { chapters: number; taskInstances: number };
+}
+
+function RecycleBinDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onRestore: (id: string) => Promise<boolean>;
+  onPurge: (id: string, confirmTitle: string) => Promise<boolean>;
+}) {
+  const [items, setItems] = useState<ArchivedCourse[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // 彻底删除强确认
+  const [purgeTarget, setPurgeTarget] = useState<ArchivedCourse | null>(null);
+  const [purgeInput, setPurgeInput] = useState("");
+  const [purging, setPurging] = useState(false);
+
+  const loadArchived = useCallback(async () => {
+    setItems(null);
+    setLoadErr(null);
+    try {
+      const res = await fetch("/api/lms/courses/archived");
+      const json = await res.json();
+      if (!json.success) {
+        setLoadErr(json.error?.message || "加载已删除课程失败");
+        return;
+      }
+      setItems(json.data);
+    } catch {
+      setLoadErr("网络错误，请稍后重试");
+    }
+  }, []);
+
+  // 抽屉打开时拉取已删除课程。包到 async IIFE 里、把 loadArchived 推到 await
+  // 之后执行，避免在 effect 同步体内直接 setState（React Compiler 规则）。
+  useEffect(() => {
+    if (!props.open) return;
+    let ignore = false;
+    (async () => {
+      if (ignore) return;
+      await loadArchived();
+    })();
+    return () => {
+      ignore = true;
+    };
+  }, [props.open, loadArchived]);
+
+  async function doRestore(id: string) {
+    setBusyId(id);
+    const ok = await props.onRestore(id);
+    setBusyId(null);
+    if (ok) loadArchived();
+  }
+
+  async function doPurge() {
+    if (!purgeTarget) return;
+    setPurging(true);
+    const ok = await props.onPurge(purgeTarget.id, purgeInput);
+    setPurging(false);
+    if (ok) {
+      setPurgeTarget(null);
+      setPurgeInput("");
+      loadArchived();
+    }
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>回收站 · 已删除课程</DialogTitle>
+          <DialogDescription>
+            已删除的课程从所有页面消失但未被销毁。可恢复回归原状，或彻底删除（不可恢复，将永久移除课程及其全部任务、提交、成绩等）。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto py-2">
+          {items === null && !loadErr && (
+            <div className="flex items-center justify-center py-10 text-sm text-ink-4">
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              加载中...
+            </div>
+          )}
+          {loadErr && <p className="py-6 text-center text-sm text-danger">{loadErr}</p>}
+          {items !== null && items.length === 0 && (
+            <p className="py-10 text-center text-sm text-ink-4">回收站为空</p>
+          )}
+          {items?.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  {c.courseCode && (
+                    <span className="rounded bg-paper-alt px-1.5 py-[1px] text-[11px] text-ink-3">
+                      {c.courseCode}
+                    </span>
+                  )}
+                  <span className="truncate text-[14px] font-semibold text-ink">
+                    {c.courseTitle}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-[11.5px] text-ink-4">
+                  {c._count ? `${c._count.chapters} 章节 · ${c._count.taskInstances} 任务实例` : ""}
+                  {c.deletedAt && (
+                    <>
+                      <span className="mx-1 text-ink-5">·</span>
+                      删除于 {formatArchivedAt(c.deletedAt)}
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyId === c.id}
+                  onClick={() => doRestore(c.id)}
+                >
+                  {busyId === c.id ? (
+                    <Loader2 className="size-[13px] animate-spin" />
+                  ) : (
+                    <RotateCcw className="size-[13px]" />
+                  )}
+                  恢复
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setPurgeTarget(c);
+                    setPurgeInput("");
+                  }}
+                >
+                  <Trash2 className="size-[13px]" />
+                  彻底删除
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+
+      {/* 彻底删除强确认：输入课程名一致才可点 */}
+      <AlertDialog
+        open={purgeTarget !== null}
+        onOpenChange={(open) => !open && !purging && setPurgeTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>彻底删除「{purgeTarget?.courseTitle}」</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作不可恢复，将永久删除该课程及其全部章节、内容、任务实例、学生提交与成绩、分析报告、公告、课表等。
+              请输入课程名称 <span className="font-semibold text-ink">{purgeTarget?.courseTitle}</span> 以确认。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-1">
+            <Input
+              value={purgeInput}
+              onChange={(e) => setPurgeInput(e.target.value)}
+              placeholder="输入课程名称确认"
+              autoFocus
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={purging}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                doPurge();
+              }}
+              disabled={purging || purgeInput !== purgeTarget?.courseTitle}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {purging ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "彻底删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
+  );
+}
+
+function formatArchivedAt(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function TeacherCoursesPage() {
   const { data: session } = useSession();
   const myUserId = session?.user?.id;
@@ -89,9 +292,11 @@ export default function TeacherCoursesPage() {
   const [courseCode, setCourseCode] = useState("");
   const [description, setDescription] = useState("");
   const [classId, setClassId] = useState("");
-  // Unit 5a: 删除 confirm dialog
+  // 删除（归档）confirm dialog
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // 回收站（已删除课程）抽屉
+  const [recycleOpen, setRecycleOpen] = useState(false);
 
   async function fetchData() {
     try {
@@ -237,7 +442,7 @@ export default function TeacherCoursesPage() {
         toast.error(json.error?.message || "删除失败");
         return;
       }
-      toast.success("课程已删除");
+      toast.success("课程已移入回收站，可在回收站恢复");
       setConfirmDelete(null);
       setLoading(true);
       fetchData();
@@ -245,6 +450,46 @@ export default function TeacherCoursesPage() {
       toast.error("网络错误，请稍后重试");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // 从回收站恢复
+  async function handleRestore(id: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/lms/courses/${id}/restore`, { method: "POST" });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "恢复失败");
+        return false;
+      }
+      toast.success("课程已恢复");
+      setLoading(true);
+      fetchData();
+      return true;
+    } catch {
+      toast.error("网络错误，请稍后重试");
+      return false;
+    }
+  }
+
+  // 彻底删除（需课程名强确认）
+  async function handlePurge(id: string, confirmTitle: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/lms/courses/${id}/purge`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmTitle }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "彻底删除失败");
+        return false;
+      }
+      toast.success("课程已彻底删除");
+      return true;
+    } catch {
+      toast.error("网络错误，请稍后重试");
+      return false;
     }
   }
 
@@ -290,22 +535,32 @@ export default function TeacherCoursesPage() {
             )}
           </p>
         </div>
-        <CreateCourseDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          classes={classes}
-          courseTitle={courseTitle}
-          setCourseTitle={setCourseTitle}
-          courseCode={courseCode}
-          setCourseCode={setCourseCode}
-          description={description}
-          setDescription={setDescription}
-          classId={classId}
-          setClassId={setClassId}
-          creating={creating}
-          formError={formError}
-          onCreate={handleCreate}
-        />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setRecycleOpen(true)}
+          >
+            <Archive className="size-[13px]" />
+            回收站
+          </Button>
+          <CreateCourseDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            classes={classes}
+            courseTitle={courseTitle}
+            setCourseTitle={setCourseTitle}
+            courseCode={courseCode}
+            setCourseCode={setCourseCode}
+            description={description}
+            setDescription={setDescription}
+            classId={classId}
+            setClassId={setClassId}
+            creating={creating}
+            formError={formError}
+            onCreate={handleCreate}
+          />
+        </div>
       </header>
 
       {summaryItems.length > 0 && <CourseSummaryStrip items={summaryItems} />}
@@ -324,7 +579,7 @@ export default function TeacherCoursesPage() {
             <TeacherCourseCard
               key={c.id}
               data={c}
-              onDelete={(id, title) => setConfirmDelete({ id, title })}
+              onArchive={(id, title) => setConfirmDelete({ id, title })}
             />
           ))}
         </div>
@@ -336,9 +591,10 @@ export default function TeacherCoursesPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除课程</AlertDialogTitle>
+            <AlertDialogTitle>删除课程（移入回收站）</AlertDialogTitle>
             <AlertDialogDescription>
-              确认删除「{confirmDelete?.title}」？此操作不可恢复。
+              确认删除「{confirmDelete?.title}」？课程及其章节内容、已发布任务将从所有页面消失，
+              但不会被销毁——可在&ldquo;回收站&rdquo;中恢复或彻底删除。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -354,12 +610,19 @@ export default function TeacherCoursesPage() {
                   删除中...
                 </>
               ) : (
-                "确认删除"
+                "删除（移入回收站）"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RecycleBinDialog
+        open={recycleOpen}
+        onOpenChange={setRecycleOpen}
+        onRestore={handleRestore}
+        onPurge={handlePurge}
+      />
     </div>
   );
 }

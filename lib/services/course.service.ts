@@ -8,14 +8,21 @@ import type { SlotType, ContentBlockType } from "@prisma/client";
 // 协作教师过滤器
 // ============================================
 
-export function teacherCourseFilter(teacherId: string): Prisma.CourseWhereInput {
+export function teacherCourseScope(teacherId: string): Prisma.CourseWhereInput {
   return { OR: [{ createdBy: teacherId }, { teachers: { some: { teacherId } } }] };
+}
+
+// U3-F3：归档集中过滤 —— teacherCourseFilter/courseClassFilter 一律附加 deletedAt: null，
+// 使 dashboard/announcement/schedule/SB 等读取点一处生效，已归档课程自动从老师/学生面消失。
+// 回收站列表查询走 teacherCourseScope（不含 deletedAt）+ 显式 deletedAt:{not:null} 绕过本过滤。
+export function teacherCourseFilter(teacherId: string): Prisma.CourseWhereInput {
+  return { AND: [teacherCourseScope(teacherId), { deletedAt: null }] };
 }
 
 // 班级课程过滤器：通过 CourseClass M:N 关联匹配。Course.classId 已弃用 + writer 不再写入，
 // 旧 row 在 migration 时已 backfill 到 CourseClass，因此单源即可。
 export function courseClassFilter(classId: string): Prisma.CourseWhereInput {
-  return { classes: { some: { classId } } };
+  return { AND: [{ classes: { some: { classId } } }, { deletedAt: null }] };
 }
 
 // ============================================
@@ -422,46 +429,253 @@ export async function reorderContentBlocks(
   );
 }
 
+
+// ============================================
+// 课程归档（软删除）/ 恢复 / 彻底删除
+// ============================================
+
 /**
- * Unit 5a: 删除课程（硬删 + 拒删条件 + audit）
- * - owner-only：createdBy === userId 才允许（Unit 5c 协作权限上扬不含删除）
- * - 拒删：chapters > 0 → COURSE_HAS_CHAPTERS / taskInstances > 0 → COURSE_HAS_INSTANCES
- *
- * Cascade 影响（schema 现状）：
- * - CourseTeacher / CourseClass / Announcement / ScheduleSlot / CourseKnowledgeSource / TaskBuildDraft
- *   实测目前不是全部 onDelete: Cascade —— 拒章节/拒实例已经把绝大多数复杂依赖兜住。
- * - 仅当 chapter/instance 都 = 0 时才允许删。
+ * 归档/恢复/彻底删除共用的 owner-or-admin 守卫。
+ * - admin 直通（可操作任意课程）
+ * - 否则必须是 createdBy（协作教师不含归档/删除权）
+ * 返回课程的最小字段（含 deletedAt，便于 caller 判断状态 + audit 写标题）。
+ * 课程不存在 → COURSE_NOT_FOUND；非 owner 非 admin → FORBIDDEN。
  */
-export async function deleteCourse(courseId: string, userId: string) {
-  const existing = await prisma.course.findUnique({
+async function assertCourseOwnerOrAdmin(
+  courseId: string,
+  userId: string,
+  userRole: string,
+) {
+  const course = await prisma.course.findUnique({
     where: { id: courseId },
-    select: { id: true, courseTitle: true, createdBy: true },
+    select: { id: true, courseTitle: true, createdBy: true, deletedAt: true },
   });
-  if (!existing) throw new Error("COURSE_NOT_FOUND");
-  if (existing.createdBy !== userId) throw new Error("FORBIDDEN");
-
-  const instanceCount = await prisma.taskInstance.count({ where: { courseId } });
-  if (instanceCount > 0) {
-    const err = new Error("COURSE_HAS_INSTANCES") as Error & { instanceCount?: number };
-    err.instanceCount = instanceCount;
-    throw err;
+  if (!course) throw new Error("COURSE_NOT_FOUND");
+  if (userRole !== "admin" && course.createdBy !== userId) {
+    throw new Error("FORBIDDEN");
   }
+  return course;
+}
 
-  const chapterCount = await prisma.chapter.count({ where: { courseId } });
-  if (chapterCount > 0) {
-    const err = new Error("COURSE_HAS_CHAPTERS") as Error & { chapterCount?: number };
-    err.chapterCount = chapterCount;
-    throw err;
-  }
-
-  await prisma.course.delete({ where: { id: courseId } });
-  // deleteCourse 已 guard "existing.createdBy === userId" → 必为 owner
+/**
+ * 归档课程（软删除）：置 deletedAt 时间戳。
+ * - 无须先清空章节/实例（归档不销毁数据 → 可恢复，故不要 COURSE_HAS_* 闸）
+ * - owner（createdBy）或 admin 可操作（D3）
+ * - 写 audit course.archive
+ * 替代了旧的硬删 deleteCourse —— DELETE /courses/[id] 现走此函数。
+ */
+export async function archiveCourse(
+  courseId: string,
+  userId: string,
+  userRole: string,
+) {
+  const course = await assertCourseOwnerOrAdmin(courseId, userId, userRole);
+  const updated = await prisma.course.update({
+    where: { id: courseId },
+    data: { deletedAt: new Date() },
+  });
   await logAuditEvent({
-    action: "course.delete",
-    actorRole: "owner",
+    action: "course.archive",
+    actorRole: userRole === "admin" ? "admin" : "owner",
     actorId: userId,
     targetId: courseId,
     targetType: "Course",
-    metadata: { title: existing.courseTitle },
+    metadata: { title: course.courseTitle },
   });
+  return updated;
+}
+
+/**
+ * 恢复已归档课程：清空 deletedAt（不动任务实例本身，D1）。
+ * - owner 或 admin
+ * - 写 audit course.restore
+ */
+export async function restoreCourse(
+  courseId: string,
+  userId: string,
+  userRole: string,
+) {
+  const course = await assertCourseOwnerOrAdmin(courseId, userId, userRole);
+  const updated = await prisma.course.update({
+    where: { id: courseId },
+    data: { deletedAt: null },
+  });
+  await logAuditEvent({
+    action: "course.restore",
+    actorRole: userRole === "admin" ? "admin" : "owner",
+    actorId: userId,
+    targetId: courseId,
+    targetType: "Course",
+    metadata: { title: course.courseTitle },
+  });
+  return updated;
+}
+
+/**
+ * 回收站列表：仅返回已归档课程（deletedAt 非空）。
+ * - teacher：自己创建或协作的已归档课程（teacherCourseFilter）
+ * - admin：全部已归档课程
+ * include 对齐 getCoursesByTeacher，供回收站卡片展示。
+ */
+export async function getArchivedCourses(
+  userId: string,
+  userRole: string,
+  options: { take?: number } = {},
+) {
+  const where: Prisma.CourseWhereInput =
+    userRole === "admin"
+      ? { deletedAt: { not: null } }
+      : { AND: [{ deletedAt: { not: null } }, teacherCourseScope(userId)] };
+
+  return prisma.course.findMany({
+    where,
+    include: {
+      class: true,
+      classes: { include: { class: true } },
+      creator: { select: { id: true, name: true, email: true } },
+      teachers: {
+        include: { teacher: { select: { id: true, name: true, email: true } } },
+      },
+      _count: { select: { chapters: true, taskInstances: true } },
+    },
+    orderBy: { deletedAt: "desc" },
+    take: clampTake(options.take, 100, 200),
+  });
+}
+
+/**
+ * 彻底删除课程（真销毁，不可恢复）。
+ * - owner 或 admin（D3）
+ * - 需输入课程名强确认：confirmTitle 必须与 courseTitle 完全一致，否则 PURGE_TITLE_MISMATCH（D4）
+ * - 即使有已批改提交也允许（D4）
+ * - 事务内按 FK 承重次序删除全部后代（spec §8），不删共享 Task 模板（F5）
+ * - 写 audit course.purge（含被删后代计数）
+ *
+ * 为何显式删 SET NULL 关系（Submission/TaskInstance/StudyBuddyPost/AnalysisReport）：
+ * 这些 FK 是 ON DELETE SET NULL，靠 DB 级联只会把外键置空产生孤儿行，必须显式删。
+ * RESTRICT 关系（Section/ContentBlock.courseId）不显式删会直接挡住 course.delete()。
+ */
+export async function purgeCourse(
+  courseId: string,
+  userId: string,
+  userRole: string,
+  confirmTitle: string,
+) {
+  const course = await assertCourseOwnerOrAdmin(courseId, userId, userRole);
+  if (confirmTitle !== course.courseTitle) {
+    throw new Error("PURGE_TITLE_MISMATCH");
+  }
+
+  const counts = await prisma.$transaction(async (tx) => {
+    // ---- 先解析 id 集 ----
+    const chapters = await tx.chapter.findMany({
+      where: { courseId },
+      select: { id: true },
+    });
+    const sections = await tx.section.findMany({
+      where: { courseId },
+      select: { id: true },
+    });
+    const instances = await tx.taskInstance.findMany({
+      where: { courseId },
+      select: { id: true },
+    });
+    const instanceIds = instances.map((i) => i.id);
+
+    const submissions = instanceIds.length
+      ? await tx.submission.findMany({
+          where: { taskInstanceId: { in: instanceIds } },
+          select: { id: true },
+        })
+      : [];
+    const submissionIds = submissions.map((s) => s.id);
+
+    const subjectiveSubs = submissionIds.length
+      ? await tx.subjectiveSubmission.findMany({
+          where: { submissionId: { in: submissionIds } },
+          select: { id: true },
+        })
+      : [];
+    const subjectiveSubIds = subjectiveSubs.map((s) => s.id);
+
+    // ---- 按 §8 承重次序删除 ----
+    // 1. attachment（by subjectiveSubmissionIds）
+    if (subjectiveSubIds.length) {
+      await tx.attachment.deleteMany({
+        where: { subjectiveSubmissionId: { in: subjectiveSubIds } },
+      });
+    }
+    // 2. sim/quiz/subjective submission（by submissionIds）——本可由 Submission Cascade，
+    //    但显式删求确定性 + 不依赖级联行为
+    if (submissionIds.length) {
+      await tx.simulationSubmission.deleteMany({
+        where: { submissionId: { in: submissionIds } },
+      });
+      await tx.quizSubmission.deleteMany({
+        where: { submissionId: { in: submissionIds } },
+      });
+      await tx.subjectiveSubmission.deleteMany({
+        where: { submissionId: { in: submissionIds } },
+      });
+    }
+    // 3. studyBuddyPost（taskInstanceId in instanceIds 或 courseId=X）/ taskPost /
+    //    analysisReport / submission（by instanceIds）
+    await tx.studyBuddyPost.deleteMany({
+      where: {
+        OR: [
+          { courseId },
+          ...(instanceIds.length ? [{ taskInstanceId: { in: instanceIds } }] : []),
+        ],
+      },
+    });
+    if (instanceIds.length) {
+      await tx.taskPost.deleteMany({
+        where: { taskInstanceId: { in: instanceIds } },
+      });
+      await tx.analysisReport.deleteMany({
+        where: { taskInstanceId: { in: instanceIds } },
+      });
+    }
+    const delSubmissions = submissionIds.length
+      ? await tx.submission.deleteMany({
+          where: { id: { in: submissionIds } },
+        })
+      : { count: 0 };
+    // 4. courseKnowledgeSource / taskBuildDraft（courseId=X）
+    await tx.courseKnowledgeSource.deleteMany({ where: { courseId } });
+    await tx.taskBuildDraft.deleteMany({ where: { courseId } });
+    // 5. taskInstance（courseId=X — SET NULL，必须显式删）
+    const delInstances = await tx.taskInstance.deleteMany({ where: { courseId } });
+    // 6. contentBlock（courseId=X）← 解 ContentBlock RESTRICT
+    await tx.contentBlock.deleteMany({ where: { courseId } });
+    // 7. section（courseId=X）← 解 Section RESTRICT
+    await tx.section.deleteMany({ where: { courseId } });
+    // 8. chapter（courseId=X）
+    await tx.chapter.deleteMany({ where: { courseId } });
+    // 9. announcement / scheduleSlot / courseTeacher / courseClass（多为 Cascade，显式删求确定性）
+    await tx.announcement.deleteMany({ where: { courseId } });
+    await tx.scheduleSlot.deleteMany({ where: { courseId } });
+    await tx.courseTeacher.deleteMany({ where: { courseId } });
+    await tx.courseClass.deleteMany({ where: { courseId } });
+    // 10. course
+    await tx.course.delete({ where: { id: courseId } });
+
+    return {
+      chapters: chapters.length,
+      sections: sections.length,
+      instances: delInstances.count,
+      submissions: delSubmissions.count,
+    };
+  });
+
+  await logAuditEvent({
+    action: "course.purge",
+    actorRole: userRole === "admin" ? "admin" : "owner",
+    actorId: userId,
+    targetId: courseId,
+    targetType: "Course",
+    metadata: { title: course.courseTitle, ...counts },
+  });
+
+  return counts;
 }
