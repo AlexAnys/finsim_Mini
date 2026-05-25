@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { MessageSquarePlus, Bug, Lightbulb, Loader2, Camera, CameraOff } from "lucide-react";
 import { toast } from "sonner";
@@ -60,6 +61,7 @@ async function captureScreenshot(): Promise<ShotResult> {
 
 export function FeedbackButton() {
   const { status } = useSession();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<FeedbackType>("issue");
   const [content, setContent] = useState("");
@@ -68,6 +70,11 @@ export function FeedbackButton() {
 
   // 仅登录用户可见（登录 / 注册页未登录 → 不渲染，R6 边界）
   if (status !== "authenticated") return null;
+
+  // 全屏 sim 页（(simulation)/sim/[id]）布局密集，右下角是「提交给客户」提交钮、
+  // 底部居中是「发送」、底栏满布操作——FAB 在此与原操作碰撞（AC4）。沉浸式答题模式下
+  // 隐藏全局 FAB，避免遮挡/拦截原操作；其余所有登录页照常显示。
+  if (pathname?.startsWith("/sim/")) return null;
 
   function reset() {
     setType("issue");
