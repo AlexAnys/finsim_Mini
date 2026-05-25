@@ -202,7 +202,8 @@ export default function TaskBuildDraftReviewPage() {
         toast.error(json.error?.message || "批准失败");
         return;
       }
-      toast.success("草稿已批准，可在课程页发布");
+      // publish-flow: 修误导文案 —— 不再指向幽灵「课程发布页」，准确指引回小节卡片点「发布」。
+      toast.success("已批准，回到课程小节点卡片「发布」即可");
       router.push(`/teacher/courses/${draft.courseId}`);
     } catch {
       toast.error("网络错误，请稍后重试");
@@ -253,7 +254,7 @@ export default function TaskBuildDraftReviewPage() {
             <span className="ml-2 text-base text-ink-4">/ {draft.title}</span>
           </h1>
           <p className="text-xs text-ink-3">
-            对比 AI 原稿与教师编辑稿，按需接受单字段或整体批准。批准后才能发布给学生。
+            对比 AI 原稿与教师编辑稿，按需接受单字段或整体批准。批准后回到课程小节，点卡片「发布」即可发给学生。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -278,7 +279,7 @@ export default function TaskBuildDraftReviewPage() {
             <Button asChild variant="outline">
               <Link href={`/teacher/courses/${draft.courseId}`}>
                 <CheckCircle2 className="mr-1 size-4" />
-                返回课程发布
+                回课程小节点「发布」
               </Link>
             </Button>
           )}
@@ -417,7 +418,7 @@ export default function TaskBuildDraftReviewPage() {
                     ) : (
                       <ShieldCheck className="mr-1 size-4" />
                     )}
-                    批准全部并允许发布
+                    批准全部
                   </Button>
                 )}
               </div>
