@@ -231,7 +231,9 @@ export async function getCourseWithStructure(courseId: string) {
               },
               taskBuildDrafts: {
                 where: {
-                  status: { in: ["draft", "queued", "processing", "ready", "failed"] },
+                  // publish-flow: approved 是 with-task 已接受的合法待发布态，必须在课程结构里露出来，
+                  // 否则「批准全部」(ready→approved) 后草稿从小节消失 + 发布按钮成死代码。
+                  status: { in: ["draft", "queued", "processing", "ready", "approved", "failed"] },
                 },
                 orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
               },

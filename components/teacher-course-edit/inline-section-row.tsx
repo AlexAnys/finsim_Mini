@@ -29,6 +29,7 @@ import {
   Box,
   Link as LinkIcon,
   Sparkles,
+  Send,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -48,6 +49,7 @@ import {
   type BlockType,
   type SlotType,
 } from "@/lib/utils/course-editor-transforms";
+import { getDraftCardActions } from "@/lib/utils/draft-card-actions";
 import { BlockEditorDispatch } from "./block-editors";
 import type { BlockEditorBlock } from "./block-editors/types";
 
@@ -504,6 +506,8 @@ export function InlineSectionRow({
                       : DRAFT_STATUS_LABEL[draft.status] ?? draft.status;
                     const displayError = job?.error || draft.error;
                     const questionCount = countDraftQuestions(draft.draftPayload);
+                    // publish-flow B1: 卡片按状态决定显示哪些动作（可发现的「发布」+ 审核/查看对照）。
+                    const actions = getDraftCardActions(draft.status);
 
                     return (
                       <div
@@ -564,12 +568,24 @@ export function InlineSectionRow({
                           )}
                         </button>
                         <div className="mt-1 flex items-center justify-end gap-1 border-t border-current/10 pt-1">
-                          {(draft.status === "ready" || draft.status === "approved") && (
+                          {/* publish-flow B1: 可发现的「发布」动作 —— 点开向导落 review/发布步，再「创建并发布」。 */}
+                          {actions.showPublish && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenDraft(draft, chapter.id, section.id, slot)}
+                              className="inline-flex items-center gap-0.5 rounded bg-success px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-success/90"
+                              aria-label={`发布草稿「${draft.title}」`}
+                            >
+                              <Send className="size-2.5" />
+                              发布
+                            </button>
+                          )}
+                          {actions.showReview && (
                             <Link
                               href={`/teacher/tasks/drafts/${draft.id}`}
                               className="rounded px-1.5 py-0.5 text-[10px] font-medium hover:bg-white/70"
                             >
-                              {draft.status === "ready" ? "审核" : "查看对照"}
+                              {actions.reviewLabel}
                             </Link>
                           )}
                           {job?.status === "failed" && (
