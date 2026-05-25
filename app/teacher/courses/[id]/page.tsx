@@ -212,7 +212,9 @@ interface CourseDetail {
   courseCode: string | null;
   description: string | null;
   semesterStartDate: string | null;
-  class: { id: string; name: string };
+  // class 来自已弃用的 Course.classId（schema 为 Class?），旧课程可能为 null；
+  // 真实班级关联在 courseClasses(M:N)。类型如实标 null，下游做 null 安全。
+  class: { id: string; name: string } | null;
   chapters: ApiChapter[];
   // Unit 5a: owner-only 删除判断
   createdBy: string;
@@ -830,7 +832,7 @@ export default function TeacherCourseDetailPage() {
       setWizardDraft(null);
       setWizardContext({
         courseId: course.id,
-        classId: course.class.id,
+        classId: course.class?.id ?? courseClasses[0]?.classId ?? "",
         chapterId,
         sectionId,
         slot,
@@ -839,7 +841,7 @@ export default function TeacherCourseDetailPage() {
       });
       setWizardOpen(true);
     },
-    [course],
+    [course, courseClasses],
   );
 
   const handleOpenDraft = useCallback(
@@ -855,7 +857,7 @@ export default function TeacherCourseDetailPage() {
       setWizardDraft(draft);
       setWizardContext({
         courseId: course.id,
-        classId: course.class.id,
+        classId: course.class?.id ?? courseClasses[0]?.classId ?? "",
         chapterId,
         sectionId,
         slot,
@@ -864,7 +866,7 @@ export default function TeacherCourseDetailPage() {
       });
       setWizardOpen(true);
     },
-    [course],
+    [course, courseClasses],
   );
 
   const handleDeleteDraft = useCallback(
@@ -1118,7 +1120,7 @@ export default function TeacherCourseDetailPage() {
         toast.error(json.error?.message || "删除失败");
         return;
       }
-      toast.success("课程已删除");
+      toast.success("课程已移入回收站，可在回收站恢复");
       router.push("/teacher/courses");
     } catch {
       toast.error("网络错误，请稍后重试");
@@ -1138,9 +1140,9 @@ export default function TeacherCourseDetailPage() {
         courseTitle={course.courseTitle}
         courseCode={course.courseCode}
         description={course.description}
-        primaryClassId={course.class.id}
+        primaryClassId={course.class?.id ?? null}
         courseClasses={courseClasses}
-        fallbackClassName={course.class.name ?? null}
+        fallbackClassName={course.class?.name ?? null}
         teachers={courseTeachers.map((ct) => ({
           id: ct.id,
           teacherId: ct.teacherId,
@@ -1931,9 +1933,9 @@ export default function TeacherCourseDetailPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除课程</AlertDialogTitle>
+            <AlertDialogTitle>删除课程（移入回收站）</AlertDialogTitle>
             <AlertDialogDescription>
-              确认删除「{course.courseTitle}」？此操作不可恢复。如果课程下有章节或任务实例，将被服务端拒绝并提示原因。
+              确认删除「{course.courseTitle}」？课程及其章节内容、已发布任务将从所有页面消失，但不会被销毁——可在课程管理页的&ldquo;回收站&rdquo;中恢复或彻底删除。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1949,7 +1951,7 @@ export default function TeacherCourseDetailPage() {
                   删除中...
                 </>
               ) : (
-                "确认删除"
+                "删除（移入回收站）"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

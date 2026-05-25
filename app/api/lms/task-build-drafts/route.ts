@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/guards";
-import { assertCourseAccess } from "@/lib/auth/course-access";
+import { assertCourseAccess, assertCourseNotArchived } from "@/lib/auth/course-access";
 import { created, handleServiceError, success, validationError } from "@/lib/api-utils";
 import {
   createTaskBuildDraft,
@@ -84,6 +84,8 @@ export async function POST(request: NextRequest) {
     const { user } = result.session;
     const data = parsed.data;
     await assertCourseAccess(data.courseId, user.id, user.role);
+    // F4：向已归档课程 AI 起草应被拒（先恢复）
+    await assertCourseNotArchived(data.courseId);
     const draft = await createTaskBuildDraft(user.id, {
       courseId: data.courseId,
       chapterId: data.chapterId ?? null,

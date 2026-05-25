@@ -29,11 +29,12 @@ describe("getStudentDashboard", () => {
 
     const call = (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     // Unit 3: 拉 published + closed，但 closed 后续会按"我有 submission"过滤
+    // U3-归档: 加 OR[courseId=null | course.deletedAt=null]，已归档课程任务对学生消失（保留 standalone）
     expect(call.where).toEqual({
       classId: "class-A",
       status: { in: ["published", "closed"] },
+      OR: [{ courseId: null }, { course: { deletedAt: null } }],
     });
-    expect(call.where.OR).toBeUndefined();
   });
 
   it("Unit 3: closed instance with my submission is kept; closed without is dropped", async () => {

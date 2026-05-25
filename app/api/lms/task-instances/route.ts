@@ -5,7 +5,7 @@ import { createTaskInstanceSchema } from "@/lib/validators/task.schema";
 import {
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
-import { assertCourseAccess } from "@/lib/auth/course-access";
+import { assertCourseAccess, assertCourseNotArchived } from "@/lib/auth/course-access";
 import { prisma } from "@/lib/db/prisma";
 import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
     });
     if (data.courseId) {
       await assertCourseAccess(data.courseId, user.id, user.role);
+      // F4：向已归档课程新建实例应被拒（先恢复）
+      await assertCourseNotArchived(data.courseId);
       // 验证 classId 属于该课程（主班或 CourseClass）
       const cls = await prisma.course.findUnique({
         where: { id: data.courseId },

@@ -16,13 +16,17 @@
 3. **commit 前必跑**：`npx tsc --noEmit && npx vitest run`，全绿才能 commit。
 4. **每个 PR 必有 staging 自验**：CI + staging-deploy 两个 status check 必须通过才能 merge。
 5. **squash merge 强制**：repo 设置只允许 squash，merge 后自动删 feature 分支。
+6. **分支/worktree 必须从最新 `origin/main` 出生**：创建前**先 `git fetch origin`**，再基于 `origin/main` 建，**绝不从本地 `main` 切**。原因：PR 的 squash 合并发生在 GitHub 服务器端，本地 `main` 不主动 `pull` 就会滞后，从它切出的分支一出生就缺最新 commit、卡在「This branch is out of date with the base branch」。本仓库已配自带 `fetch` 的快捷别名：`git nb <topic>`（建分支）、`git nw <topic> <path>`（建 worktree）、`git syncmain`（拉平本地 main）。
 
 ## 三、标准任务流（每个 agent 必走）
 
 ```bash
-# 1. 同步最新 main
+# 1. 从最新 origin/main 出生（必须先 fetch，避免 born-behind / out-of-date）
 git fetch origin
-git checkout -b <agent>-<topic> origin/main
+git switch -c <agent>-<topic> origin/main
+# 用 worktree 时：
+git worktree add -b <agent>-<topic> <path> origin/main
+# 快捷：git nb <topic>   或   git nw <topic> <path>（已自带 fetch）
 
 # 2. 写代码 → commit（小步、原子、消息说清楚 why）
 git add <files>

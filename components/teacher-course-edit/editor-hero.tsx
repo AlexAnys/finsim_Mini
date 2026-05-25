@@ -21,7 +21,8 @@ interface EditorHeroProps {
   courseTitle: string;
   courseCode: string | null;
   description: string | null;
-  primaryClassId: string;
+  // 可空：旧课程的已弃用 Course.classId 可能为 null（仅用于 isPrimary 相等判断，null 安全）
+  primaryClassId: string | null;
   courseClasses: EditorHeroClass[];
   fallbackClassName: string | null;
   teachers: EditorHeroTeacher[];

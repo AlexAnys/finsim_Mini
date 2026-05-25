@@ -41,6 +41,8 @@ export async function assertTaskInstanceReadable(
       courseId: true,
       createdBy: true,
       status: true,
+      // F1：用于学生分支拒绝已归档课程的实例（teacher/owner 分支保持开放以便恢复）
+      course: { select: { deletedAt: true } },
     },
   });
   if (!inst) throw new Error("INSTANCE_NOT_FOUND");
@@ -48,6 +50,8 @@ export async function assertTaskInstanceReadable(
   if (user.role === "student") {
     if (!user.classId) throw new Error("FORBIDDEN");
     if (inst.classId !== user.classId) throw new Error("FORBIDDEN");
+    // F1：实例所属课程已归档 → 学生不可访问（即便实例 status 仍是 published）
+    if (inst.course && inst.course.deletedAt !== null) throw new Error("FORBIDDEN");
     if (inst.status === "published") return;
     if (inst.status === "draft") throw new Error("TASK_INSTANCE_DRAFT_NOT_VISIBLE");
     if (inst.status === "closed" && opts.allowClosedWithOwnSubmission) {

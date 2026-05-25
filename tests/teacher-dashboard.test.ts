@@ -30,10 +30,14 @@ describe("getTeacherDashboard", () => {
     const call = (prisma.taskInstance.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.OR).toBeDefined();
     expect(call.where.OR).toEqual([
-      { createdBy: "teacher-1" },
+      // standalone（courseId=null）或非归档课程的本人实例
+      { createdBy: "teacher-1", OR: [{ courseId: null }, { course: { deletedAt: null } }] },
       {
         course: {
-          OR: [{ createdBy: "teacher-1" }, { teachers: { some: { teacherId: "teacher-1" } } }],
+          AND: [
+            { OR: [{ createdBy: "teacher-1" }, { teachers: { some: { teacherId: "teacher-1" } } }] },
+            { deletedAt: null },
+          ],
         },
       },
     ]);

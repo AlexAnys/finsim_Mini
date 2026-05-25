@@ -245,6 +245,7 @@ model Course {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   semesterStartDate DateTime?
+  deletedAt         DateTime? // 软删除（归档）唯一真源：null=正常，有时间戳=已归档
 
   creator        User           @relation("CourseCreator", fields: [createdBy], references: [id])
   class          Class?         @relation(fields: [classId], references: [id])
@@ -262,6 +263,7 @@ model Course {
 
   @@index([classId])
   @@index([createdBy])
+  @@index([deletedAt])
 }
 
 // ============================================
@@ -325,7 +327,7 @@ model ContentBlock {
   updatedAt DateTime         @updatedAt
 
   course  Course  @relation(fields: [courseId], references: [id])
-  chapter Chapter @relation(fields: [chapterId], references: [id])
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@index([sectionId, slot, order])

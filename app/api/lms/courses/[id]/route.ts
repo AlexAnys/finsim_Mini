@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseReadable } from "@/lib/auth/course-access";
-import { deleteCourse, getCourseWithStructure } from "@/lib/services/course.service";
+import { archiveCourse, getCourseWithStructure } from "@/lib/services/course.service";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { success, notFound, validationError, handleServiceError } from "@/lib/api-utils";
@@ -76,16 +76,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return handleServiceError(err);
   }
 }
+
+// 课程归档（软删除）：DELETE 语义已从硬删改为归档（移入回收站，可恢复）。
+// 业务逻辑（owner/admin 守卫 + audit）在 archiveCourse Service，本处仅薄包装。
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const result = await requireRole(["teacher", "admin"]);
   if (result.error) return result.error;
 
   try {
     const { id } = await params;
-    await deleteCourse(id, result.session.user.id);
-    return success({ deleted: true });
+    await archiveCourse(id, result.session.user.id, result.session.user.role);
+    return success({ archived: true });
   } catch (err) {
     return handleServiceError(err);
   }
 }
-
