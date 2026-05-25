@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, Clock, Trophy } from "lucide-react";
+import { Check, Clock, Info, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getPublishPolicy } from "./publish-policy";
 import { WizardCard } from "./wizard-card";
 import { WizardReviewBlock } from "./wizard-review-block";
 import { TASK_TYPE_META, type TaskType } from "./wizard-types";
@@ -73,6 +74,9 @@ interface ReviewProps {
   allowAttachment: boolean;
   maxAttachments: string;
   draftSourceLabel?: string;
+  // task-publish-gate: 关联草稿的状态/ID — ready（AI 已生成、未批准）时显示软提醒
+  draftStatus?: string | null;
+  draftId?: string | null;
 }
 
 export function WizardStepReview(props: ReviewProps) {
@@ -83,17 +87,47 @@ export function WizardStepReview(props: ReviewProps) {
     totalPoints,
     timeLimitMinutes,
     draftSourceLabel,
+    draftStatus,
+    draftId,
   } = props;
   const meta = TASK_TYPE_META[taskType];
+  // AI 审稿软提醒：仅 ready 草稿显示，非阻塞、不影响发布。
+  const { showReviewReminder } = getPublishPolicy(draftStatus ?? null);
 
   return (
     <WizardCard
       title="预览并创建"
-      subtitle='确认下方信息无误。点击"创建任务"后，会保存为草稿（尚未发布）。'
+      subtitle='确认下方信息无误。点击"创建并发布"后立即发布给班级。'
     >
       {draftSourceLabel && (
         <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-900">
           {draftSourceLabel}
+        </div>
+      )}
+
+      {/* task-publish-gate: AI 草稿软提醒（非阻塞 info banner，不拦截发布） */}
+      {showReviewReminder && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] leading-relaxed text-amber-900">
+          <Info className="mt-px size-4 shrink-0 text-amber-500" />
+          <div className="flex-1">
+            <span className="font-semibold">建议核对 AI 生成的题目</span>
+            <span>
+              ：本任务由 AI 协助生成，发布前可先核对题目与评分是否准确。你也可以直接创建并发布。
+            </span>
+            {draftId && (
+              <>
+                {" "}
+                <a
+                  href={`/teacher/tasks/drafts/${draftId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-800"
+                >
+                  去审核
+                </a>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -160,7 +194,7 @@ export function WizardStepReview(props: ReviewProps) {
           <div>
             <div className="text-sm font-semibold text-ink">准备就绪</div>
             <p className="m-0 mt-0.5 text-[11.5px] text-ink-3">
-              点击底部「创建任务」保存为草稿；发布给班级需要在任务列表中另行操作。
+              点击底部「创建并发布」立即发布给班级，学生即可看到。
             </p>
           </div>
         </div>
