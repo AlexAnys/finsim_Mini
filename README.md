@@ -3,7 +3,7 @@
 
   <h1>finsim · 灵析</h1>
 
-  <p><strong>面向中职财经专业的智能教学平台</strong></p>
+  <p><strong>面向职业院校财经专业的智能教学平台</strong></p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/协议-AGPL--3.0-blue.svg" alt="协议 AGPL-3.0" /></a>
