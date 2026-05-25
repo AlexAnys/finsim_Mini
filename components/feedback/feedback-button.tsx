@@ -81,10 +81,10 @@ export function FeedbackButton() {
   // 仅登录用户可见（登录 / 注册页未登录 → 不渲染，R6 边界）
   if (status !== "authenticated") return null;
 
-  // 全屏 sim 页（(simulation)/sim/[id]）右下角是「提交给客户」提交钮、底部居中是「发送」+
-  // 对话输入框、顶栏右侧是重来/结束对话——默认右下定位会与「提交给客户」碰撞（AC4）。
-  // sim 也是「任意界面」，学生在 sim 里遇 bug 是高价值反馈，保留按钮 → 在 sim 页把 FAB
-  // 挪到**左下角**（实测该区仅左栏情景说明 inert 内容，无任何 sim 交互控件）。
+  // 全屏 sim 页（(simulation)/sim/[id]）右下=「提交给客户」提交钮、中下=「发送」+对话输入框、
+  // 顶栏右=重来/结束对话——默认右下定位会与「提交给客户」碰撞（AC4）。sim 也是「任意界面」，
+  // 学生在 sim 里遇 bug 是高价值反馈，保留按钮 → 在 sim 页把 FAB 挪到**右上角(顶栏下方)**：
+  // 实测 1440×900 + 1280×800 双视口该区无任何 sim 交互控件、亦不撞底部控件/Next dev 指示器。
   const isSimPage = pathname?.startsWith("/sim/") ?? false;
 
   function reset() {
@@ -150,9 +150,9 @@ export function FeedbackButton() {
         onClick={() => setOpen(true)}
         aria-label="反馈"
         className={cn(
-          "fixed bottom-5 z-40 size-12 rounded-full p-0 shadow-lg shadow-black/15",
-          // sim 页挪左下避开右下「提交给客户」；其余页右下角默认
-          isSimPage ? "left-5" : "right-5",
+          "fixed right-5 z-40 size-12 rounded-full p-0 shadow-lg shadow-black/15",
+          // sim 页移到顶栏下方右上(避开右下「提交给客户」+ 底部「发送」+ Next dev 指示器)；其余页右下角默认
+          isSimPage ? "top-16" : "bottom-5",
         )}
       >
         <MessageSquarePlus className="size-5" />
