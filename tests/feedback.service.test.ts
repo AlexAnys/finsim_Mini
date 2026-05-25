@@ -18,7 +18,9 @@ import {
   listFeedback,
   updateFeedbackStatus,
   FEEDBACK_RATE_WINDOW_MS,
+  FEEDBACK_SCREENSHOT_MAX_CHARS as SERVICE_SHOT_MAX,
 } from "@/lib/services/feedback.service";
+import { FEEDBACK_SCREENSHOT_MAX_CHARS as SHARED_SHOT_MAX } from "@/lib/feedback/constants";
 
 const asMock = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
 
@@ -155,5 +157,38 @@ describe("listFeedback", () => {
     const findArg = asMock(prisma.feedback.findMany).mock.calls[0][0];
     expect(findArg.where.status).toBe("new");
     expect(findArg.where.type).toBe("feature");
+  });
+});
+
+describe("AC5 截图大小契约（单一真源 + 服务端防御不抛错）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asMock(prisma.feedback.count).mockResolvedValue(0);
+    asMock(prisma.feedback.create).mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: "fb-1", status: "new", createdAt: new Date(), ...data }),
+    );
+  });
+
+  it("截图上限单一真源：service re-export === 共享 constants", () => {
+    expect(SERVICE_SHOT_MAX).toBe(SHARED_SHOT_MAX);
+  });
+
+  it("绕过 Zod 直调 service 传超大截图：丢图传 null 而非抛错（防御线，其余照常落库）", async () => {
+    const oversize = "data:image/jpeg;base64," + "A".repeat(SHARED_SHOT_MAX + 1000);
+    const result = await createFeedback({ ...baseInput, screenshot: oversize }, author);
+    // 不抛错，提交成功
+    expect(result.id).toBe("fb-1");
+    const createArg = asMock(prisma.feedback.create).mock.calls[0][0];
+    // 超大截图被丢成 null，但其余字段照常落库
+    expect(createArg.data.screenshot).toBeNull();
+    expect(createArg.data.content).toBe(baseInput.content);
+    expect(createArg.data.pageUrl).toBe(baseInput.pageUrl);
+  });
+
+  it("恰好等于上限的截图保留（边界）", async () => {
+    const atLimit = "x".repeat(SHARED_SHOT_MAX);
+    await createFeedback({ ...baseInput, screenshot: atLimit }, author);
+    const createArg = asMock(prisma.feedback.create).mock.calls[0][0];
+    expect(createArg.data.screenshot).toBe(atLimit);
   });
 });

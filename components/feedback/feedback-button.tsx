@@ -16,11 +16,25 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { getRecentErrors, clearErrors } from "@/lib/feedback/error-buffer";
+import { FEEDBACK_SCREENSHOT_MAX_CHARS } from "@/lib/feedback/constants";
 
 type FeedbackType = "issue" | "feature";
 
-/** 客户端截图：动态加载 html2canvas（懒加载分包，不拖首屏），降采样 + JPEG 压缩。失败返回 null（优雅降级）。 */
-async function captureScreenshot(): Promise<string | null> {
+type ShotReason = "ok" | "too_large" | "failed";
+interface ShotResult {
+  dataUrl: string | null;
+  reason: ShotReason;
+}
+
+/**
+ * 客户端截图：动态加载 html2canvas（懒加载分包，不拖首屏），降采样 + JPEG 压缩。
+ *
+ * 契约（AC5 + R2）：**客户端保证产出 ≤ FEEDBACK_SCREENSHOT_MAX_CHARS**。
+ * - 首轮 q0.6；若超限再降到 q0.4 重试一次（多救回一些大页面）。
+ * - 仍超限 → 返回 too_large（丢图，传 null）；采集异常 → failed。
+ * 两种「无截图」情况都不阻断提交——其余字段照常走成功路径。
+ */
+async function captureScreenshot(): Promise<ShotResult> {
   try {
     const { default: html2canvas } = await import("html2canvas");
     const canvas = await html2canvas(document.body, {
@@ -30,12 +44,17 @@ async function captureScreenshot(): Promise<string | null> {
       windowWidth: document.documentElement.clientWidth,
       windowHeight: document.documentElement.clientHeight,
     });
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.6); // JPEG 质量 0.6
-    // 体积兜底：超过 ~650KB 直接放弃（服务端上限 700KB），不卡死
-    if (dataUrl.length > 650_000) return null;
-    return dataUrl;
+    let dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+    if (dataUrl.length > FEEDBACK_SCREENSHOT_MAX_CHARS) {
+      // 二次压缩：更低质量再试一次
+      dataUrl = canvas.toDataURL("image/jpeg", 0.4);
+    }
+    if (dataUrl.length > FEEDBACK_SCREENSHOT_MAX_CHARS) {
+      return { dataUrl: null, reason: "too_large" };
+    }
+    return { dataUrl, reason: "ok" };
   } catch {
-    return null;
+    return { dataUrl: null, reason: "failed" };
   }
 }
 
@@ -45,7 +64,7 @@ export function FeedbackButton() {
   const [type, setType] = useState<FeedbackType>("issue");
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [shotOk, setShotOk] = useState<boolean | null>(null);
+  const [shotReason, setShotReason] = useState<ShotReason | null>(null);
 
   // 仅登录用户可见（登录 / 注册页未登录 → 不渲染，R6 边界）
   if (status !== "authenticated") return null;
@@ -53,7 +72,7 @@ export function FeedbackButton() {
   function reset() {
     setType("issue");
     setContent("");
-    setShotOk(null);
+    setShotReason(null);
   }
 
   async function handleSubmit() {
@@ -63,10 +82,11 @@ export function FeedbackButton() {
       return;
     }
     setSubmitting(true);
-    setShotOk(null);
+    setShotReason(null);
     try {
-      const screenshot = await captureScreenshot();
-      setShotOk(screenshot != null);
+      // 截图：客户端保证 ≤ 上限；过大/失败 → 传 null，其余字段照常提交（AC5）
+      const shot = await captureScreenshot();
+      setShotReason(shot.reason);
 
       const recentErrors = getRecentErrors();
       const res = await fetch("/api/feedback", {
@@ -76,7 +96,7 @@ export function FeedbackButton() {
           type,
           content: text,
           pageUrl: window.location.href,
-          screenshot,
+          screenshot: shot.dataUrl,
           recentErrors: recentErrors.length > 0 ? recentErrors : undefined,
           viewport: `${window.innerWidth}x${window.innerHeight}`,
           userAgent: navigator.userAgent,
@@ -87,7 +107,14 @@ export function FeedbackButton() {
         toast.error(json?.error?.message ?? "提交失败，请稍后重试");
         return;
       }
-      toast.success("感谢反馈！我们已收到，会尽快处理");
+      // 成功：截图被省略时给一句轻提示，但提交本身已成功
+      if (shot.reason === "too_large") {
+        toast.success("感谢反馈！截图过大已省略，其余信息已提交");
+      } else if (shot.reason === "failed") {
+        toast.success("感谢反馈！截图未能生成，其余信息已提交");
+      } else {
+        toast.success("感谢反馈！我们已收到，会尽快处理");
+      }
       clearErrors();
       reset();
       setOpen(false);
@@ -148,7 +175,11 @@ export function FeedbackButton() {
             />
 
             <p className="flex items-center gap-1.5 text-[11.5px] text-ink-4">
-              {shotOk === false ? (
+              {shotReason === "too_large" ? (
+                <>
+                  <CameraOff className="size-3.5" /> 截图过大已省略，其余信息照常提交
+                </>
+              ) : shotReason === "failed" ? (
                 <>
                   <CameraOff className="size-3.5" /> 截图未能生成，其余信息照常提交
                 </>

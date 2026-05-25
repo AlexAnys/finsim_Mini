@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import type { Feedback, FeedbackStatus, FeedbackType, Role } from "@prisma/client";
+import { FEEDBACK_SCREENSHOT_MAX_CHARS } from "@/lib/feedback/constants";
 
 /**
  * 用户反馈服务（报告问题 / 想要功能）。
@@ -9,15 +10,16 @@ import type { Feedback, FeedbackStatus, FeedbackType, Role } from "@prisma/clien
  *
  * 设计取舍：
  * - 限频用 DB count（按 userId + 时间窗），而非内存 Map —— 可测、跨实例稳健。
- * - 截图入库前做服务端体积兜底（R2 防 DB 膨胀）：超限则丢弃截图但不阻断提交（优雅降级）。
+ * - 截图大小契约：**客户端保证 ≤ 上限**，route 层 Zod 以同一上限作硬防线。本层
+ *   仅做最后防御性归一化（空串/缺省 → null；超大值已被 Zod 拦在门外，正常不可达）。
  */
 
 /** 限频窗口：每个用户 60 秒内最多提交 FEEDBACK_RATE_LIMIT 条。 */
 export const FEEDBACK_RATE_WINDOW_MS = 60_000;
 export const FEEDBACK_RATE_LIMIT = 5;
 
-/** 截图 base64 dataURL 服务端体积上限（约 700KB 字符串），超限丢弃不报错。 */
-export const FEEDBACK_SCREENSHOT_MAX_CHARS = 700_000;
+// 截图上限单一真源在 lib/feedback/constants（客户端 + Zod + 本层共用）；re-export 保持既有 import 不破。
+export { FEEDBACK_SCREENSHOT_MAX_CHARS };
 
 type Author = { id: string; role: string };
 
@@ -55,7 +57,8 @@ export async function createFeedback(
     throw new Error("FEEDBACK_RATE_LIMITED");
   }
 
-  // 截图体积兜底：客户端已降采样，这里仅防异常超大值撑爆 DB（优雅降级，不报错）。
+  // 截图归一化：空串/缺省 → null。大小由上游（客户端降采样 + route 层 Zod max）强制，
+  // 此处 <= 上限判断是最后防御线（正常客户端不可达），保留以防绕过 route 直调 service。
   const screenshot =
     typeof input.screenshot === "string" &&
     input.screenshot.length > 0 &&
