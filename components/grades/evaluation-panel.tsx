@@ -7,10 +7,12 @@
 // - PR-15 bug 6a: rubric criterionId 改用 row.scoringCriteria 的 name 映射 (CUID → 中文)
 // - PR-15 bug 6b: 新增 transcript 时间轴气泡 (simulation only, isReleased)
 // - PR-15 bug 6c: 移动端响应式 (px / 分数 flex 方向)
+// - S1 (P1): 迟交扣分归因行 — applied=true 时显示「原始 X → 迟交扣分 −Y(Z%) → 最终 W」
 
-import { AlertCircle, Check, Clock3, FileText, HelpCircle, MessageSquare, X } from "lucide-react";
+import { AlertCircle, Check, Clock3, FileText, HelpCircle, MessageSquare, TimerOff, X } from "lucide-react";
 import type { GradeRow, GradesTaskType } from "@/lib/utils/grades-transforms";
 import { computePercent, scoreTone } from "@/lib/utils/grades-transforms";
+import { buildLatePenaltyDisplay, type LatePenalty } from "@/lib/utils/late-penalty";
 
 interface EvaluationPanelProps {
   row: GradeRow | null;
@@ -37,6 +39,8 @@ interface EvaluationShape {
   feedback?: string;
   rubricBreakdown?: RubricEntry[];
   quizBreakdown?: QuizEntry[];
+  // S1 (P1): 迟交扣分明细（grading.service 写入；applied=false / 缺失 → 不展示）
+  latePenalty?: LatePenalty;
   // Unit 8: adaptive 模式的薄弱知识点报告
   adaptiveMasteryReport?: {
     totalQuestions: number;
@@ -134,6 +138,8 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
   const quizBreak = isReleased ? evaluation?.quizBreakdown ?? null : null;
   const masteryReport = isReleased ? evaluation?.adaptiveMasteryReport ?? null : null;
   const feedback = isReleased ? evaluation?.feedback : undefined;
+  // S1 (P1): 迟交扣分明细 — 仅 isReleased 且 applied=true 时展示（解释维度之和 ≠ 最终分）
+  const latePenalty = isReleased ? buildLatePenaltyDisplay(evaluation) : null;
   // PR-15 bug 6a: criterion id → name 映射（任务发布时刻的 ScoringCriterion.name）
   // 缺失则 fallback 回原始 id 字串（防 schema 漂移）
   const criterionNameMap = new Map<string, string>();
@@ -213,6 +219,32 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
           <div className="mt-3.5 flex items-center gap-2 rounded-lg border border-warn/20 bg-warn-soft px-3.5 py-3 text-[12.5px] text-warn">
             <Clock3 className="size-3.5" aria-hidden="true" />
             <span>AI 分析中 · 一般 2-5 分钟内完成，刷新即可看到最新进度。</span>
+          </div>
+        )}
+
+        {/* S1 (P1): 迟交扣分归因 — 解释「维度之和（原始分）」与「最终分」的差额来源 */}
+        {isReleased && latePenalty && (
+          <div className="mt-3 rounded-lg border border-warn/30 bg-warn-soft/60 px-3.5 py-2.5 text-[12px] text-ink-3">
+            <div className="mb-1 flex items-center gap-1.5 font-semibold text-warn">
+              <TimerOff className="size-3.5" aria-hidden="true" />
+              {latePenalty.label}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 tabular-nums">
+              <span>
+                原始得分 <b className="text-ink">{latePenalty.originalScore}</b>
+              </span>
+              <span className="text-ink-5">→</span>
+              <span className="text-danger">
+                迟交扣分 −{latePenalty.penaltyAmount}（{latePenalty.ratePercent}%）
+              </span>
+              <span className="text-ink-5">→</span>
+              <span>
+                最终得分 <b className="text-ink">{latePenalty.adjustedScore}</b>
+              </span>
+            </div>
+            <div className="mt-1 text-[10.5px] leading-relaxed text-ink-5">
+              下方各维度明细为扣分前原始分，其合计 = 原始得分；最终得分已扣减迟交罚分。
+            </div>
           </div>
         )}
       </div>

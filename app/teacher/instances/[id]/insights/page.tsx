@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import { ObjectiveHealthPanel, type ObjectiveStats } from "@/components/instance-detail/objective-health-panel";
 
 // --- Types ---
 
@@ -133,6 +134,9 @@ export default function InsightsPage() {
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidence, setEvidence] = useState<EvidenceData | null>(null);
 
+  // S4a: 客观体检面板数据（独立薄 route，不耦合臃肿的 insights route）
+  const [objectiveStats, setObjectiveStats] = useState<ObjectiveStats | null>(null);
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch(`/api/lms/task-instances/${instanceId}/insights`);
@@ -142,6 +146,15 @@ export default function InsightsPage() {
         return;
       }
       setData(json.data);
+
+      // 并行取客观体检（独立薄 route；失败不阻塞主洞察渲染）
+      try {
+        const objRes = await fetch(`/api/lms/task-instances/${instanceId}/objective-stats`);
+        const objJson = await objRes.json();
+        if (objJson.success) setObjectiveStats(objJson.data);
+      } catch {
+        // 客观面板降级：忽略，主页面照常
+      }
     } catch {
       setError("网络错误，请稍后重试");
     } finally {
@@ -554,6 +567,9 @@ export default function InsightsPage() {
           </Card>
         </>
       )}
+
+      {/* S4a: 班级客观体检面板（simulation-only；非 sim 任务组件内部返回 null）*/}
+      {objectiveStats && <ObjectiveHealthPanel stats={objectiveStats} />}
 
       {/* Evidence Drawer */}
       <Sheet open={evidenceOpen} onOpenChange={setEvidenceOpen}>
