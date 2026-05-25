@@ -45,7 +45,10 @@ beforeEach(() => {
 });
 
 describe("POST /api/auth/register — teacher branch admin-key handling", () => {
-  it("returns 503 + friendly Chinese (not 500) when ADMIN_KEY is weak/missing", async () => {
+  it("returns 503 + friendly Chinese (not 500) when ADMIN_KEY is blacklisted (ADMIN_KEY_WEAK)", async () => {
+    // After the 2026-05-25 owner change, ADMIN_KEY_WEAK is only thrown for a
+    // blacklisted dev key (no more <16 minimum). The route maps the thrown
+    // config error to a 503 regardless of its cause — this guards that mapping.
     mk(resolveAdminKey).mockImplementation(() => {
       throw new Error("ADMIN_KEY_WEAK");
     });

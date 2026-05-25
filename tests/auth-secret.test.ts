@@ -93,13 +93,24 @@ describe("resolveAdminKey", () => {
     );
   });
 
-  it("rejects default admin key in production", () => {
+  it("rejects default (blacklisted) admin key in production", () => {
     expect(() =>
       resolveAdminKey({
         NODE_ENV: "production",
         ADMIN_KEY: "finsim-teacher-key",
       }),
     ).toThrow("ADMIN_KEY_WEAK");
+  });
+
+  // owner 需求变更 (2026-05-25)：取消生产 16 位下限。短且非黑名单的 key
+  // 在生产下应被接受、原样返回（不抛 ADMIN_KEY_WEAK）。
+  it("accepts a short non-blacklisted admin key in production (no 16-char minimum)", () => {
+    expect(
+      resolveAdminKey({
+        NODE_ENV: "production",
+        ADMIN_KEY: "shortkey1234", // 12 位通用短串，非真实口令、非黑名单
+      }),
+    ).toBe("shortkey1234");
   });
 });
 

@@ -65,7 +65,9 @@ export function resolveAdminKey(
     if (isProduction(env)) throw new Error("ADMIN_KEY_REQUIRED");
     return undefined;
   }
-  if (isProduction(env) && (key.length < 16 || DEV_ADMIN_KEYS.has(key))) {
+  // owner 决定 (2026-05-25)：取消生产 16 位下限，以管理员设置的口令为准。
+  // 仍挡 DEV_ADMIN_KEYS 默认烂 key（admin / secret / changeme / finsim-teacher-key）。
+  if (isProduction(env) && DEV_ADMIN_KEYS.has(key)) {
     throw new Error("ADMIN_KEY_WEAK");
   }
   return key;
