@@ -22,6 +22,20 @@ export async function assertCourseAccess(
 }
 
 /**
+ * F4（写路径守卫，P2）：断言课程未归档。向已归档（软删除）课程新建实例 / 发布任务 /
+ * AI 起草应被拒——应先在回收站恢复。与角色无关（即便 admin 也应先恢复再写）。
+ * 抛 COURSE_NOT_FOUND / COURSE_ARCHIVED（由 handleServiceError 映射）。
+ */
+export async function assertCourseNotArchived(courseId: string): Promise<void> {
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, deletedAt: true },
+  });
+  if (!course) throw new Error("COURSE_NOT_FOUND");
+  if (course.deletedAt !== null) throw new Error("COURSE_ARCHIVED");
+}
+
+/**
  * 断言学生可查看该课程：必须通过 CourseClass 关联到学生班级。
  * 抛 COURSE_NOT_FOUND / FORBIDDEN（由 handleServiceError 映射到 HTTP）。
  *
@@ -36,10 +50,13 @@ export async function assertCourseAccessForStudent(
     where: { id: courseId },
     select: {
       id: true,
+      deletedAt: true,
       classes: { select: { classId: true } },
     },
   });
   if (!course) throw new Error("COURSE_NOT_FOUND");
+  // F1：已归档（软删除）课程对学生不可访问（teacher/owner 分支保持开放以便恢复）。
+  if (course.deletedAt !== null) throw new Error("FORBIDDEN");
   const match = course.classes.some((cc) => cc.classId === classId);
   if (!match) throw new Error("FORBIDDEN");
 }

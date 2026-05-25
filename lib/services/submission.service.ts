@@ -189,6 +189,15 @@ export async function getSubmissions(filters: {
     ...(filters.studentId && { studentId: filters.studentId }),
     ...(filters.taskId && { taskId: filters.taskId }),
     ...(filters.status && { status: filters.status as "submitted" | "grading" | "graded" | "failed" }),
+    // U3-F2：已归档课程的提交从列表消失（兑现 D2：学生 /grades 不见已归档课程成绩）。
+    // 保留 taskInstanceId=null 的独立提交可见。按显式 taskInstanceId 查询时不加此闸 ——
+    // 该路径已有实例访问守卫，且 owner/教师需访问特定实例提交（Bucket 4/5）。
+    ...(!filters.taskInstanceId && {
+      OR: [
+        { taskInstanceId: null },
+        { taskInstance: { course: { deletedAt: null } } },
+      ],
+    }),
   };
 
   const [items, total] = await Promise.all([

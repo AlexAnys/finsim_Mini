@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { assertCourseAccess } from "@/lib/auth/course-access";
+import { assertCourseAccess, assertCourseNotArchived } from "@/lib/auth/course-access";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { prisma } from "@/lib/db/prisma";
 import {
@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
     }
 
     await assertCourseAccess(data.instance.courseId, user.id, user.role);
+    // F4：向已归档课程发布任务应被拒（先恢复）
+    await assertCourseNotArchived(data.instance.courseId);
     const course = await prisma.course.findUnique({
       where: { id: data.instance.courseId },
       select: {

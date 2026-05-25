@@ -226,6 +226,11 @@ export async function getTaskInstances(filters: {
       ...(filters.courseId && { courseId: filters.courseId }),
       ...(filters.classId && { classId: filters.classId }),
       ...(filters.status && { status: filters.status as "draft" | "published" | "closed" | "archived" }),
+      // U3：已归档课程的实例从列表消失（保留 standalone courseId=null）。显式按 courseId
+      // 查询时不加此闸 —— 直链访问特定课程（含 owner 恢复用）保持可访问（Bucket 5）。
+      ...(!filters.courseId && {
+        AND: [{ OR: [{ courseId: null }, { course: { deletedAt: null } }] }],
+      }),
       ...(filters.createdBy && {
         OR: [
           { createdBy: filters.createdBy },

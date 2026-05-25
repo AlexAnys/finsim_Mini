@@ -1,20 +1,36 @@
 import { describe, it, expect } from "vitest";
-import { teacherCourseFilter, courseClassFilter } from "@/lib/services/course.service";
+import {
+  teacherCourseFilter,
+  teacherCourseScope,
+  courseClassFilter,
+} from "@/lib/services/course.service";
 
-describe("courseClassFilter", () => {
-  it("matches courses linked via CourseClass M:N (Course.classId 已弃用)", () => {
-    const filter = courseClassFilter("class-X");
-    expect(filter).toEqual({
-      classes: { some: { classId: "class-X" } },
+describe("teacherCourseScope", () => {
+  it("matches courses the teacher created or collaborates on (无 deletedAt 过滤，供回收站用)", () => {
+    const scope = teacherCourseScope("teacher-1");
+    expect(scope).toEqual({
+      OR: [{ createdBy: "teacher-1" }, { teachers: { some: { teacherId: "teacher-1" } } }],
     });
   });
 });
 
 describe("teacherCourseFilter", () => {
-  it("matches courses the teacher created or collaborates on", () => {
+  it("scope + deletedAt:null（U3-F3：已归档课程从老师面消失）", () => {
     const filter = teacherCourseFilter("teacher-1");
     expect(filter).toEqual({
-      OR: [{ createdBy: "teacher-1" }, { teachers: { some: { teacherId: "teacher-1" } } }],
+      AND: [
+        { OR: [{ createdBy: "teacher-1" }, { teachers: { some: { teacherId: "teacher-1" } } }] },
+        { deletedAt: null },
+      ],
+    });
+  });
+});
+
+describe("courseClassFilter", () => {
+  it("CourseClass M:N 匹配 + deletedAt:null（U3-F3：已归档课程从学生面消失）", () => {
+    const filter = courseClassFilter("class-X");
+    expect(filter).toEqual({
+      AND: [{ classes: { some: { classId: "class-X" } } }, { deletedAt: null }],
     });
   });
 });

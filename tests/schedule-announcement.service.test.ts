@@ -20,7 +20,7 @@ describe("getScheduleSlots with classId", () => {
 
     const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
-      classes: { some: { classId: "class-secondary" } },
+      AND: [{ classes: { some: { classId: "class-secondary" } } }, { deletedAt: null }],
     });
   });
 
@@ -42,8 +42,8 @@ describe("getScheduleSlots with classId", () => {
     const call = (prisma.scheduleSlot.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
       AND: [
-        { classes: { some: { classId: "class-x" } } },
-        { OR: [{ createdBy: "t-2" }, { teachers: { some: { teacherId: "t-2" } } }] },
+        { AND: [{ classes: { some: { classId: "class-x" } } }, { deletedAt: null }] },
+        { AND: [{ OR: [{ createdBy: "t-2" }, { teachers: { some: { teacherId: "t-2" } } }] }, { deletedAt: null }] },
       ],
     });
   });
@@ -66,7 +66,7 @@ describe("getAnnouncements with classId", () => {
 
     const call = (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
-      classes: { some: { classId: "class-secondary" } },
+      AND: [{ classes: { some: { classId: "class-secondary" } } }, { deletedAt: null }],
     });
   });
 
@@ -76,7 +76,7 @@ describe("getAnnouncements with classId", () => {
 
     const call = (prisma.announcement.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.where.course).toEqual({
-      OR: [{ createdBy: "t-5" }, { teachers: { some: { teacherId: "t-5" } } }],
+      AND: [{ OR: [{ createdBy: "t-5" }, { teachers: { some: { teacherId: "t-5" } } }] }, { deletedAt: null }],
     });
   });
 

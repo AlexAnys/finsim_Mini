@@ -17,7 +17,8 @@ export async function getTeacherDashboard(teacherId: string) {
     prisma.taskInstance.findMany({
       where: {
         OR: [
-          { createdBy: teacherId },
+          // standalone（courseId=null）或非归档课程的、本人创建的实例（归档课程的实例消失）
+          { createdBy: teacherId, OR: [{ courseId: null }, { course: { deletedAt: null } }] },
           { course: teacherCourseFilter(teacherId) },
         ],
       },
@@ -36,7 +37,14 @@ export async function getTeacherDashboard(teacherId: string) {
     prisma.submission.findMany({
       where: {
         OR: [
-          { task: { creatorId: teacherId } },
+          // 本人任务的提交，但排除其实例属于已归档课程（保留无实例/standalone 提交）
+          {
+            task: { creatorId: teacherId },
+            OR: [
+              { taskInstanceId: null },
+              { taskInstance: { OR: [{ courseId: null }, { course: { deletedAt: null } }] } },
+            ],
+          },
           { taskInstance: { course: teacherCourseFilter(teacherId) } },
         ],
       },
@@ -74,7 +82,13 @@ export async function getTeacherDashboard(teacherId: string) {
   // 聚合统计（并行执行）
   const submissionFilter = {
     OR: [
-      { task: { creatorId: teacherId } },
+      {
+        task: { creatorId: teacherId },
+        OR: [
+          { taskInstanceId: null },
+          { taskInstance: { OR: [{ courseId: null }, { course: { deletedAt: null } }] } },
+        ],
+      },
       { taskInstance: { course: teacherCourseFilter(teacherId) } },
     ],
   };
@@ -184,7 +198,12 @@ export async function getStudentDashboard(studentId: string, classId: string) {
     }),
     // Unit 3: 包含已发布 + 已关闭的本班任务实例。closed 状态稍后过滤为"我有 submission"
     prisma.taskInstance.findMany({
-      where: { classId, status: { in: ["published", "closed"] } },
+      where: {
+        classId,
+        status: { in: ["published", "closed"] },
+        // 已归档课程的任务对学生消失（保留 standalone courseId=null）
+        OR: [{ courseId: null }, { course: { deletedAt: null } }],
+      },
       include: {
         task: { select: { id: true, taskName: true, taskType: true } },
         course: { select: { id: true, courseTitle: true } },
