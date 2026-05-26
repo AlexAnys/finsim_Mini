@@ -80,6 +80,8 @@ export function handleServiceError(err: unknown) {
         return notFound("课程不存在");
       case "CLASS_NOT_FOUND":
         return notFound("班级不存在");
+      case "CLASS_NAME_EXISTS":
+        return error("CLASS_NAME_EXISTS", "班级名称已存在", 409);
       case "USER_NOT_FOUND":
         return notFound("用户不存在");
       case "CHAPTER_NOT_FOUND":
