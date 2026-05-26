@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // "Encountered unexpected file in NFT list" 失败）。声明为 external 后 Next.js
   // 在 server bundle 时直接 require()，跳过追踪。所有这些库都只在 server 上跑
   // (document-ingestion.service.ts)，无 client 侧使用，所以 external 安全。
-  serverExternalPackages: ["bcryptjs", "pdf-parse", "pdfjs-dist", "mammoth", "jszip", "xlsx"],
+  serverExternalPackages: ["bcryptjs", "pdf-parse", "pdfjs-dist", "mammoth", "jszip", "xlsx", "word-extractor"],
 };
 
 export default nextConfig;

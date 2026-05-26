@@ -1863,7 +1863,7 @@ export default function TeacherCourseDetailPage() {
               <Input
                 id="outlineFile"
                 type="file"
-                accept=".pdf,.docx,.txt,.md,.zip,.png,.jpg,.jpeg,.xlsx,.xls,.csv"
+                accept=".pdf,.doc,.docx,.txt,.md,.zip,.png,.jpg,.jpeg,.xlsx,.xls,.csv"
                 onChange={(event) => setOutlineFile(event.target.files?.[0] ?? null)}
               />
               <p className="mt-2 text-xs text-muted-foreground">

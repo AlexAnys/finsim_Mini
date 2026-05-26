@@ -1,5 +1,6 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
+import WordExtractor from "word-extractor";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import { execFile } from "child_process";
@@ -8,7 +9,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 
-export type IngestedDocumentKind = "pdf" | "docx" | "text" | "zip" | "image" | "spreadsheet";
+export type IngestedDocumentKind = "pdf" | "doc" | "docx" | "text" | "zip" | "image" | "spreadsheet";
 export type IngestedDocumentStatus = "ready" | "ocr_required" | "failed";
 
 export interface IngestedDocumentFile {
@@ -53,6 +54,7 @@ export async function extractDocumentText(input: ExtractDocumentInput): Promise<
   try {
     if (kind === "pdf") text = await extractPdfText(input.buffer);
     if (kind === "docx") text = await extractDocxText(input.buffer);
+    if (kind === "doc") text = await extractDocText(input.buffer);
     if (kind === "spreadsheet") text = extractSpreadsheetText(input.buffer, input.fileName);
     if (kind === "text") text = extractPlainText(input.buffer);
     if (kind === "image") {
@@ -144,6 +146,11 @@ export function detectDocumentKind(fileName: string, mimeType?: string | null): 
   ) {
     return "docx";
   }
+  // 旧版 .doc (OLE2)：mime application/msword 或 .doc 扩展名。
+  // 注意 endsWith(".doc") 对 "x.docx" 为 false，docx 已在上面优先返回，不会误伤。
+  if (type === "application/msword" || lower.endsWith(".doc")) {
+    return "doc";
+  }
   if (
     type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
     type === "application/vnd.ms-excel" ||
@@ -155,6 +162,14 @@ export function detectDocumentKind(fileName: string, mimeType?: string | null): 
   if (type === "application/zip" || type === "application/x-zip-compressed" || lower.endsWith(".zip")) return "zip";
   if (type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(lower)) return "image";
   return "text";
+}
+
+// DB 枚举 KnowledgeSourceKind 无 "doc" 值（pdf/docx/text/zip/image/spreadsheet）。
+// .doc 在库里按 "docx" 归类存储（仅用于素材列表的类型标签展示，纯 cosmetic）；
+// 解析时一律按 fileName/mime 重新 detect，不依赖此存储值，故 .doc 仍走 word-extractor。
+export type KnowledgeSourceKindValue = "pdf" | "docx" | "text" | "zip" | "image" | "spreadsheet";
+export function toKnowledgeSourceKind(kind: IngestedDocumentKind): KnowledgeSourceKindValue {
+  return kind === "doc" ? "docx" : kind;
 }
 
 async function extractPdfText(buffer: Buffer) {
@@ -170,6 +185,18 @@ async function extractPdfText(buffer: Buffer) {
 async function extractDocxText(buffer: Buffer) {
   const result = await mammoth.extractRawText({ buffer });
   return result.value;
+}
+
+// 旧版 .doc (OLE2) 正文提取：word-extractor 纯 JS 解析，吃 Buffer，取 getBody() 文本。
+// 解析失败（损坏/非 OLE2）抛中文错误，由 extractDocumentText 的 catch 收敛为 failed（不崩、前端拿中文提示）。
+async function extractDocText(buffer: Buffer) {
+  try {
+    const extractor = new WordExtractor();
+    const doc = await extractor.extract(buffer);
+    return doc.getBody();
+  } catch {
+    throw new Error("无法解析该 .doc 文件，可能已损坏或不是有效的旧版 Word 文档，请改用 .docx 重新上传");
+  }
 }
 
 function extractPlainText(buffer: Buffer) {
@@ -324,6 +351,7 @@ function pageNumber(fileName: string) {
 function mimeForKind(kind: IngestedDocumentKind) {
   if (kind === "pdf") return "application/pdf";
   if (kind === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (kind === "doc") return "application/msword";
   if (kind === "spreadsheet") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (kind === "zip") return "application/zip";
   if (kind === "image") return "image/png";

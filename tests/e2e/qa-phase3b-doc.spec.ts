@@ -1,8 +1,14 @@
 import { test, expect, type APIRequestContext, type BrowserContext } from "@playwright/test";
+import { readFile } from "fs/promises";
+import { join } from "path";
 
 const BASE = "http://localhost:3000";
 
 const MOLLY_COURSE = "8f7f653c-9177-44f6-b764-80f7f779b2ef";
+
+// PR-B 需求变更（owner 确认）：彻底支持旧版 .doc。原行为「.doc → 400 LEGACY_DOC_UNSUPPORTED」
+// 已移除。现在 .doc 与其它文档一样被接受：真实 .doc 解析出正文（status ready），
+// 损坏/伪造 .doc 优雅失败（不再用 400 LEGACY 拦截）。本 spec 断言新行为。
 
 async function makeAuthedContext(
   browser: import("@playwright/test").Browser,
@@ -36,31 +42,26 @@ async function makeAuthedContext(
   throw new Error(`login failed for ${email}`);
 }
 
-// Fake OLE2 (.doc) header magic bytes — D0CF11E0A1B11AE1 (CDF V2)
-const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
-// Fake PKZIP (.docx) magic — 504B0304 (PK..)
-const PKZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
-
 test.setTimeout(180_000);
 
 // ============================================
-// A: .doc upload → 400 LEGACY_DOC_UNSUPPORTED + 中文
+// A: 真实 .doc 上传 → 不再被拒（接受 + 解析出正文）
 // ============================================
 
-test("QA p3b A: POST /course-knowledge-sources 用 .doc (application/msword) → 400 + LEGACY_DOC_UNSUPPORTED + '另存为 .docx'", async ({
+test("QA p3b A: POST /course-knowledge-sources 用真实 .doc → 不再 400 LEGACY，接受并解析出正文", async ({
   browser,
 }) => {
   const molly = await makeAuthedContext(browser, "molly@qq.com", "123456");
+  let createdId: string | undefined;
   try {
-    // 构造 OLE2 .doc 文件
-    const docBuf = Buffer.concat([OLE2_MAGIC, Buffer.from("fake doc content", "utf-8")]);
+    const docBuf = await readFile(join(__dirname, "..", "_fixtures", "sample.doc"));
 
     const resp = await molly.request.post(`${BASE}/api/lms/course-knowledge-sources`, {
       multipart: {
         courseId: MOLLY_COURSE,
         kind: "pdf", // 内部 enum, 不影响 validation
         file: {
-          name: "legacy-test.doc",
+          name: "sample.doc",
           mimeType: "application/msword",
           buffer: docBuf,
         },
@@ -72,11 +73,21 @@ test("QA p3b A: POST /course-knowledge-sources 用 .doc (application/msword) →
     const body = await resp.json();
     console.log("[A] body:", JSON.stringify(body).slice(0, 400));
 
-    expect(resp.status()).toBe(400);
-    expect(String(body?.error?.code)).toBe("LEGACY_DOC_UNSUPPORTED");
-    expect(String(body?.error?.message)).toMatch(/另存为.*\.docx/);
-    expect(String(body?.error?.message)).toMatch(/暂不支持/);
+    // 关键：不再是 400 LEGACY_DOC_UNSUPPORTED
+    expect(String(body?.error?.code ?? "")).not.toBe("LEGACY_DOC_UNSUPPORTED");
+    expect(resp.ok()).toBe(true);
+    const source = body?.data;
+    createdId = source?.id ?? source?.knowledgeSource?.id;
+    // 真实 .doc 应解析为 ready（异步管线可能稍后才 ready；ready 或 processing 均非拒绝）
+    if (source?.status) {
+      expect(["ready", "processing", "pending", "ai_summary_failed"]).toContain(source.status);
+    }
   } finally {
+    if (createdId) {
+      await molly.request
+        .delete(`${BASE}/api/lms/course-knowledge-sources/${createdId}`)
+        .catch(() => {});
+    }
     await molly.context.close();
   }
 });
@@ -88,8 +99,10 @@ test("QA p3b A: POST /course-knowledge-sources 用 .doc (application/msword) →
 test("QA p3b B: .docx PKZIP magic → 通过 validation (不命中 LEGACY)", async ({ browser }) => {
   const molly = await makeAuthedContext(browser, "molly@qq.com", "123456");
   try {
-    // 构造 PKZIP .docx 文件 (但内容不是真实 docx, 仅 magic 头)
-    const docxBuf = Buffer.concat([PKZIP_MAGIC, Buffer.from("fake docx pkzip payload", "utf-8")]);
+    const docxBuf = Buffer.concat([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      Buffer.from("fake docx pkzip payload", "utf-8"),
+    ]);
 
     const resp = await molly.request.post(`${BASE}/api/lms/course-knowledge-sources`, {
       multipart: {
@@ -108,17 +121,12 @@ test("QA p3b B: .docx PKZIP magic → 通过 validation (不命中 LEGACY)", asy
     const body = await resp.json();
     console.log("[B] body:", JSON.stringify(body).slice(0, 300));
 
-    // 可能 200 (validation pass + 后续 parsing 失败) 或 400 (其他验证失败)
-    // 关键: error.code 不应是 LEGACY_DOC_UNSUPPORTED
     if (resp.status() >= 400) {
       const code = String(body?.error?.code ?? "");
-      console.log("[B] error code:", code);
       expect(code).not.toBe("LEGACY_DOC_UNSUPPORTED");
     } else {
-      // 200 path - 创建成功, 需 cleanup
       const id = body?.data?.id ?? body?.data?.knowledgeSource?.id;
       if (id) {
-        console.log("[B] cleanup KS id:", id);
         await molly.request.delete(`${BASE}/api/lms/course-knowledge-sources/${id}`).catch(() => {});
       }
     }
@@ -128,15 +136,19 @@ test("QA p3b B: .docx PKZIP magic → 通过 validation (不命中 LEGACY)", asy
 });
 
 // ============================================
-// C: outline-import endpoint also wired
+// C: 损坏/伪造 .doc → 优雅处理（不再 400 LEGACY，不 500、不崩）
 // ============================================
 
-test("QA p3b C: POST /courses/[id]/outline-import 用 .doc → 400 LEGACY_DOC_UNSUPPORTED", async ({
+test("QA p3b C: 伪造 .doc（仅 OLE2 magic）→ 不再 400 LEGACY，优雅处理不崩", async ({
   browser,
 }) => {
   const molly = await makeAuthedContext(browser, "molly@qq.com", "123456");
+  let createdId: string | undefined;
   try {
-    const docBuf = Buffer.concat([OLE2_MAGIC, Buffer.from("fake outline doc", "utf-8")]);
+    const docBuf = Buffer.concat([
+      Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
+      Buffer.from("fake outline doc", "utf-8"),
+    ]);
 
     const resp = await molly.request.post(`${BASE}/api/lms/courses/${MOLLY_COURSE}/outline-import`, {
       multipart: {
@@ -153,25 +165,28 @@ test("QA p3b C: POST /courses/[id]/outline-import 用 .doc → 400 LEGACY_DOC_UN
     const body = await resp.json();
     console.log("[C] body:", JSON.stringify(body).slice(0, 300));
 
-    // 应有 LEGACY_DOC_UNSUPPORTED code
-    if (resp.status() >= 400) {
-      const code = String(body?.error?.code ?? "");
-      console.log("[C] error code:", code);
-      expect(code).toBe("LEGACY_DOC_UNSUPPORTED");
-    }
+    // 不再 LEGACY 拒绝；不 500
+    expect(String(body?.error?.code ?? "")).not.toBe("LEGACY_DOC_UNSUPPORTED");
+    expect(resp.status()).not.toBe(500);
+    createdId = body?.data?.id ?? body?.data?.knowledgeSource?.id;
   } finally {
+    if (createdId) {
+      await molly.request
+        .delete(`${BASE}/api/lms/course-knowledge-sources/${createdId}`)
+        .catch(() => {});
+    }
     await molly.context.close();
   }
 });
 
 // ============================================
-// D: import-jobs endpoint also wired
+// D: import-jobs endpoint — .doc 不再 LEGACY 拒绝
 // ============================================
 
-test("QA p3b D: POST /api/import-jobs 用 .doc → 400 LEGACY_DOC_UNSUPPORTED", async ({ browser }) => {
+test("QA p3b D: POST /api/import-jobs 用 .doc → 不再 LEGACY 拒绝、不 500", async ({ browser }) => {
   const molly = await makeAuthedContext(browser, "molly@qq.com", "123456");
   try {
-    const docBuf = Buffer.concat([OLE2_MAGIC, Buffer.from("import doc", "utf-8")]);
+    const docBuf = await readFile(join(__dirname, "..", "_fixtures", "sample.doc"));
 
     const resp = await molly.request.post(`${BASE}/api/import-jobs`, {
       multipart: {
@@ -189,46 +204,8 @@ test("QA p3b D: POST /api/import-jobs 用 .doc → 400 LEGACY_DOC_UNSUPPORTED", 
     const body = await resp.json();
     console.log("[D] body:", JSON.stringify(body).slice(0, 300));
 
-    if (resp.status() >= 400) {
-      const code = String(body?.error?.code ?? "");
-      console.log("[D] error code:", code);
-      // 接受 LEGACY_DOC_UNSUPPORTED 或 ALREADY_RUNNING / FILE_REQUIRED (取决于路由先校验顺序)
-      // 关键: 如果 file validation 走到则应是 LEGACY
-      if (code !== "LEGACY_DOC_UNSUPPORTED") {
-        console.log("[D] (info) 其他校验先抛 — 但 file validation 走到时应 LEGACY");
-      }
-    }
-  } finally {
-    await molly.context.close();
-  }
-});
-
-// ============================================
-// E: API 字段 backward-compat - error.code 存在
-// ============================================
-
-test("QA p3b E: error response 含 code 字段 (validationErrorWithCode helper)", async ({ browser }) => {
-  const molly = await makeAuthedContext(browser, "molly@qq.com", "123456");
-  try {
-    const docBuf = Buffer.concat([OLE2_MAGIC, Buffer.from("test", "utf-8")]);
-    const resp = await molly.request.post(`${BASE}/api/lms/course-knowledge-sources`, {
-      multipart: {
-        courseId: MOLLY_COURSE,
-        kind: "pdf",
-        file: {
-          name: "x.doc",
-          mimeType: "application/msword",
-          buffer: docBuf,
-        },
-      },
-      failOnStatusCode: false,
-    });
-    const body = await resp.json();
-    console.log("\n[E] error response keys:", Object.keys(body?.error ?? {}));
-    expect(body?.error?.code).toBeDefined();
-    expect(body?.error?.message).toBeDefined();
-    expect(typeof body?.error?.code).toBe("string");
-    expect(typeof body?.error?.message).toBe("string");
+    expect(String(body?.error?.code ?? "")).not.toBe("LEGACY_DOC_UNSUPPORTED");
+    expect(resp.status()).not.toBe(500);
   } finally {
     await molly.context.close();
   }

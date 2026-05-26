@@ -243,7 +243,7 @@ export function KnowledgeSourceAssistant({
           <Input
             ref={inputRef}
             type="file"
-            accept="application/pdf,.pdf,.docx,.xlsx,.xls,.csv,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
+            accept="application/pdf,.pdf,.doc,.docx,application/msword,.xlsx,.xls,.csv,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
             className="mt-2 text-xs"
             disabled={uploading || generating}
             onChange={(event) => handleUpload(event.target.files?.[0] || null)}
