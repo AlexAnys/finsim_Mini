@@ -1,16 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: {
-    feedback: {
-      count: vi.fn(),
-      create: vi.fn(),
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
-  },
-}));
+vi.mock("@/lib/db/prisma", () => {
+  const feedback = {
+    count: vi.fn(),
+    create: vi.fn(),
+    findMany: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  };
+  const prisma = {
+    feedback,
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    // AC13：$transaction(cb) 用 tx 跑 cb；tx 复用同一组 feedback mock + $executeRaw(advisory lock no-op)
+    $transaction: vi.fn((cb: (tx: unknown) => unknown) =>
+      cb({ feedback, $queryRaw: prisma.$queryRaw, $executeRaw: prisma.$executeRaw }),
+    ),
+  };
+  return { prisma };
+});
 
 import { prisma } from "@/lib/db/prisma";
 import {
@@ -18,9 +26,10 @@ import {
   listFeedback,
   updateFeedbackStatus,
   FEEDBACK_RATE_WINDOW_MS,
+  FEEDBACK_RATE_LIMIT,
   FEEDBACK_SCREENSHOT_MAX_CHARS as SERVICE_SHOT_MAX,
 } from "@/lib/services/feedback.service";
-import { FEEDBACK_SCREENSHOT_MAX_CHARS as SHARED_SHOT_MAX } from "@/lib/feedback/constants";
+import { FEEDBACK_SCREENSHOT_MAX_CHARS as SHARED_SHOT_MAX, FEEDBACK_SCREENSHOT_DOS_LIMIT } from "@/lib/feedback/constants";
 
 const asMock = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
 
@@ -190,5 +199,60 @@ describe("AC5 截图大小契约（单一真源 + 服务端防御不抛错）", 
     await createFeedback({ ...baseInput, screenshot: atLimit }, author);
     const createArg = asMock(prisma.feedback.create).mock.calls[0][0];
     expect(createArg.data.screenshot).toBe(atLimit);
+  });
+});
+
+describe("AC12 截图永不丢反馈（store-limit 与 DoS-limit 分离）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asMock(prisma.feedback.count).mockResolvedValue(0);
+    asMock(prisma.feedback.create).mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: "fb-1", status: "new", createdAt: new Date(), ...data }),
+    );
+  });
+
+  it("DoS-limit 远大于 store-limit（分离）", () => {
+    expect(FEEDBACK_SCREENSHOT_DOS_LIMIT).toBeGreaterThan(SHARED_SHOT_MAX);
+  });
+
+  it("介于 store-limit 与 DoS-limit 之间的截图：丢图 null 但反馈照常落库（service LIVE 兜底）", async () => {
+    const mid = "x".repeat(SHARED_SHOT_MAX + 500_000); // > store-limit, < DoS-limit
+    expect(mid.length).toBeLessThan(FEEDBACK_SCREENSHOT_DOS_LIMIT);
+    const result = await createFeedback({ ...baseInput, screenshot: mid }, author);
+    expect(result.id).toBe("fb-1"); // 反馈落库（非抛错/拒绝）
+    const createArg = asMock(prisma.feedback.create).mock.calls[0][0];
+    expect(createArg.data.screenshot).toBeNull(); // 截图被丢
+    expect(createArg.data.content).toBe(baseInput.content); // 其余字段在
+  });
+});
+
+describe("AC13 限频原子化（事务 + per-user advisory 锁）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    asMock(prisma.feedback.create).mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: "fb-1", status: "new", createdAt: new Date(), ...data }),
+    );
+  });
+
+  it("count + create 跑在 $transaction 内 + 先取 advisory 事务锁", async () => {
+    asMock(prisma.feedback.count).mockResolvedValue(0);
+    await createFeedback(baseInput, author);
+    // 用了事务
+    expect(asMock(prisma.$transaction)).toHaveBeenCalledTimes(1);
+    // 取了 advisory 锁（pg_advisory_xact_lock，用 $executeRaw 因其返回 void）
+    const lockCall = asMock(prisma.$executeRaw).mock.calls[0];
+    expect(lockCall).toBeTruthy();
+    const sqlParts = lockCall[0]; // tagged template strings array
+    expect(Array.isArray(sqlParts) ? sqlParts.join("?") : String(sqlParts)).toContain("pg_advisory_xact_lock");
+    // 锁的入参是 author.id（advisory key 按 user 隔离）
+    expect(lockCall.slice(1)).toContain(author.id);
+  });
+
+  it("达到上限：在事务内拒绝且不 create", async () => {
+    asMock(prisma.feedback.count).mockResolvedValue(FEEDBACK_RATE_LIMIT);
+    await expect(createFeedback(baseInput, author)).rejects.toThrow("FEEDBACK_RATE_LIMITED");
+    expect(prisma.feedback.create).not.toHaveBeenCalled();
+    // 仍进了事务（锁 + count 在 tx 内）才拒
+    expect(asMock(prisma.$transaction)).toHaveBeenCalledTimes(1);
   });
 });

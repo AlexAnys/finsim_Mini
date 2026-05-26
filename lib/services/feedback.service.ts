@@ -9,9 +9,12 @@ import { FEEDBACK_SCREENSHOT_MAX_CHARS } from "@/lib/feedback/constants";
  * - listFeedback / updateFeedbackStatus：仅供管理员收件箱（auth 在 route 层）。
  *
  * 设计取舍：
- * - 限频用 DB count（按 userId + 时间窗），而非内存 Map —— 可测、跨实例稳健。
- * - 截图大小契约：**客户端保证 ≤ 上限**，route 层 Zod 以同一上限作硬防线。本层
- *   仅做最后防御性归一化（空串/缺省 → null；超大值已被 Zod 拦在门外，正常不可达）。
+ * - 限频（AC6 + AC13 原子化）：count + create 包在事务里，事务起手取 **per-user Postgres
+ *   advisory 事务锁**（pg_advisory_xact_lock）串行化同一用户的并发提交 —— 消除 count-then-create
+ *   的 TOCTOU 竞态，并发也不会突破 FEEDBACK_RATE_LIMIT。锁随事务结束自动释放。
+ * - 截图大小（AC5 + AC12）：store-limit 与 DoS-limit 分离。**反馈永不因截图大小丢失** ——
+ *   超 store-limit 由本层丢图传 null 但反馈照常落库（LIVE 兜底，非死代码）；route Zod 只用
+ *   宽松 DoS 上限拦绝对畸形 payload。
  */
 
 /** 限频窗口：每个用户 60 秒内最多提交 FEEDBACK_RATE_LIMIT 条。 */
@@ -50,16 +53,8 @@ export async function createFeedback(
     throw new Error("FEEDBACK_CONTENT_EMPTY");
   }
 
-  const windowStart = new Date(Date.now() - FEEDBACK_RATE_WINDOW_MS);
-  const recentCount = await prisma.feedback.count({
-    where: { userId: author.id, createdAt: { gte: windowStart } },
-  });
-  if (recentCount >= FEEDBACK_RATE_LIMIT) {
-    throw new Error("FEEDBACK_RATE_LIMITED");
-  }
-
-  // 截图归一化：空串/缺省 → null。大小由上游（客户端降采样 + route 层 Zod max）强制，
-  // 此处 <= 上限判断是最后防御线（正常客户端不可达），保留以防绕过 route 直调 service。
+  // AC12 LIVE 兜底：截图超 store-limit → 丢图传 null，但反馈照常落库（绝不因截图大小拒反馈）。
+  // 空串/缺省也归一为 null。> store-limit 且 <= DoS-limit 的截图走到这里被丢（route Zod 已放行）。
   const screenshot =
     typeof input.screenshot === "string" &&
     input.screenshot.length > 0 &&
@@ -67,23 +62,37 @@ export async function createFeedback(
       ? input.screenshot
       : null;
 
-  return prisma.feedback.create({
-    data: {
-      userId: author.id,
-      userRole: author.role as Role,
-      type: input.type,
-      content,
-      pageUrl: input.pageUrl,
-      screenshot,
-      recentErrors:
-        input.recentErrors === undefined
-          ? undefined
-          : (input.recentErrors as never),
-      context:
-        input.context === undefined ? undefined : (input.context as never),
-      viewport: input.viewport ?? null,
-      userAgent: input.userAgent ?? null,
-    },
+  const windowStart = new Date(Date.now() - FEEDBACK_RATE_WINDOW_MS);
+
+  // AC13 原子限频：事务 + per-user advisory 事务锁串行化同一用户的 count→create，
+  // 消除 TOCTOU（并发提交不会都读到 count<limit 后各自插入而突破上限）。锁随 tx 结束释放。
+  return prisma.$transaction(async (tx) => {
+    // 用 $executeRaw（非 $queryRaw）：pg_advisory_xact_lock 返回 void，$queryRaw 反序列化 void 报错。
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${author.id}, 0))`;
+    const recentCount = await tx.feedback.count({
+      where: { userId: author.id, createdAt: { gte: windowStart } },
+    });
+    if (recentCount >= FEEDBACK_RATE_LIMIT) {
+      throw new Error("FEEDBACK_RATE_LIMITED");
+    }
+    return tx.feedback.create({
+      data: {
+        userId: author.id,
+        userRole: author.role as Role,
+        type: input.type,
+        content,
+        pageUrl: input.pageUrl,
+        screenshot,
+        recentErrors:
+          input.recentErrors === undefined
+            ? undefined
+            : (input.recentErrors as never),
+        context:
+          input.context === undefined ? undefined : (input.context as never),
+        viewport: input.viewport ?? null,
+        userAgent: input.userAgent ?? null,
+      },
+    });
   });
 }
 
