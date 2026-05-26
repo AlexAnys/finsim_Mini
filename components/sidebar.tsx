@@ -17,6 +17,7 @@ import {
   Search,
   SlidersHorizontal,
   ShieldAlert,
+  Inbox,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ const teacherNav: NavItem[] = [
 
 const adminExtraNav: NavItem[] = [
   { label: "审计中心", href: "/admin/audit", icon: ShieldAlert },
+  { label: "反馈收件箱", href: "/admin/feedback", icon: Inbox },
 ];
 
 function getNavItems(role: UserRole | undefined): NavItem[] {
