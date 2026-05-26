@@ -34,7 +34,27 @@ export async function POST(request: NextRequest) {
 
     // 教师注册验证 adminKey
     if (role === "teacher") {
-      const configuredAdminKey = resolveAdminKey();
+      let configuredAdminKey: string | undefined;
+      try {
+        configuredAdminKey = resolveAdminKey();
+      } catch (err) {
+        // 配置类错误（生产缺失 / 弱 ADMIN_KEY）：返回明确中文 + 503，
+        // 而非吓人的 500。安全校验本身不放宽，仅改"如何呈现"。
+        const code = err instanceof Error ? err.message : "";
+        if (code === "ADMIN_KEY_REQUIRED" || code === "ADMIN_KEY_WEAK") {
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                code: "TEACHER_REGISTRATION_UNCONFIGURED",
+                message: "教师注册暂未正确配置，请联系管理员",
+              },
+            },
+            { status: 503 }
+          );
+        }
+        throw err; // 其它未知异常仍走原有 500 通道
+      }
       if (!configuredAdminKey || !adminKey || adminKey.trim() !== configuredAdminKey) {
         return NextResponse.json(
           {
