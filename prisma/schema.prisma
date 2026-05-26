@@ -1083,6 +1083,7 @@ model Feedback {
   pageUrl      String         @db.VarChar(2000)
   screenshot   String?        @db.Text // base64 dataURL，客户端降采样后；可空（采集失败降级）
   recentErrors Json? // 页面近期 console / 网络错误数组
+  context      Json? // r3 AC10/11: 定位上下文(源码路径/路由ID/弹窗+步骤/页面标题/点选元素)
   viewport     String?        @db.VarChar(40) // 如 "1440x900"
   userAgent    String?        @db.Text
   status       FeedbackStatus @default(new)

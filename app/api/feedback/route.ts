@@ -11,6 +11,23 @@ const recentErrorSchema = z.object({
   at: z.string().max(40).optional(),
 });
 
+// r3 AC10/11 定位上下文：结构化、各串限长（生产构建下抓文字/aria/testid，绑定 payload 体积）。
+const capturedElementSchema = z.object({
+  text: z.string().max(120).optional(),
+  ariaLabel: z.string().max(200).optional(),
+  testId: z.string().max(120).optional(),
+  role: z.string().max(60).optional(),
+  domPath: z.string().max(600),
+  rect: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
+});
+const feedbackContextSchema = z.object({
+  sourcePath: z.string().max(300).optional(),
+  routeIds: z.record(z.string().max(40), z.string().max(120)).optional(),
+  dialog: z.object({ title: z.string().max(160), step: z.string().max(60).optional() }).nullable().optional(),
+  pageTitle: z.string().max(300).optional(),
+  element: capturedElementSchema.nullable().optional(),
+});
+
 const createFeedbackSchema = z.object({
   type: z.enum(["issue", "feature"]),
   content: z.string().min(1, "请填写反馈内容").max(5000),
@@ -19,6 +36,7 @@ const createFeedbackSchema = z.object({
   // max 是硬防线：正常客户端已保证 ≤ 上限，此处仅拦异常/恶意超大 payload（守 R2 DB 膨胀）。
   screenshot: z.string().max(FEEDBACK_SCREENSHOT_MAX_CHARS).optional().nullable(),
   recentErrors: z.array(recentErrorSchema).max(20).optional(),
+  context: feedbackContextSchema.optional(),
   viewport: z.string().max(40).optional().nullable(),
   userAgent: z.string().max(1000).optional().nullable(),
 });

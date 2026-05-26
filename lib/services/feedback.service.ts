@@ -29,6 +29,7 @@ export interface CreateFeedbackInput {
   pageUrl: string;
   screenshot?: string | null;
   recentErrors?: unknown;
+  context?: unknown; // r3 AC10/11 定位上下文
   viewport?: string | null;
   userAgent?: string | null;
 }
@@ -78,6 +79,8 @@ export async function createFeedback(
         input.recentErrors === undefined
           ? undefined
           : (input.recentErrors as never),
+      context:
+        input.context === undefined ? undefined : (input.context as never),
       viewport: input.viewport ?? null,
       userAgent: input.userAgent ?? null,
     },
@@ -93,6 +96,7 @@ export interface FeedbackListItem {
   pageUrl: string;
   screenshot: string | null;
   recentErrors: unknown;
+  context: unknown;
   viewport: string | null;
   userAgent: string | null;
   status: FeedbackStatus;
@@ -136,6 +140,7 @@ export async function listFeedback(
       pageUrl: r.pageUrl,
       screenshot: r.screenshot ?? null,
       recentErrors: r.recentErrors ?? null,
+      context: r.context ?? null,
       viewport: r.viewport ?? null,
       userAgent: r.userAgent ?? null,
       status: r.status,

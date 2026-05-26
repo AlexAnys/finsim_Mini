@@ -13,6 +13,22 @@ interface CapturedError {
   at?: string;
 }
 
+interface CapturedElement {
+  text?: string;
+  ariaLabel?: string;
+  testId?: string;
+  role?: string;
+  domPath?: string;
+}
+
+interface FeedbackContextData {
+  sourcePath?: string;
+  routeIds?: Record<string, string>;
+  dialog?: { title: string; step?: string } | null;
+  pageTitle?: string;
+  element?: CapturedElement | null;
+}
+
 interface FeedbackRow {
   id: string;
   userId: string;
@@ -22,6 +38,7 @@ interface FeedbackRow {
   pageUrl: string;
   screenshot: string | null;
   recentErrors: CapturedError[] | null;
+  context: FeedbackContextData | null;
   viewport: string | null;
   userAgent: string | null;
   status: "new" | "handled";
@@ -193,6 +210,47 @@ export default function AdminFeedbackPage() {
                       ))}
                     </ul>
                   </details>
+                )}
+
+                {r.context && (r.context.sourcePath || r.context.routeIds || r.context.dialog || r.context.pageTitle || r.context.element) && (
+                  <div className="space-y-1 rounded-md border border-brand/25 bg-brand-soft/40 p-2 text-[11px]">
+                    <div className="font-semibold text-brand">定位上下文</div>
+                    {r.context.sourcePath && (
+                      <div className="break-all text-ink-3">
+                        <span className="text-ink-5">源码：</span>
+                        <code className="rounded bg-paper px-1 py-0.5 text-[10.5px]">{r.context.sourcePath}</code>
+                      </div>
+                    )}
+                    {r.context.routeIds && Object.keys(r.context.routeIds).length > 0 && (
+                      <div className="break-all text-ink-3">
+                        <span className="text-ink-5">路由 ID：</span>
+                        {Object.entries(r.context.routeIds).map(([k, v]) => `${k}=${v}`).join(" · ")}
+                      </div>
+                    )}
+                    {r.context.dialog && (
+                      <div className="break-all text-ink-3">
+                        <span className="text-ink-5">弹窗：</span>
+                        {r.context.dialog.title}
+                        {r.context.dialog.step ? ` · ${r.context.dialog.step}` : ""}
+                      </div>
+                    )}
+                    {r.context.pageTitle && (
+                      <div className="truncate text-ink-3">
+                        <span className="text-ink-5">页面：</span>
+                        {r.context.pageTitle}
+                      </div>
+                    )}
+                    {r.context.element && (
+                      <div className="break-all text-ink-3">
+                        <span className="text-ink-5">点选元素：</span>
+                        {r.context.element.text || r.context.element.ariaLabel || "（无文字）"}
+                        {r.context.element.testId ? ` [testid=${r.context.element.testId}]` : ""}
+                        {r.context.element.domPath ? (
+                          <span className="mt-0.5 block text-[10px] text-ink-5">{r.context.element.domPath}</span>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {r.screenshot && (
