@@ -100,9 +100,17 @@ export function extractRouteIds(pathname: string): Record<string, string> | unde
 export function detectOpenDialog(): { title: string; step?: string } | null {
   if (typeof document === "undefined") return null;
   try {
-    const dialogs = Array.from(
+    // 优先 data-state=open 的 dialog；若无（radix 在「点 FAB=对话框外交互」时会立刻把底层 modal
+    // 翻成 data-state=closed 但仍挂在 DOM/可见），回退匹配任何仍挂载的 [role=dialog] —— 这样在
+    // 向导里点反馈钮时仍能取到底层向导名（AC10③）。无任何 dialog 才返回 null。
+    let dialogs = Array.from(
       document.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"], [data-slot="dialog-content"][data-state="open"]'),
     );
+    if (dialogs.length === 0) {
+      dialogs = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="dialog"], [data-slot="dialog-content"]'),
+      );
+    }
     if (dialogs.length === 0) return null;
     const top = dialogs[dialogs.length - 1]; // 最后挂载的视为最上层
 

@@ -92,7 +92,13 @@ export function FeedbackButton() {
   const [type, setType] = useState<FeedbackType>("issue");
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [shotReason, setShotReason] = useState<ShotReason | null>(null);
+  // AC8：在「点反馈钮的那一刻、打开反馈弹窗之前」就抓好截图 + 上下文 —— 因为反馈弹窗(radix
+  // modal)一打开会卸载底层 modal/向导，导致截图丢向导、detectOpenDialog 只剩"反馈一下"自指。
+  // 故在 handleOpen() 先抓存，提交时直接用（无点选元素时）。
+  const [capturedShot, setCapturedShot] = useState<ShotResult | null>(null);
+  const [capturedCtx, setCapturedCtx] = useState<FeedbackContext | null>(null);
   // AC11：点选元素模式 + 已选元素 + 实际 DOM 引用（截图高亮用，不进 state 序列化）
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<CapturedElement | null>(null);
@@ -140,6 +146,25 @@ export function FeedbackButton() {
     setShotReason(null);
     setPicked(null);
     setPickedEl(null);
+    setCapturedShot(null);
+    setCapturedCtx(null);
+  }
+
+  // AC8/AC10③：点反馈钮 → 先抓含底层弹窗的截图 + 上下文(此刻底层向导仍在 DOM)，再开反馈弹窗。
+  async function handleOpen() {
+    setOpening(true);
+    try {
+      const ctx = collectFeedbackContext(pathname ?? window.location.pathname);
+      const shot = await captureScreenshot(); // 此刻底层 modal 未被卸载 → 截图含向导
+      setCapturedCtx(ctx);
+      setCapturedShot(shot);
+    } catch {
+      setCapturedCtx(null);
+      setCapturedShot(null);
+    } finally {
+      setOpening(false);
+      setOpen(true);
+    }
   }
 
   function startPicking() {
@@ -156,13 +181,17 @@ export function FeedbackButton() {
     setSubmitting(true);
     setShotReason(null);
     try {
-      // 截图：客户端保证 ≤ 上限；过大/失败 → 传 null，其余字段照常提交（AC5）。
-      // AC8：含当前弹窗一并入图；AC11：高亮已选元素。
-      const shot = await captureScreenshot(pickedEl);
+      // 截图（AC5 客户端保证 ≤ 上限；过大/失败 → null 其余照常提交）：
+      // - 有点选元素(AC11)：此刻重抓 + 高亮该元素（用户聚焦的是元素，重抓含高亮）。
+      // - 无点选：用 handleOpen() 预抓的截图（含底层弹窗，AC8）；预抓缺失则兜底现抓。
+      const shot = picked
+        ? await captureScreenshot(pickedEl)
+        : capturedShot ?? (await captureScreenshot());
       setShotReason(shot.reason);
 
-      // AC10 自动上下文 + AC11 点选元素合并
-      const ctx: FeedbackContext = collectFeedbackContext(pathname ?? window.location.pathname);
+      // AC10 上下文：用 handleOpen() 预抓的（含底层向导名，AC10③）；缺失兜底现抓。
+      const ctx: FeedbackContext =
+        capturedCtx ?? collectFeedbackContext(pathname ?? window.location.pathname);
       if (picked) ctx.element = picked;
 
       const recentErrors = getRecentErrors();
@@ -209,7 +238,8 @@ export function FeedbackButton() {
       {!open && !picking && (
         <Button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => void handleOpen()}
+          disabled={opening}
           aria-label="反馈"
           title="反馈：报告问题或提建议"
           className={cn(
@@ -219,7 +249,7 @@ export function FeedbackButton() {
             isSimPage ? "top-16" : "bottom-5",
           )}
         >
-          <MessageSquarePlus className="size-[18px]" />
+          {opening ? <Loader2 className="size-[18px] animate-spin" /> : <MessageSquarePlus className="size-[18px]" />}
           <span className="text-sm font-semibold">反馈</span>
         </Button>
       )}
