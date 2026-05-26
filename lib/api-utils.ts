@@ -225,6 +225,12 @@ export function handleServiceError(err: unknown) {
           "该任务已有已批改的提交，直接修改可能影响分数解读。请确认后继续，或复制为新任务再修改。",
           400,
         );
+      case "FEEDBACK_CONTENT_EMPTY":
+        return error("FEEDBACK_CONTENT_EMPTY", "请填写反馈内容", 400);
+      case "FEEDBACK_RATE_LIMITED":
+        return error("FEEDBACK_RATE_LIMITED", "反馈提交过于频繁，请稍后再试", 429);
+      case "FEEDBACK_NOT_FOUND":
+        return notFound("反馈不存在");
       case "RATE_LIMIT_EXCEEDED":
         return NextResponse.json(
           { success: false, error: { code: "RATE_LIMIT", message: "请求频率超限，请稍后再试" } },
