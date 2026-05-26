@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 interface LmsClass {
   id: string;
   name: string;
+  academicYear?: string | null;
   _count: { students: number };
 }
 
@@ -60,6 +61,11 @@ export default function TeacherGroupsPage() {
   const [draftMemberIds, setDraftMemberIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+
+  const [createClassOpen, setCreateClassOpen] = useState(false);
+  const [classNameDraft, setClassNameDraft] = useState("");
+  const [classYearDraft, setClassYearDraft] = useState("");
+  const [creatingClass, setCreatingClass] = useState(false);
 
   const fetchClasses = useCallback(async () => {
     const res = await fetch("/api/lms/classes");
@@ -141,6 +147,12 @@ export default function TeacherGroupsPage() {
     setDraftName("");
     setDraftMemberIds(new Set());
     setCreateOpen(true);
+  }
+
+  function openCreateClass() {
+    setClassNameDraft("");
+    setClassYearDraft("");
+    setCreateClassOpen(true);
   }
 
   function openEdit(group: StudentGroup) {
@@ -284,6 +296,45 @@ export default function TeacherGroupsPage() {
     }
   }
 
+  async function saveCreateClass() {
+    const name = classNameDraft.trim();
+    if (!name) {
+      toast.error("请输入班级名称");
+      return;
+    }
+    setCreatingClass(true);
+    try {
+      const res = await fetch("/api/lms/classes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          academicYear: classYearDraft.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error?.message || "新建班级失败");
+        return;
+      }
+      toast.success("班级已创建");
+      setCreateClassOpen(false);
+      setClassNameDraft("");
+      setClassYearDraft("");
+      const newId: string | undefined = json.data?.id;
+      await fetchClasses();
+      if (newId) {
+        setSelectedClassId(newId);
+        setGroupFilter(ALL_GROUPS);
+        setSearch("");
+      }
+    } catch {
+      toast.error("新建班级失败");
+    } finally {
+      setCreatingClass(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[360px] items-center justify-center text-ink-4">
@@ -319,7 +370,13 @@ export default function TeacherGroupsPage() {
       <div className="grid gap-4 xl:grid-cols-[280px_1fr_1.2fr]">
         <Card className="border-line bg-surface shadow-fs">
           <CardHeader>
-            <CardTitle className="text-base">班级概览</CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-base">班级概览</CardTitle>
+              <Button size="sm" variant="outline" onClick={openCreateClass}>
+                <Plus className="mr-1 size-4" />
+                新建班级
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2">
             {classes.map((cls) => {
@@ -503,6 +560,42 @@ export default function TeacherGroupsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={createClassOpen} onOpenChange={setCreateClassOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>新建班级</DialogTitle>
+            <DialogDescription>创建后将立即出现在左侧班级列表，可直接选用。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>班级名称 <span className="text-danger">*</span></Label>
+              <Input
+                value={classNameDraft}
+                onChange={(event) => setClassNameDraft(event.target.value)}
+                placeholder="例如：2024 级金融 1 班"
+                maxLength={100}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>学年（选填）</Label>
+              <Input
+                value={classYearDraft}
+                onChange={(event) => setClassYearDraft(event.target.value)}
+                placeholder="例如：2024-2025"
+                maxLength={20}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateClassOpen(false)}>取消</Button>
+            <Button onClick={saveCreateClass} disabled={creatingClass || !classNameDraft.trim()}>
+              {creatingClass && <Loader2 className="mr-2 size-4 animate-spin" />}
+              创建
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <GroupDialog
         open={createOpen}
