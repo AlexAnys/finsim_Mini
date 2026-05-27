@@ -128,6 +128,7 @@ vi.mock("@/lib/services/document-ingestion.service", () => ({
     error: null,
   }),
   isReadableExtractedText: vi.fn().mockReturnValue(true),
+  toKnowledgeSourceKind: (k: string) => (k === "doc" ? "docx" : k),
 }));
 
 vi.mock("fs/promises", () => ({

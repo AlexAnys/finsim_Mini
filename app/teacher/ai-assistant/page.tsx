@@ -368,7 +368,7 @@ export default function AIAssistantPage() {
                   ref={fileRef}
                   type="file"
                   multiple
-                  accept="application/pdf,.pdf,.docx,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
+                  accept="application/pdf,.pdf,.doc,.docx,application/msword,text/plain,text/markdown,.txt,.md,.zip,image/png,image/jpeg,image/webp"
                   className="w-full max-w-[360px] bg-surface text-xs"
                   disabled={submitting || processing}
                   onChange={(event) => setFiles(Array.from(event.target.files || []))}

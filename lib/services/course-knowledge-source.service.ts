@@ -19,7 +19,7 @@ import {
   detectDocumentKind,
   extractDocumentText,
   isReadableExtractedText,
-  type IngestedDocumentKind,
+  toKnowledgeSourceKind,
 } from "@/lib/services/document-ingestion.service";
 
 export { isReadableExtractedText };
@@ -317,7 +317,7 @@ export async function createAndProcessCourseKnowledgeSource(input: {
       sectionId: input.sectionId || null,
       taskId: input.taskId || null,
       taskInstanceId: input.taskInstanceId || null,
-      kind: detectDocumentKind(input.fileName, input.mimeType),
+      kind: toKnowledgeSourceKind(detectDocumentKind(input.fileName, input.mimeType)),
       sourceType: input.sourceType || null,
       tags: sanitizeTags(input.tags),
       fileName: input.fileName,
@@ -408,7 +408,7 @@ export async function processCourseKnowledgeSource(sourceId: string, userId: str
     await prisma.courseKnowledgeSource.update({
       where: { id: sourceId },
       data: {
-        kind: extracted.kind as IngestedDocumentKind,
+        kind: toKnowledgeSourceKind(extracted.kind),
         status:
           extracted.status === "ready"
             ? "processing"

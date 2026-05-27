@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { extractDocumentText } from "@/lib/services/document-ingestion.service";
+import { readFile } from "fs/promises";
+import { join } from "path";
+import {
+  extractDocumentText,
+  detectDocumentKind,
+} from "@/lib/services/document-ingestion.service";
 
 const originalEnv = process.env;
 
@@ -64,5 +69,53 @@ describe("document ingestion OCR provider selection", () => {
     expect(result.status).toBe("ocr_required");
     expect(result.error).toContain("QWEN_API_KEY");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// PR-B：旧版 .doc (OLE2) 全量支持 —— word-extractor 纯 JS 解析正文。
+describe("document ingestion — 旧版 .doc 解析", () => {
+  it("detectDocumentKind：application/msword 或 .doc 扩展名 → \"doc\"，不误伤 .docx", () => {
+    expect(detectDocumentKind("x.doc", "application/msword")).toBe("doc");
+    expect(detectDocumentKind("x.doc", null)).toBe("doc");
+    expect(detectDocumentKind("legacy", "application/msword")).toBe("doc");
+    // .docx 仍判 docx（endsWith(".doc") 对 "x.docx" 为 false）
+    expect(detectDocumentKind("x.docx", null)).toBe("docx");
+    expect(
+      detectDocumentKind(
+        "x.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    ).toBe("docx");
+  });
+
+  it("真实 .doc fixture → status ready + 解析出可读中文/英文正文", async () => {
+    const buffer = await readFile(join(__dirname, "_fixtures", "sample.doc"));
+    const result = await extractDocumentText({
+      buffer,
+      fileName: "sample.doc",
+      mimeType: "application/msword",
+    });
+
+    expect(result.kind).toBe("doc");
+    expect(result.status).toBe("ready");
+    expect(result.text).toContain("FinSim 测试文档");
+    expect(result.text).toContain("风险沟通练习");
+    expect(result.text).toContain("English text");
+    expect(result.text.length).toBeGreaterThan(10);
+  });
+
+  it("损坏/非 .doc 内容（仅垃圾字节）→ 优雅 failed + 中文兜底，不抛异常", async () => {
+    const result = await extractDocumentText({
+      buffer: Buffer.from("this is not a real OLE2 doc file at all"),
+      fileName: "broken.doc",
+      mimeType: "application/msword",
+    });
+
+    expect(result.kind).toBe("doc");
+    expect(result.status).toBe("failed");
+    expect(result.text).toBe("");
+    expect(result.error).toBeTruthy();
+    // 中文兜底（不是英文 throw 冒泡）
+    expect(/[一-鿿]/.test(result.error || "")).toBe(true);
   });
 });

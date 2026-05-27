@@ -44,15 +44,21 @@ class LocalStorageProvider implements StorageProvider {
 }
 
 // 允许的文件类型
+// 说明：application/msword（旧版 .doc, OLE2）已纳入白名单——由 word-extractor 纯 JS 解析正文，
+// 见 document-ingestion.service.ts 的 "doc" 分支。
 const ALLOWED_TYPES: Record<string, string[]> = {
   image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
   pdf: ["application/pdf"],
-  word: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  word: [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+  ],
   text: ["text/plain", "text/markdown"],
   zip: ["application/zip", "application/x-zip-compressed"],
   document: [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
     "text/csv",
@@ -74,17 +80,6 @@ export function validateFile(
   const maxSize = 20 * 1024 * 1024; // 20MB
   if (fileSize > maxSize) {
     return { valid: false, error: "文件大小不能超过 20MB" };
-  }
-
-  // Phase3-B: 旧版 .doc (OLE2) 单独识别，返回友好提示 + 错误码 LEGACY_DOC_UNSUPPORTED。
-  // 不引入 antiword/libreoffice 依赖；用户转 .docx 后即可上传。
-  if (contentType === "application/msword") {
-    return {
-      valid: false,
-      error:
-        "暂不支持旧版 .doc 格式，请先在 Word/Pages 里另存为 .docx 后再上传（操作步骤：文件 → 另存为 → 选 .docx）",
-      code: "LEGACY_DOC_UNSUPPORTED",
-    };
   }
 
   const allowed = allowedTypes.flatMap((t) => ALLOWED_TYPES[t] || []);
