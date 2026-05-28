@@ -453,6 +453,8 @@ async function createAiRun(input: {
  * Cost estimation per 1k tokens (USD).
  * Source: 主流 provider 公开价目（2026-05 抓取）；缺失模型回退到 null（"未知成本"），
  * 避免把"未估算"误读成"免费"。新模型上线需手工补到本表。
+ * mimo 价为 2026-05-28 抓取的标准 list 价（不含 cache 折扣，降价后口径），
+ * 来源 apifox / OpenRouter，各源略有出入、属估算。
  */
 const COST_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
   "qwen-plus": { input: 0.0008, output: 0.002 },
@@ -466,6 +468,10 @@ const COST_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
   "gemini-2.0-flash": { input: 0, output: 0 },
   "gemini-1.5-flash": { input: 0, output: 0 },
   "gemini-1.5-pro": { input: 0.00125, output: 0.005 },
+  "mimo-v2.5-pro": { input: 0.001, output: 0.003 },
+  "mimo-v2.5": { input: 0.00014, output: 0.00028 },
+  "mimo-v2-omni": { input: 0.0004, output: 0.002 },
+  "mimo-v2-flash": { input: 0.0001, output: 0.0004 },
 };
 
 function estimateCostUSD(

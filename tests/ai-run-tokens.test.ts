@@ -73,6 +73,31 @@ describe("AiRun tokens + summary persistence (Unit 11)", () => {
     expect(updateCall?.data?.costEstUSD).toBeCloseTo(0.0018, 6);
   });
 
+  it("finishAiRun estimates costEstUSD for mimo model (default mimo-v2.5-pro)", async () => {
+    // mimo provider 经 AI_PROVIDER=mimo 解析；model 走 MIMO_MODEL=mimo-v2.5-pro
+    // （feature weeklyInsight 无 AI_WEEKLY_INSIGHT_MODEL → 回退 provider.defaultModel）。
+    process.env.AI_PROVIDER = "mimo";
+    process.env.MIMO_API_KEY = "test-key";
+    process.env.MIMO_BASE_URL = "https://example.test";
+    process.env.MIMO_MODEL = "mimo-v2.5-pro";
+    mk(prisma.aiRun.create).mockResolvedValue({ id: "run-mimo" });
+    mk(prisma.aiRun.update).mockResolvedValue({});
+    mk(generateText).mockResolvedValue({
+      text: "result",
+      usage: { inputTokens: 1000, outputTokens: 500 },
+    });
+
+    const { aiGenerateText } = await import("@/lib/services/ai.service");
+    await aiGenerateText("weeklyInsight", "u-mimo", "sys", "short prompt");
+
+    const updateCall = mk(prisma.aiRun.update).mock.calls[0]?.[0];
+    expect(updateCall?.data?.status).toBe("succeeded");
+    expect(updateCall?.data?.inputTokens).toBe(1000);
+    expect(updateCall?.data?.outputTokens).toBe(500);
+    // mimo-v2.5-pro → cost = (1000 * 0.001 + 500 * 0.003) / 1000 = 0.0025
+    expect(updateCall?.data?.costEstUSD).toBeCloseTo(0.0025, 6);
+  });
+
   it("finishAiRun returns costEstUSD=null when model not in COST_PER_1K_TOKENS table", async () => {
     process.env.QWEN_MODEL = "qwen-experimental-unknown";
     mk(prisma.aiRun.create).mockResolvedValue({ id: "run-3" });
