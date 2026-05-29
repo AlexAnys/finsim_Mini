@@ -94,8 +94,8 @@ describe("AiRun tokens + summary persistence (Unit 11)", () => {
     expect(updateCall?.data?.status).toBe("succeeded");
     expect(updateCall?.data?.inputTokens).toBe(1000);
     expect(updateCall?.data?.outputTokens).toBe(500);
-    // mimo-v2.5-pro → cost = (1000 * 0.001 + 500 * 0.003) / 1000 = 0.0025
-    expect(updateCall?.data?.costEstUSD).toBeCloseTo(0.0025, 6);
+    // mimo-v2.5-pro (CNY) → cost = (1000 * 0.003 + 500 * 0.006) / 1000 = 0.006
+    expect(updateCall?.data?.costEstUSD).toBeCloseTo(0.006, 6);
   });
 
   it("finishAiRun returns costEstUSD=null when model not in COST_PER_1K_TOKENS table", async () => {

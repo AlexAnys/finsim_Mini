@@ -183,7 +183,7 @@ export default function AdminAuditPage() {
                   用户：{r.userName ?? r.userEmail ?? "—"} ·
                   耗时 {r.latencyMs != null ? `${(r.latencyMs / 1000).toFixed(2)}s` : "—"} ·
                   in {r.inputTokens ?? "—"} / out {r.outputTokens ?? "—"} tokens ·
-                  成本 {r.costEstUSD != null ? `$${r.costEstUSD.toFixed(4)}` : "—"}
+                  成本 {r.costEstUSD != null ? `¥${r.costEstUSD.toFixed(4)}` : "—"}
                 </div>
                 {r.summary && (
                   <div className="line-clamp-2 rounded-md bg-paper-alt p-2 text-[11.5px] leading-relaxed text-ink-3">

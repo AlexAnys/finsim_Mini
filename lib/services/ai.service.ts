@@ -450,31 +450,37 @@ async function createAiRun(input: {
 }
 
 /**
- * Cost estimation per 1k tokens (USD).
- * Source: 主流 provider 公开价目（2026-05 抓取）；缺失模型回退到 null（"未知成本"），
- * 避免把"未估算"误读成"免费"。新模型上线需手工补到本表。
- * mimo 价为 2026-05-28 抓取的标准 list 价（不含 cache 折扣，降价后口径），
- * 来源 apifox / OpenRouter，各源略有出入、属估算。
+ * Cost estimation per 1k tokens (CNY / ¥).
+ * 中文模型（mimo/qwen/deepseek）用国内官方价；gpt/gemini（本项目零调用）按
+ * ¥7.2 ≈ $1 于 2026-05-29 换算。属估算，新模型 / 调价需手工补到本表。
+ * 缺失模型回退到 null（"未知成本"），避免把"未估算"误读成"免费"。
+ * 注：字段名 `costEstUSD`、函数名 `estimateCostUSD` 为历史命名（方案 A 保留，不破
+ * schema / API 契约）；本表值与 UI 展示一律为人民币 ¥，与字段名中的 "USD" 无关。
  */
 const COST_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
   "qwen-plus": { input: 0.0008, output: 0.002 },
   "qwen-plus-2025-09-11": { input: 0.0008, output: 0.002 },
   "qwen-turbo": { input: 0.0003, output: 0.0006 },
-  "qwen-max": { input: 0.0028, output: 0.0084 },
-  "deepseek-chat": { input: 0.0003, output: 0.0014 },
-  "deepseek-reasoner": { input: 0.00055, output: 0.0022 },
-  "gpt-4o-mini": { input: 0.00015, output: 0.0006 },
-  "gpt-4o": { input: 0.0025, output: 0.01 },
+  "qwen-max": { input: 0.0024, output: 0.0096 },
+  "deepseek-chat": { input: 0.002, output: 0.008 },
+  "deepseek-reasoner": { input: 0.004, output: 0.016 },
+  "gpt-4o-mini": { input: 0.00108, output: 0.00432 },
+  "gpt-4o": { input: 0.018, output: 0.072 },
   "gemini-2.0-flash": { input: 0, output: 0 },
   "gemini-1.5-flash": { input: 0, output: 0 },
-  "gemini-1.5-pro": { input: 0.00125, output: 0.005 },
-  "mimo-v2.5-pro": { input: 0.001, output: 0.003 },
-  "mimo-v2.5": { input: 0.00014, output: 0.00028 },
-  "mimo-v2-omni": { input: 0.0004, output: 0.002 },
-  "mimo-v2-flash": { input: 0.0001, output: 0.0004 },
+  "gemini-1.5-pro": { input: 0.009, output: 0.036 },
+  "mimo-v2.5-pro": { input: 0.003, output: 0.006 },
+  "mimo-v2.5": { input: 0.001, output: 0.002 },
+  "mimo-v2-omni": { input: 0.00288, output: 0.0144 },
+  "mimo-v2-flash": { input: 0.00072, output: 0.00288 },
 };
 
-function estimateCostUSD(
+/**
+ * 按价目表估算单次调用成本（人民币 ¥）。模型不在表中返回 null（未知成本）。
+ * 历史命名 `estimateCostUSD` 保留（方案 A）；返回值单位为 CNY。
+ * 导出供 scripts/backfill-airun-cost.ts 复用同一价目表（避免表漂移）。
+ */
+export function estimateCostUSD(
   model: string,
   inputTokens: number | undefined,
   outputTokens: number | undefined,

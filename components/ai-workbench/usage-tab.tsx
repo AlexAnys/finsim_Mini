@@ -67,10 +67,10 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   failed: "destructive",
 };
 
-function fmtCost(usd: number | null): string {
-  if (usd == null) return "—";
-  if (usd === 0) return "$0";
-  return `$${usd.toFixed(4)}`;
+function fmtCost(cny: number | null): string {
+  if (cny == null) return "—";
+  if (cny === 0) return "¥0";
+  return `¥${cny.toFixed(4)}`;
 }
 
 function fmtTokens(n: number | null): string {
