@@ -1,96 +1,108 @@
-# Spec — FinSim 微信小程序（学生端）v1 (2026-07-07)
+# Spec — FinSim 手机端双轨计划：PWA（即时可用）+ 微信小程序（主轨）(2026-07-07 r2)
 
 > ⚠️ **行为底线**：不走捷径 — 任何跳过 / 接受 < 100% acceptance 必须先 ask 用户。
 
-> Coordinator: Fable 5（设计）· Builder/QA: **Opus**（执行前需改 `~/.claude/settings.json` `CLAUDE_CODE_SUBAGENT_MODEL` → `inherit` + builder/qa frontmatter `model: opus`，全局生效需用户点头）
-> 前序 spec: `.harness/spec-pr15-archive.md` · 状态: **待用户确认，确认前不写应用代码**
+> Coordinator: Fable 5（设计）· Builder/QA: **Opus**（kickoff 时改 `~/.claude/settings.json` `CLAUDE_CODE_SUBAGENT_MODEL` → `inherit` + builder/qa frontmatter `model: opus`）
+> 前序: `.harness/spec-pr15-archive.md` · 状态: **r2 待用户确认两个决策点（主体方案 + PWA 替代 RN）**
 
-## 用户原话
+## 用户原话与拍板记录
 
-- 「做一个手机端 APP，供同学们下载到手机使用」→ 路线已选定：**微信小程序**
-- 「安装包不是重点，重点是**稳定、体验和 UI 设计**。推送最好有」
-- 「Fable 5 作为 coordinator 进行仔细的设计，用 opus 作为 Builder 和 QA」
+- 「做手机端 APP 供同学们下载」→ 微信小程序（2026-07-07 拍板）
+- 「重点是稳定、体验和 UI 设计，推送最好有」
+- 「是否能同时走小程序和 React Native，以免微信备案太慢」→ **coordinator 建议 hedge 改用 PWA，RN 不做**（见决策 D2，待确认）
+- 「学生部分的功能尽量都包含」→ 功能全量，不做人为裁剪（v1 分批交付，见阶段表）
+- sim 对话 v1 非流式：**用户同意**
+- diff 150 行规则豁免：授权 coordinator 定 → **裁定**：miniapp/ 脚手架 unit 豁免；后续 miniapp unit ≤400 行/unit；`app/ lib/`（web 后端）改动仍守 ≤150 行
 
-## 目标 / 非目标
+## 关键决策
 
-**目标**：学生在微信里完成核心闭环——登录 → 看任务 → 作答三类任务 → 提交 → 出分 → 看评分明细；订阅消息推送任务发布/截止提醒。
-**非目标（v1 不做）**：老师端、支付、离线作答、语音输入（v1.5 用 `wx.getRecorderManager` 录 mp3 直传现有 API，浏览器转码逻辑不移植）、课程内容深度浏览、Study Buddy（后置）、课表、设置页改密码。
+### D1 · 小程序主体（⚠️ 原「个人」方案被新事实推翻，需重新拍板）
 
-## 总体架构（事实依据见 2026-07-07 两轮代码调查）
+**事实**（2026-07-07 检索，微信开放社区多案例）：AI 问答功能必须补「深度合成」类目，**该类目对个人主体尚未开放**——个人主体 + AI 对话 = 提审即拒。AI 对话是 FinSim 核心，不可剥离。
 
-| 决策 | 内容 | 依据 |
+| 方案 | 可行性 | 成本/周期 |
 |---|---|---|
-| 目录 | 仓库内 `miniapp/` 独立子项目（独立 package.json/tsconfig，不进 Next build） | 共享类型与 API 契约演进同步；CI 独立 workflow |
-| 技术栈 | **Taro 3（生产主流）+ React + TS + NutUI-React**，自定义主题移植 finsim design token（brand/ochre/success/sim/brand-violet） | React 技能全复用；用户 UI 设计优先级高 → token 级对齐 |
-| API 复用 | 除登录外 **100% 复用现有端点**（统一信封 `{success,data|error}` 已就绪）；服务端从 taskInstanceId 反推权威 taskType，不信任客户端 | 契约调查：全端点 JSON-in/out，无 redirect |
-| 认证 | 新增 `POST /api/miniapp/auth/login`（邮箱+密码 → 复用 authorize 校验逻辑 → 自签 JWT，jose）+ `lib/auth/guards.ts` 扩展支持 `Authorization: Bearer`；**不走** next-auth signIn（绕开 cookie+CSRF 双假设，next-auth v5 beta 不给非浏览器客户端留路） | 唯一硬阻塞点；**core-change**（lib/auth/），web cookie 路径必须零回归 |
-| Sim 对话 | v1 走 **JSON 模式**（不发 `Accept: text/event-stream`，官方保留的 fallback 路径）+「对方正在输入」指示器；P4 再上 `enableChunked` 真流式 | route 注释明确 JSON 路径为「任意非浏览器调用」保留；enableChunked 有真机/工具解码差异坑，不当 v1 阻塞项 |
-| 对话状态 | transcript 由小程序端全量维护（服务端只裁最近 30 轮）；草稿持久化 `wx.setStorageSync`（对应 web localStorage 草稿键） | 契约调查 §1/§4 |
-| 附件 | `wx.chooseMessageFile/chooseMedia` + `wx.uploadFile` → 现有 `POST /api/files/upload`（FormData `file` 字段，20MB，image/pdf/word） | 契约无障碍；存储是服务器本地磁盘，与小程序无关 |
-| 批改结果 | 复用异步 job 轮询：POST /api/submissions → 1.6s 轮询 `GET /api/async-jobs/{id}` → grades 数据为准；quiz 响应内联 `data.evaluation` 当可选字段处理 | 契约调查 §5 |
-| 推送 | **一次性订阅消息** ×2 模板（新任务发布 / 截止前 24h），自然时机（进任务页/提交后）引导勾选攒额度；长期订阅教育场景模板受限不可用 | WebSearch 2026-07 确认 |
-| Subjective 答题 | v1 纯文本 textarea（与 `textAnswer: string ≤20000` 契约一致）；web 端富文本样式不移植 | 小程序无 contenteditable |
-| 环境 | 开发: DevTools 关域名校验打本机:3000；QA: staging.finsim.anlanai.cn 入 request 合法域名；生产: finsim.anlanai.cn | 合法域名上限 20 条，够用 |
+| **A. 个体工商户主体（推荐）** | 属企业型主体，可申请深度合成类目；引用大模型服务商（通义/DeepSeek 均有《互联网信息服务算法备案》）的备案材料，阿里云百炼有官方合规指引 | 注册几天~两周、成本低；小程序微信认证 300 元/年 |
+| B. 现成公司主体 | 同上，若用户已有公司最快 | 营业执照 + 对公账户 |
+| C. 学校主体 | 教育场景最正统（事业单位） | 学校行政流程，周期不可控 |
+| D. 个人主体硬上 | **不可行** — 深度合成类目未开放，AI 功能提审被拒 | — |
 
-## 分阶段计划（P0 与 P1 并行启动）
+### D2 · Hedge 轨道：PWA 替代 React Native（待用户确认）
 
-### P0 — 微信侧行政准备（**用户亲办**，是唯一外部 critical path）
-1. 注册小程序主体 — **决策点：个人主体**（身份证即可、快；无微信认证/支付/部分高级接口，本项目不需要）**vs 企业主体**（营业执照+对公账户；订阅消息模板池更宽）
-2. 类目选「教育-学习辅导/题库」类（无办学许可证要求；避开「在线视频课程」类目）
-3. **⚠️ 注册时咨询 AI 合规**：小程序含 AI 对话生成内容，2024 起微信对 AIGC 类功能有「深度合成算法备案/申报」收紧趋势——注册时问清是否需补充申报，这可能影响审核，是本计划最大外部不确定性
-4. request/uploadFile 合法域名添加 staging + 生产双域名
-5. 订阅消息模板申请 ×2；拿 AppID/AppSecret → 服务器 `.env`
+用户问「能否同时走小程序 + RN」。**能**（Taro 3 甚至支持编译到 RN），但不建议，理由：
 
-### P1 — 后端 token 通道 + 小程序骨架（unit: `miniapp-auth`、`miniapp-skeleton`）
-- `POST /api/miniapp/auth/login` + guards Bearer 扩展 + vitest（200/401/403 + web cookie 路径回归）
-- Taro 骨架 + design token 主题 + 登录页 + tab 架构（首页/任务/成绩/我的）+ API client 层（信封解析、token 注入、401 统一处理、**预留流式适配器接口**）
+1. **hedge 的目的**是「微信审核/备案慢时学生仍能用」——PWA 以 ~1/4 成本完全覆盖此目的：零审核、零上架、当天可用、**功能天然 100% 全量**（就是现有 web 端），移动端摸底已确认学生页面基本就绪（只差 3 处修复 + manifest/图标/安装引导）
+2. RN 是第三套前端：Taro→RN 编译约束多（NutUI 不支持 RN 端，UI 库另起）伤「UI 设计」优先级；独立 RN 更是双倍维护
+3. RN 自身分发也有摩擦：Android 要签名分发，iOS 仍需 Apple 账号——「绕开备案」的收益主要只剩 Android 侧
+4. P1 的 Bearer token 通道是通道无关的基础设施——若未来仍要 RN/原生壳，随时可启，前期投入不作废
 
-### P2 — 核心作答链路（三 unit，风险递增排序）
-- `miniapp-quiz`：任务列表/详情 + Quiz（fixed 先行 → adaptive 两端点 `adaptive-quiz/next`+`questions/{id}/check` 同 unit 内跟进）+ 草稿 + 提交轮询卡
-- `miniapp-subjective`：textarea 作答 + 附件上传 + 评分标准展示
-- `miniapp-sim`：对话 UI（气泡/情绪/开场白）+ 资产配置面板 + JSON 模式对话 + 提交
-- 共通 acceptance：真机（iOS+Android 微信各一）完成一次完整作答提交出分
+**建议**：PWA hedge 立即开工（1 个 unit，学生第 1 周即可用）；RN 不立项；若 D1 主体路线全部受阻，再重开原生 APP 评估。
 
-### P3 — 成绩闭环 + 首页（unit: `miniapp-grades`、`miniapp-home`）
-- 成绩列表 + 评分明细（rubric 逐维 / quiz 逐题 / sim 对话回放）
-- 首页 dashboard lite：问候 + 待办任务（作答入口）+ 近期成绩 + 公告摘要
+## 总体架构（代码事实见 2026-07-07 两轮调查报告）
 
-### P4 — 推送 + 流式增强（unit: `miniapp-push`、`miniapp-stream`）
-- `User.wechatOpenId?` schema 变更（**Prisma 三步舞** + dev server 重启验证）+ wx.login 绑定 + wechat.service（stable_token 管理 + 订阅消息发送）+ 任务发布触发 + 截止前 24h 定时触发（单实例安全的调度机制，实现由 builder 定）
-- sim 对话 `enableChunked` 真流式（专项攻坚：chunk 缓冲重组、DevTools `decoder.decode` vs 真机 `arrayBufferToString` 差异、`event: chunk/meta/done/error` 协议解析）
+| 决策 | 内容 |
+|---|---|
+| PWA 轨 | 现有 Next.js 加 manifest + 图标 + viewport/theme-color + 3 处移动修复（`h-screen`→`dvh`、StudyBuddy 触摸拖拽、quiz `calc(100vh)` 键盘弹出）+ 安装引导页。不引入 service worker 复杂缓存（避免缓存导致的"不稳定"，牺牲离线换稳定——用户第一优先级） |
+| 小程序目录 | 仓库内 `miniapp/` 独立子项目（Taro 3 + React + TS + NutUI，finsim design token 移植） |
+| API 复用 | 除登录外 100% 复用现有端点（统一信封已就绪，无浏览器独占假设）；服务端从 taskInstanceId 反推权威 taskType |
+| 认证 | 新增 `POST /api/miniapp/auth/login`（复用 authorize 校验，jose 自签 JWT，`MINIAPP_JWT_SECRET`）+ `lib/auth/guards.ts` 加 Bearer 分支；不走 next-auth signIn（绕 cookie+CSRF）。**core-change**，web cookie 路径零回归 |
+| Sim 对话 | v1 JSON 模式（`/api/ai/chat` 官方保留的非流式 fallback）+ 打字指示器；后期 `enableChunked` 真流式专项 |
+| 对话状态 | transcript 小程序端全量维护（服务端裁最近 30 轮）；草稿 `wx.setStorageSync` |
+| 附件 | `wx.uploadFile` → 现有 `POST /api/files/upload`（20MB，image/pdf/word） |
+| 批改 | 复用异步 job：POST submissions → 1.6s 轮询 async-jobs → grades 为准；quiz 内联 `data.evaluation` 可选处理 |
+| 推送 | 一次性订阅消息 ×2（新任务/截止 24h），自然时机引导订阅攒额度 |
+| Subjective | 纯文本 textarea（契约 `textAnswer ≤20000` 一致） |
+| 环境 | 开发: DevTools 关域名校验打 :3000；QA: staging 入合法域名；生产: finsim.anlanai.cn |
 
-### P5 — 提审上线
-- 体验版二维码 → 用户真机验收 → 提审（教育类目 1-7 天）→ 发布
+## 阶段计划
+
+### Track A — PWA hedge（立即开工，与 P0/P1 并行）
+- `pwa-hedge` 单 unit：manifest/图标/meta + 3 处移动修复 + 登录页「添加到主屏幕」引导（iOS Safari / Android 各浏览器文案）
+- Acceptance：真机 iOS Safari + Android Chrome/微信内置浏览器完成登录→作答→出分全流程；添加到主屏幕后全屏无浏览器 UI；3 处修复各有截图证据；web 桌面端零回归
+- **学生第 1 周即可使用全部功能**——小程序审批期间的正式使用通道
+
+### Track B — 微信小程序（主轨）
+
+| 阶段 | 内容 | 工期估 |
+|---|---|---|
+| **P0 用户亲办** | ① 按 D1 定主体并注册（推荐个体工商户）② 类目「教育-在线教育」+「深度合成-AI 问答」（引用通义/DeepSeek 算法备案，备好服务商备案号）③ 合法域名 staging+生产 ④ 订阅消息模板 ×2 ⑤ AppID/Secret → `.env` | 本周启动；深度合成类目审核是长杆 |
+| P1 | token 通道 + guards Bearer（vitest 200/401/403 + web 回归）+ Taro 骨架/design token/登录/tab 架构 + API client（预留流式接口） | ~2-3 天 |
+| P2 | 核心作答：quiz（fixed→adaptive）→ subjective（附件）→ simulation（JSON 对话+配置面板）+ 草稿 + 轮询卡 | ~1-1.5 周 |
+| P3 | 成绩闭环（rubric/逐题/对话回放）+ 首页（待办/近期成绩/公告） | ~2-3 天 |
+| P4 | 推送（`User.wechatOpenId?` schema **Prisma 三步舞** + wx.login 绑定 + wechat.service stable_token + 发布触发 + 24h 截止定时）+ sim `enableChunked` 真流式攻坚 | ~4-5 天 |
+| P5 | **功能补全**（用户「尽量都包含」）：Study Buddy（含发帖长耗时同步请求的 timeout 处理）、课表、课程内容浏览、设置/改密码、语音输入（`wx.getRecorderManager` 录 mp3 直传现有 speech-to-text API） | ~1 周 |
+| P6 | 体验版全量验收 → 提审 → 发布（审核周期取决 P0 类目结果） | 1-7 天+ |
+
+开发（P1-P5）不被审核阻塞：开发版/体验版全程可真机测试，仅正式发布依赖 P0/提审。
 
 ## QA 策略
 
-- 每 unit：**miniprogram-automator + WeChat DevTools CLI** 自动化（QA agent 可驱动、可截图）；后端改动跑 vitest 全量
-- guards/schema 类改动：web 端登录+作答冒烟必须回归（core-change 铁律）
-- 每 unit 出体验版/预览二维码给用户真机抽验；P2 起每 unit 附 iOS+Android 真机截图
-- progress.tsv 每轮追加；dynamic exit 规则照旧（r1 PASS 收工 / r2 PASS 强制写 lesson / 同一 FAIL 三连回 spec）
+- 小程序每 unit：miniprogram-automator + WeChat DevTools CLI 自动化 + 截图；后端改动 vitest 全量
+- PWA unit：真浏览器三端（iOS Safari / Android Chrome / 微信内置）+ 375px 无破版
+- core-change（guards/schema）：web 登录+作答冒烟强制回归
+- 每 unit 预览二维码给用户真机抽验；progress.tsv 每轮追加；dynamic exit 照旧
 
-## v1 总 Acceptance
+## 总 Acceptance
 
-1. 测试学生账号在**真机微信**完成：登录 → 任务列表 → 完成 quiz + subjective + simulation 各一次 → 提交 → 轮询出分 → 成绩页看到评分明细
-2. web 端零回归：vitest 全绿 + web 登录/作答冒烟通过
-3. UI：finsim design token 对齐，iPhone SE(375px)~Pro Max 无破版；交互符合小程序惯例（下拉刷新、返回手势不丢草稿）
-4. 推送：订阅后老师发布任务，学生微信服务通知收到提醒
-5. 稳定性（用户第一优先级）：弱网重试与错误提示全中文化；对话中断可恢复（transcript 本地持久化）
+1. **PWA（第 1 周）**：学生真机完成全功能闭环，主屏图标全屏运行
+2. **小程序 v1（P6 后）**：真机微信内登录→quiz+subjective+simulation 各完成一次→出分→评分明细；订阅后任务发布收到服务通知；学生端功能全量（含 SB/课表/课程浏览/设置/语音）
+3. web 端零回归：vitest 全绿 + 登录/作答冒烟
+4. UI：design token 对齐，375px~Pro Max 无破版，交互符合平台惯例
+5. 稳定：弱网重试、错误全中文、对话中断可恢复（transcript 本地持久化）
 
 ## 风险登记
 
 | 风险 | 应对 |
 |---|---|
-| AI 内容合规申报（深度合成备案）影响审核 | P0 注册时先问清；若需备案，评估周期后再定提审时间，**不阻塞 P1-P4 开发** |
-| guards.ts 是 core-change，动错伤 web 全站 | Bearer 分支纯增量、cookie 路径字节不动；vitest + web 冒烟双回归 |
-| next-auth v5 beta 行为漂移 | 不依赖其内部 API，自签 JWT 用 jose 独立 secret（`MINIAPP_JWT_SECRET`） |
-| enableChunked 真机差异 | 隔离在 P4 独立 unit，v1 JSON 模式保底可用 |
-| Study Buddy 发帖是长耗时同步请求 | v1 不做 Study Buddy，规避 |
-| CLAUDE.md「diff ≤150 行」对 Taro 脚手架不可行 | **约定调整（需用户点头）**：miniapp/ 内首次脚手架 unit 豁免，后续 unit 恢复 ≤300 行/unit 粒度；`app/ lib/` 内改动仍守 150 行 |
-| 审核被拒风险（教育类目对 UGC/AI 要求） | 提审前跑一遍微信《小程序运营规范》自查清单，体验版先行内测不受审核影响 |
+| **深度合成类目审核不过**（即便企业型主体） | 引用大模型服务商算法备案（阿里云百炼官方合规指引路径）；若仍受阻 → PWA 轨已是正式可用通道，小程序转长期跟进 |
+| guards.ts core-change 伤 web | Bearer 纯增量分支，cookie 路径字节不动；双回归 |
+| next-auth v5 beta 漂移 | 不碰其内部 API，jose 独立签发 |
+| enableChunked 真机解码差异 | 隔离 P4 独立 unit，JSON 模式保底 |
+| PWA 无推送（iOS 弱） | 推送由小程序轨承担；PWA 定位是全功能使用通道非通知通道 |
+| 个体工商户注册周期 | 与 P1-P5 开发完全并行，不阻塞 |
 
 ## 执行编排
 
-- 分支 `claude-miniapp-p{N}`，每 phase 一个 PR（squash merge 惯例）
-- 模型：builder/qa 钉 **opus**（执行 kickoff 时改全局 subagent 配置，需用户确认）；coordinator 保持 Fable 5
-- 工期粗估（wall-clock，agent 执行 + 用户真机验收节奏）：P1 ~2-3 天 · P2 ~1-1.5 周 · P3 ~2-3 天 · P4 ~4-5 天 · P5 审核 1-7 天 → **全程 3-5 周**；P0 用户侧最好本周启动（类目+备案咨询是长杆）
+- 分支：`claude-pwa-hedge`、`claude-miniapp-p{N}`，每 phase 一 PR（squash）
+- 团队：builder + qa（Opus），coordinator（Fable 5）监控 TaskList + progress.tsv
+- 顺序：kickoff 后先 `pwa-hedge` + P1 并行（PWA 是纯前端修复+增量，P1 主战场在后端+Taro 骨架，无文件交集）
