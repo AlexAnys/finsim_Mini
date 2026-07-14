@@ -43,3 +43,12 @@
 - **Status**: active
 
 ---
+## L-004 · 端口有响应 ≠ 是目标应用（环境指纹缺失）
+
+- **Symptom**: coordinator 摸底 curl :3000 得 200 判定"dev server 在跑"; product agent 真渲染发现是另一个项目 Multica（本目录无 .env 从未跑过 finsim）; 走查被阻塞半天
+- **Root cause**: 多项目共存的机器上端口随时被别的栈占用; 仅验 HTTP 状态码不验内容; "200 就是活的"与 L-001 家族"tsc 过了就是对的"同型
+- **Detection**: curl 内容指纹（品牌串"灵析"/lingxi 或已知 DOM 标记）; 真渲染
+- **Prevention**: 任何"dev server 就绪"判定必须命中内容指纹, 不是 HTTP 码; 已写进 spec-audit.md 决策记录, QA/audit 章程沿用
+- **Commit**: audit-2026-07 收尾 commit
+- **Status**: active
+
