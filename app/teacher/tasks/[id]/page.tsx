@@ -58,6 +58,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ImportProgressDialog } from "@/components/task-edit/import-progress-dialog";
+import { normalizeStoredQuizOptions } from "@/lib/utils/quiz-question-payload";
 
 interface ScoringCriterion {
   id: string;
@@ -217,7 +218,16 @@ export default function TaskDetailPage() {
         setError(json.error?.message || "加载失败");
         return;
       }
-      setTask(json.data);
+      const taskData = {
+        ...json.data,
+        quizQuestions: Array.isArray(json.data.quizQuestions)
+          ? json.data.quizQuestions.map((q: QuizQuestion) => ({
+              ...q,
+              options: normalizeStoredQuizOptions(q.options),
+            }))
+          : [],
+      } as TaskDetail;
+      setTask(taskData);
       // Initialize edit form
       setEditName(json.data.taskName);
       setEditRequirements(json.data.requirements || "");
@@ -247,14 +257,12 @@ export default function TaskDetailPage() {
         );
         setEditQuizShowAnswer(!!json.data.quizConfig.showCorrectAnswer);
       }
-      if (Array.isArray(json.data.quizQuestions)) {
-        setEditQuestions(
-          json.data.quizQuestions
-            .slice()
-            .sort((a: QuizQuestion, b: QuizQuestion) => a.order - b.order)
-            .map((q: QuizQuestion) => ({ ...q })),
-        );
-      }
+      setEditQuestions(
+        taskData.quizQuestions
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map((q) => ({ ...q })),
+      );
       if (Array.isArray(json.data.scoringCriteria)) {
         setEditCriteria(
           json.data.scoringCriteria
@@ -1394,7 +1402,7 @@ export default function TaskDetailPage() {
                         {(q.options ?? []).map((opt, oIdx) => {
                           const isCorrect = q.correctOptionIds.includes(opt.id);
                           return (
-                            <div key={opt.id} className="flex items-center gap-2">
+                            <div key={`${opt.id}-${oIdx}`} className="flex items-center gap-2">
                               <input
                                 type={q.type === "multiple_choice" ? "checkbox" : "radio"}
                                 name={`q-${q.id}-correct`}
@@ -1481,9 +1489,9 @@ export default function TaskDetailPage() {
                     </p>
                     {q.options && Array.isArray(q.options) && (
                       <div className="pl-4 space-y-1">
-                        {q.options.map((opt: { id: string; text: string }) => (
+                        {q.options.map((opt, optionIndex) => (
                           <p
-                            key={opt.id}
+                            key={`${opt.id}-${optionIndex}`}
                             className={`text-sm ${
                               q.correctOptionIds.includes(opt.id)
                                 ? "text-green-600 font-medium"

@@ -30,6 +30,10 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { mergeGeneratedQuestions } from "@/lib/utils/quiz-merge";
+import {
+  buildQuizQuestionPayload,
+  isQuizQuestionComplete,
+} from "@/lib/utils/quiz-question-payload";
 import { WizardStepper } from "@/components/task-wizard/wizard-stepper";
 import { WizardStepType } from "@/components/task-wizard/wizard-step-type";
 import { WizardStepBasic } from "@/components/task-wizard/wizard-step-basic";
@@ -273,10 +277,7 @@ function collectMissingFields(form: FormData): string[] {
     if (!hasUsableQuestion) missing.push("题目");
     if (
       form.questions.some((question) => {
-        if (!question.stem.trim()) return true;
-        if (question.type === "short_answer") return !question.correctAnswer.trim();
-        return question.options.some((option) => !option.text.trim()) ||
-          question.correctOptionIds.length === 0;
+        return !isQuizQuestionComplete(question);
       })
     ) {
       missing.push("答案与选项");
@@ -948,6 +949,16 @@ export function TaskWizardModal({
 
   async function handleSubmit() {
     if (!context) return;
+    if (form.taskType === "quiz") {
+      const incompleteIndex = form.questions.findIndex(
+        (question) => !isQuizQuestionComplete(question),
+      );
+      if (incompleteIndex >= 0) {
+        toast.error(`第 ${incompleteIndex + 1} 题缺少有效选项或正确答案，请补全后再发布`);
+        setStep(2);
+        return;
+      }
+    }
     // task-publish-gate: AI 审稿是「软提醒」而非 block —— ready 草稿允许直接创建并发布。
     // 提醒由第 4 步 WizardStepReview 的非阻塞 banner 承载（见 reviewReminder）。
     setSubmitting(true);
@@ -1016,25 +1027,7 @@ export function TaskWizardModal({
             : undefined,
           showCorrectAnswer: form.showResult,
         };
-        body.quizQuestions = form.questions.map((q, i) => {
-          const base: Record<string, unknown> = {
-            type: q.type,
-            prompt: q.stem.trim(),
-            points: q.points,
-            order: i,
-            explanation: q.explanation.trim() || undefined,
-          };
-          if (q.type === "short_answer") {
-            base.correctAnswer = q.correctAnswer.trim() || undefined;
-          } else {
-            base.options = q.options.map((o) => ({
-              id: o.id,
-              text: o.text.trim(),
-            }));
-            base.correctOptionIds = q.correctOptionIds;
-          }
-          return base;
-        });
+        body.quizQuestions = form.questions.map(buildQuizQuestionPayload);
       } else if (form.taskType === "subjective") {
         body.subjectiveConfig = {
           prompt: form.prompt.trim(),
@@ -1089,7 +1082,12 @@ export function TaskWizardModal({
       });
       const json = await res.json();
       if (!json.success) {
-        toast.error(json.error?.message || "创建并发布失败");
+        const taskErrors = json.error?.details?.fieldErrors?.task;
+        toast.error(
+          Array.isArray(taskErrors)
+            ? "发布失败：任务内容不完整，请检查题目、选项和正确答案"
+            : json.error?.message || "创建并发布失败",
+        );
         return;
       }
       toast.success("任务已创建并发布");
