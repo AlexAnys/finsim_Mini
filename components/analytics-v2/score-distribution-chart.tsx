@@ -35,6 +35,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
+import { rebinDistribution } from "@/components/analytics-v2/score-distribution-drilldown";
 
 export interface ScoreDistributionStudent {
   id: string;
@@ -79,7 +80,7 @@ const CLASS_COLOR_VARS = [
 interface Props {
   distribution: ScoreDistribution | null | undefined;
   onBinClick?: (bin: ScoreDistributionBin, classId: string) => void;
-  onViewAll?: () => void;
+  onViewAll?: (bins: ScoreDistributionBin[]) => void;
 }
 
 function readStoredBinCount(): BinCount {
@@ -209,32 +210,27 @@ export default function ScoreDistributionChart({
     };
   }, [visibleClasses]);
 
-  const handleClick = (data: unknown) => {
+  const handleBarClick = (data: unknown, classId: string | undefined) => {
     if (!view || !onBinClick) return;
-    const payload = data as { activeLabel?: string; activePayload?: Array<{ dataKey?: string; name?: string }> };
-    const label = payload.activeLabel;
+    const payload = data as { payload?: { label?: string } };
+    const label = payload.payload?.label;
     if (!label) return;
     const bin = view.bins.find((b) => b.label === label);
     if (!bin) return;
-    const item = payload.activePayload?.[0];
-    let classId = (item?.dataKey ?? item?.name) as string | undefined;
-    if (mode === "single") {
-      classId = visibleClasses[0]?.id;
-    }
     if (!classId) return;
     onBinClick(bin, classId);
   };
 
   return (
     <Card className="rounded-lg flex h-full flex-col gap-2 overflow-hidden py-3">
-      <CardHeader className="space-y-0 pb-1 shrink-0 px-3 grid-cols-[1fr_auto] items-center gap-2 grid">
-        <CardTitle className="text-sm font-medium truncate">
+      <CardHeader className="grid shrink-0 grid-cols-1 items-center gap-2 px-3 pb-1">
+        <CardTitle className="text-sm font-medium leading-5">
           学生成绩分布
           <span className="ml-2 text-[10px] font-normal text-muted-foreground">
             {totalStudents} 名学生 · {scopeLabel}
           </span>
         </CardTitle>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Select
             value={String(binCount)}
             onValueChange={(v) => persistBinCount(Number(v) as BinCount)}
@@ -265,7 +261,7 @@ export default function ScoreDistributionChart({
           {onViewAll && (
             <button
               type="button"
-              onClick={onViewAll}
+              onClick={() => view && onViewAll(view.bins)}
               className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground whitespace-nowrap"
             >
               详情 <ArrowRight className="size-3" />
@@ -291,7 +287,6 @@ export default function ScoreDistributionChart({
               <BarChart
                 data={chartData}
                 margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
-                onClick={isClickable ? handleClick : undefined}
               >
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 <XAxis
@@ -351,6 +346,11 @@ export default function ScoreDistributionChart({
                     fill="var(--color-brand)"
                     radius={[4, 4, 0, 0]}
                     style={isClickable ? { cursor: "pointer" } : undefined}
+                    onClick={
+                      isClickable
+                        ? (entry) => handleBarClick(entry, visibleClasses[0]?.id)
+                        : undefined
+                    }
                   >
                     <LabelList
                       dataKey="__single__"
@@ -368,6 +368,9 @@ export default function ScoreDistributionChart({
                       fill={`var(--color-${c.id})`}
                       radius={[4, 4, 0, 0]}
                       style={isClickable ? { cursor: "pointer" } : undefined}
+                      onClick={
+                        isClickable ? (entry) => handleBarClick(entry, c.id) : undefined
+                      }
                     >
                       <LabelList
                         dataKey={c.id}
@@ -385,60 +388,6 @@ export default function ScoreDistributionChart({
       </CardContent>
     </Card>
   );
-}
-
-function rebinDistribution(source: ScoreDistribution, binCount: number): ScoreDistribution {
-  const bucketSize = 100 / binCount;
-  const bins: ScoreDistributionBin[] = Array.from({ length: binCount }, (_, index) => {
-    const min = Math.round(index * bucketSize * 10) / 10;
-    const max = Math.round((index + 1) * bucketSize * 10) / 10;
-    return { label: `${min}-${max}`, min, max, classes: [] };
-  });
-
-  type Entry = ScoreDistributionStudent & { classId: string; classLabel: string };
-  const entries: Entry[] = [];
-  for (const bin of source.bins) {
-    for (const bucket of bin.classes) {
-      for (const student of bucket.students) {
-        entries.push({
-          ...student,
-          classId: bucket.classId,
-          classLabel: bucket.classLabel,
-        });
-      }
-    }
-  }
-
-  for (const entry of entries) {
-    const clamped = Math.max(0, Math.min(100, entry.score));
-    const binIndex = Math.min(binCount - 1, Math.floor(clamped / bucketSize));
-    const bin = bins[binIndex];
-    let bucket = bin.classes.find((c) => c.classId === entry.classId);
-    if (!bucket) {
-      bucket = { classId: entry.classId, classLabel: entry.classLabel, students: [] };
-      bin.classes.push(bucket);
-    }
-    bucket.students.push({
-      id: entry.id,
-      name: entry.name,
-      score: entry.score,
-      ...(entry.taskInstanceId ? { taskInstanceId: entry.taskInstanceId } : {}),
-    });
-  }
-
-  for (const bin of bins) {
-    for (const bucket of bin.classes) {
-      bucket.students.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "zh-CN"));
-    }
-    bin.classes.sort((a, b) => a.classLabel.localeCompare(b.classLabel, "zh-CN"));
-  }
-
-  return {
-    bins,
-    binCount,
-    scope: source.scope,
-    totalStudents: source.totalStudents,
-  };
 }
 
 function EmptyPanel({
