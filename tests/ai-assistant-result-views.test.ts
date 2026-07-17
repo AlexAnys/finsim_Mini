@@ -64,9 +64,9 @@ describe("Unit C1-B r1b · 4 工具差异化渲染 — 文件存在 & 表面", (
 });
 
 describe("Unit C1-B r1b · 工具差异化语义 (per spec)", () => {
-  it("lessonPolish 渲染 GradingTableBlock（schema 数据非空时显示）", () => {
+  it("lessonPolish 不渲染 GradingTableBlock", () => {
     const src = readFile("components/ai-assistant/lesson-polish-result.tsx");
-    expect(src).toContain("GradingTableBlock");
+    expect(src).not.toContain("GradingTableBlock");
   });
 
   it("ideologyMining 不渲染 GradingTableBlock 且含育人目标 callout", () => {

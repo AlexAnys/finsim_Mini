@@ -132,8 +132,6 @@ function getToolSystemPrompt(toolKey: string): string {
         teacherRequest: "",
         outputStyle: "structured",
         strictness: "balanced",
-        enableSearch: false,
-        searchConfigured: false,
         fileReports: [],
       }).systemPrompt;
 
