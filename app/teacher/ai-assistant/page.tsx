@@ -164,9 +164,13 @@ export default function AIAssistantPage() {
 
   // 切工具时同步首选项
   const setActiveTool = useCallback((next: ToolKey) => {
+    if (next === activeTool) return;
+    setJob(null);
+    setResult(null);
+    setOriginalResult(null);
     setActiveToolRaw(next);
     writeActiveTool(next);
-  }, []);
+  }, [activeTool]);
 
   // 首次挂载：恢复 activeTool
   useEffect(() => {
