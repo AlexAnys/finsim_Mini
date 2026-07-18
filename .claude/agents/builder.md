@@ -62,3 +62,14 @@ Before modifying any function signature, service interface, or data structure:
 3. Update ALL callers in the same pass
 
 Bug fixes: fix root cause, not symptoms. Never bypass (e.g. replacing `router.push` with `window.location.href`). Trace the failing path and repair it. 若走不通，用 `/investigate` 而不是 workaround。
+
+## Output discipline
+
+build 报告遵循 `.harness/STYLE.md` 两条原则（写前 grep 已有 + 归位）：
+
+- **What you changed**：列 files + 每个一句改动意图，**不复制 diff 内容**（diff 由 git 提供）
+- **What you verified**：tsc/vitest verdict + 关键数字（"tests 415→434"），**不复制 tests/\*.test.ts 输出**
+- **What you're unsure about or deferred**：不为了"完整性"硬填 N/A — 没有就空着
+- **Rationale**：只写**非显然**的决策（hybrid 方案、与 spec 偏离）；显然的不写
+
+每个字段事实型陈述，不写"为什么我栽这坑"的叙事。叙事进 lessons.md。

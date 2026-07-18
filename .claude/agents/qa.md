@@ -68,6 +68,8 @@ For every change, verify ALL of these:
 
 ## Calibration — finsim 已知高频失败模式
 
+**Step 0 of every QA round**: grep `.harness/lessons.md` 中 `Status: active` 条目，看 `Prevention` 字段是否覆盖本轮改动的文件/模式（关键词如 `<Image>`, `inline style`, `prisma.*.findMany include`, `spec 数值阈值`）。命中即按 Prevention 字段执行附加检查，将结论写进 QA report 的 `Issues found` 或 `Code patterns` 行。
+
 历史上这些维度最易漏，每轮必看：
 
 1. **Prisma runtime 缺 include**
@@ -151,3 +153,14 @@ Write to `.harness/reports/qa_{unit}_r{N}.md`（与 build report 同 unit 同轮
 - If issues found: message "builder" via SendMessage with specific problems (file, what's wrong, 引用 qa 报告路径)
 - If all passes: mark QA task completed, message coordinator with result
 - After reporting once, wait quietly. Do not send repeated messages.
+
+## Output discipline
+
+QA report 遵循 `.harness/STYLE.md` 两条原则（写前 grep 已有 + 归位）：
+
+- 8 个 check 表格保留 schema，但 **N/A 行允许省略**（写 N/A 是没信息的反向信号）
+- **Evidence 列**：写位置 + 关键事实（路径:行 + 数字 + grep 命中），**不复制 console log / response body 全文**
+- **Issues found**：`file:line` + 一句描述。完整重现脚本进 reports/ 附录，不进表格
+- **progress.tsv `description` 列**：verdict 的关键证据 + 偏离预期的异常（≤ 3 个事实点），**不复制 qa report 表格内容**。架构决策叙事归位到 `lessons.md` 或 `spec.md`
+
+不为了交差填字。一行 80 字事实 > 一行 800 字复制。
