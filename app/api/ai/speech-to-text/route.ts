@@ -3,8 +3,6 @@ import { requireAuth } from "@/lib/auth/guards";
 import { handleServiceError, success, validationError } from "@/lib/api-utils";
 import { resolveMimoBaseUrl } from "@/lib/services/ai.service";
 
-const STT_PROMPT = "请把这段音频转写成简体中文文本。只返回转写文本，不要解释。";
-
 export async function POST(request: NextRequest) {
   const result = await requireAuth();
   if (result.error) return result.error;
@@ -13,7 +11,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const audio = formData.get("audio") as File | null;
     if (!audio) return validationError("缺少音频文件");
-    if (audio.size > 16 * 1024 * 1024) return validationError("音频文件过大，请控制在 16MB 以内");
+    if (audio.size > 10 * 1024 * 1024) return validationError("音频文件过大，请控制在 10MB 以内");
 
     const provider = (process.env.STT_PROVIDER || "mimo").trim().toLowerCase();
     if (provider !== "mimo") {
@@ -21,7 +19,7 @@ export async function POST(request: NextRequest) {
         text: "",
         provider,
         canFallback: true,
-        message: "当前只接入了 MiMo Omni 语音识别尝试；请设置 STT_PROVIDER=mimo，或手动输入。",
+        message: "当前只接入了 MiMo ASR 语音识别；请设置 STT_PROVIDER=mimo，或手动输入。",
       });
     }
 
@@ -39,7 +37,7 @@ export async function POST(request: NextRequest) {
     const mimeType = audio.type || "audio/webm";
     const format = audioFormatFromMime(mimeType);
     const baseUrl = resolveMimoBaseUrl(apiKey).replace(/\/+$/, "");
-    const model = process.env.MIMO_STT_MODEL || process.env.MIMO_OMNI_MODEL || "mimo-v2-omni";
+    const model = process.env.MIMO_STT_MODEL || "mimo-v2.5-asr";
 
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -54,10 +52,6 @@ export async function POST(request: NextRequest) {
             role: "user",
             content: [
               {
-                type: "text",
-                text: STT_PROMPT,
-              },
-              {
                 type: "input_audio",
                 input_audio: {
                   data: buffer.toString("base64"),
@@ -67,22 +61,19 @@ export async function POST(request: NextRequest) {
             ],
           },
         ],
-        temperature: 0,
-        max_completion_tokens: 1200,
-        thinking: { type: "disabled" },
+        asr_options: { language: "zh" },
       }),
     });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[speech-to-text] mimo returned", res.status, body.slice(0, 400));
-      // 4xx 通常是格式/鉴权问题，浏览器路径救不了；5xx + network err 才允许降级浏览器
-      const canFallback = res.status >= 500;
+      const canFallback = res.status >= 400;
       const userMsg =
         res.status === 401 || res.status === 403
           ? "云端语音识别鉴权失败：MIMO_API_KEY 无效或过期。"
           : res.status === 415 || res.status === 400
-            ? "云端语音识别拒绝当前音频格式，请改用浏览器语音或手动输入。"
+            ? "云端语音识别暂不可用，可改用浏览器语音或手动输入。"
             : res.status === 429
               ? "云端语音识别已达限流，请稍后再试或手动输入。"
               : `云端语音识别暂不可用：MiMo 返回 ${res.status}。`;
@@ -96,8 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const text = (json.choices?.[0]?.message?.content || "").trim();
-    const usableText = normalizeTranscription(text);
+    const usableText = (json.choices?.[0]?.message?.content || "").trim();
     return success({
       text: usableText,
       provider: "mimo",
@@ -110,23 +100,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function normalizeTranscription(text: string) {
-  const normalized = text.trim();
-  if (!normalized) return "";
-
-  const compact = normalized.replace(/\s+/g, "");
-  const promptCompact = STT_PROMPT.replace(/\s+/g, "");
-  const promptEcho =
-    compact === promptCompact ||
-    compact.includes(promptCompact.slice(0, 16)) ||
-    /^请把.{0,8}音频.{0,8}转写/.test(compact);
-
-  if (promptEcho) return "";
-  return normalized;
-}
-
-// mimo Omni 仅接受 mp3/flac/m4a/wav/ogg。前端会把 webm 转码成 wav 上传，
-// 但保留 fallback 推断以应对其他客户端直接上传 mp3/m4a/ogg 的场景。
+// 前端会把 MediaRecorder 产物转码成 wav；保留 MIME 推断以兼容其他客户端。
 function audioFormatFromMime(mimeType: string) {
   if (mimeType.includes("mp3") || mimeType.includes("mpeg")) return "mp3";
   if (mimeType.includes("wav") || mimeType.includes("wave") || mimeType.includes("x-wav")) return "wav";
