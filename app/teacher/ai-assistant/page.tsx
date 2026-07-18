@@ -24,7 +24,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { LessonPolishResult } from "@/components/ai-assistant/lesson-polish-result";
 import { IdeologyMiningResult } from "@/components/ai-assistant/ideology-mining-result";
@@ -45,12 +44,41 @@ type ToolKey = AiToolKey;
 type AiResult = PersistedAiResult;
 type AsyncJobSnapshot = PersistedAsyncJob;
 
+type ExtraFieldKey =
+  | "lessonHours"
+  | "educationStage"
+  | "studentFoundation"
+  | "majorDirection"
+  | "questionCount"
+  | "knowledgeScope"
+  | "standardAnswer"
+  | "gradingCriteria"
+  | "fullScore";
+
+interface ExtraFieldConfig {
+  key: ExtraFieldKey;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+  type?: "text" | "number";
+}
+
+type ExtraFieldValues = Partial<Record<ExtraFieldKey, string>>;
+
+const EMPTY_EXTRA_FIELDS: Record<ToolKey, ExtraFieldValues> = {
+  lessonPolish: {},
+  ideologyMining: {},
+  questionAnalysis: {},
+  examCheck: {},
+};
+
 const TOOLS: Array<{
   key: ToolKey;
   label: string;
   desc: string;
   icon: React.ComponentType<{ className?: string }>;
   placeholder: string;
+  extraFields: ExtraFieldConfig[];
 }> = [
   {
     key: "lessonPolish",
@@ -58,6 +86,11 @@ const TOOLS: Array<{
     desc: "完善目标、活动、评价和课堂话术",
     icon: BookOpenCheck,
     placeholder: "粘贴教案片段，或说明希望完善的课程主题、课时、学生基础...",
+    extraFields: [
+      { key: "lessonHours", label: "课时", placeholder: "例如：2 课时" },
+      { key: "educationStage", label: "学段", placeholder: "例如：高职一年级" },
+      { key: "studentFoundation", label: "学生基础", placeholder: "例如：已掌握基础概念，但案例分析经验较少", multiline: true },
+    ],
   },
   {
     key: "ideologyMining",
@@ -65,13 +98,21 @@ const TOOLS: Array<{
     desc: "自然提炼专业课里的育人融合点",
     icon: Sparkles,
     placeholder: "粘贴课堂内容，说明专业方向和希望避免的表达边界...",
+    extraFields: [
+      { key: "majorDirection", label: "专业方向", placeholder: "例如：金融科技" },
+      { key: "educationStage", label: "学段", placeholder: "例如：高职二年级" },
+    ],
   },
   {
     key: "questionAnalysis",
-    label: "搜题与解析",
-    desc: "识别题型、知识点、步骤和易错点",
+    label: "题目解析",
+    desc: "识别题型、知识点、解题步骤与易错点",
     icon: SearchCheck,
     placeholder: "粘贴题目，或上传题目图片/试卷片段...",
+    extraFields: [
+      { key: "questionCount", label: "题目数量", placeholder: "例如：5", type: "number" },
+      { key: "knowledgeScope", label: "知识点范围", placeholder: "例如：复利终值与现值" },
+    ],
   },
   {
     key: "examCheck",
@@ -79,6 +120,11 @@ const TOOLS: Array<{
     desc: "按答案和评分规则辅助批改试卷",
     icon: FileCheck2,
     placeholder: "粘贴标准答案、评分规则和学生作答说明，也可以上传多个文件...",
+    extraFields: [
+      { key: "standardAnswer", label: "标准答案", placeholder: "填写各题标准答案或参考解法", multiline: true },
+      { key: "gradingCriteria", label: "评分标准", placeholder: "填写各题分值、步骤分与扣分规则", multiline: true },
+      { key: "fullScore", label: "满分", placeholder: "例如：100", type: "number" },
+    ],
   },
 ];
 
@@ -90,7 +136,8 @@ export default function AIAssistantPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [outputStyle, setOutputStyle] = useState("structured");
   const [strictness, setStrictness] = useState("balanced");
-  const [enableSearch, setEnableSearch] = useState(false);
+  const [extraFieldsByTool, setExtraFieldsByTool] =
+    useState<Record<ToolKey, ExtraFieldValues>>(EMPTY_EXTRA_FIELDS);
   const [submitting, setSubmitting] = useState(false);
   const [job, setJob] = useState<AsyncJobSnapshot | null>(null);
   const [result, setResult] = useState<AiResult | null>(null);
@@ -100,14 +147,13 @@ export default function AIAssistantPage() {
   const { state: persisted, hydrated, update: persistPatch, reset: persistReset } =
     usePersistedJob(activeTool);
 
-  // 切回工具时一次性同步 5 input + job + result + originalResult（hook hydrate 后）
+  // 切回工具时同步通用输入、job、result 与 originalResult（hook hydrate 后）
   useEffect(() => {
     if (!hydrated) return;
     setText(persisted.text);
     setTeacherRequest(persisted.teacherRequest);
     setOutputStyle(persisted.outputStyle);
     setStrictness(persisted.strictness);
-    setEnableSearch(persisted.enableSearch);
     setJob(persisted.job);
     setResult(persisted.result);
     setOriginalResult(persisted.originalResult);
@@ -118,9 +164,13 @@ export default function AIAssistantPage() {
 
   // 切工具时同步首选项
   const setActiveTool = useCallback((next: ToolKey) => {
+    if (next === activeTool) return;
+    setJob(null);
+    setResult(null);
+    setOriginalResult(null);
     setActiveToolRaw(next);
     writeActiveTool(next);
-  }, []);
+  }, [activeTool]);
 
   // 首次挂载：恢复 activeTool
   useEffect(() => {
@@ -172,18 +222,25 @@ export default function AIAssistantPage() {
       teacherRequest,
       outputStyle,
       strictness,
-      enableSearch,
       job,
       result,
       originalResult,
       viewMode,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, teacherRequest, outputStyle, strictness, enableSearch, job, result, originalResult, viewMode, hydrated]);
+  }, [text, teacherRequest, outputStyle, strictness, job, result, originalResult, viewMode, hydrated]);
 
   const active = useMemo(() => TOOLS.find((tool) => tool.key === activeTool) ?? TOOLS[0], [activeTool]);
+  const extraFields = extraFieldsByTool[activeTool];
   const Icon = active.icon;
   const processing = job?.status === "queued" || job?.status === "running";
+
+  function setExtraField(key: ExtraFieldKey, value: string) {
+    setExtraFieldsByTool((current) => ({
+      ...current,
+      [activeTool]: { ...current[activeTool], [key]: value },
+    }));
+  }
 
   useEffect(() => {
     if (!job?.id || !processing) return;
@@ -235,7 +292,7 @@ export default function AIAssistantPage() {
       form.set("teacherRequest", teacherRequest);
       form.set("outputStyle", outputStyle);
       form.set("strictness", strictness);
-      form.set("enableSearch", String(enableSearch));
+      form.set("extraFields", JSON.stringify(extraFields));
       files.forEach((file) => form.append("files", file));
 
       const res = await fetch("/api/ai/work-assistant", { method: "POST", body: form });
@@ -407,6 +464,40 @@ export default function AIAssistantPage() {
               />
             </div>
 
+            <div className="space-y-3 rounded-lg border border-line bg-paper-alt p-3">
+              <div>
+                <p className="text-sm font-semibold text-ink-2">{active.label}专属信息</p>
+                <p className="mt-1 text-xs text-ink-4">以下字段均可留空；填写后会作为本次分析的专属约束。</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {active.extraFields.map((field) => (
+                  <div key={field.key} className={`space-y-2 ${field.multiline ? "sm:col-span-2" : ""}`}>
+                    <Label htmlFor={`extra-${field.key}`}>{field.label}</Label>
+                    {field.multiline ? (
+                      <Textarea
+                        id={`extra-${field.key}`}
+                        value={extraFields[field.key] ?? ""}
+                        onChange={(event) => setExtraField(field.key, event.target.value)}
+                        placeholder={field.placeholder}
+                        rows={3}
+                        disabled={submitting}
+                      />
+                    ) : (
+                      <Input
+                        id={`extra-${field.key}`}
+                        type={field.type ?? "text"}
+                        min={field.type === "number" ? 0 : undefined}
+                        value={extraFields[field.key] ?? ""}
+                        onChange={(event) => setExtraField(field.key, event.target.value)}
+                        placeholder={field.placeholder}
+                        disabled={submitting}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <Sheet>
               <SheetTrigger asChild>
                 <Button type="button" variant="outline" className="w-full">
@@ -440,13 +531,6 @@ export default function AIAssistantPage() {
                         <SelectItem value="strict">严格</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border border-line p-3">
-                    <div>
-                      <div className="text-sm font-medium text-ink-2">请求搜索增强</div>
-                      <div className="text-xs text-ink-4">未配置搜索 provider 时不会伪造联网结果。</div>
-                    </div>
-                    <Switch checked={enableSearch} onCheckedChange={setEnableSearch} />
                   </div>
                 </div>
               </SheetContent>

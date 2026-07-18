@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const teacherRequest = ((formData.get("teacherRequest") as string | null) || "").trim();
     const outputStyle = ((formData.get("outputStyle") as string | null) || "structured").trim();
     const strictness = ((formData.get("strictness") as string | null) || "balanced").trim();
-    const enableSearch = formData.get("enableSearch") === "true";
+    const extraFields = ((formData.get("extraFields") as string | null) || "{}").trim() || "{}";
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
 
     if (!pastedText && files.length === 0 && !teacherRequest) {
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
         teacherRequest,
         outputStyle,
         strictness,
-        enableSearch,
+        extraFields,
         files: savedFiles,
       },
       createdBy: result.session.user.id,

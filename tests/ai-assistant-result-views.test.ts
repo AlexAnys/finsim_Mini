@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ExamCheckResult } from "@/components/ai-assistant/exam-check-result";
+import type { PersistedAiResult } from "@/lib/hooks/use-persisted-job";
 
 /**
  * Unit C1-B · r1b · 4 工具差异化渲染
@@ -64,9 +68,9 @@ describe("Unit C1-B r1b · 4 工具差异化渲染 — 文件存在 & 表面", (
 });
 
 describe("Unit C1-B r1b · 工具差异化语义 (per spec)", () => {
-  it("lessonPolish 渲染 GradingTableBlock（schema 数据非空时显示）", () => {
+  it("lessonPolish 不渲染 GradingTableBlock", () => {
     const src = readFile("components/ai-assistant/lesson-polish-result.tsx");
-    expect(src).toContain("GradingTableBlock");
+    expect(src).not.toContain("GradingTableBlock");
   });
 
   it("ideologyMining 不渲染 GradingTableBlock 且含育人目标 callout", () => {
@@ -98,6 +102,25 @@ describe("Unit C1-B r1b · 工具差异化语义 (per spec)", () => {
     expect(src).toContain("<details");
     expect(src).toContain("<summary");
   });
+
+  it("examCheck 收到缺 gradingTable 的旧工具结果时不崩溃并显示空表提示", () => {
+    const resultWithoutGradingTable = {
+      title: "教案完善结果",
+      summary: "旧工具结果",
+      sections: [],
+      actionItems: [],
+      cautions: [],
+    } as unknown as PersistedAiResult;
+    const element = createElement(ExamCheckResult, {
+      result: resultWithoutGradingTable,
+      patchResult: () => {},
+      patchSection: () => {},
+      viewMode: "read",
+    });
+
+    expect(() => renderToStaticMarkup(element)).not.toThrow();
+    expect(renderToStaticMarkup(element)).toContain("AI 未输出逐题批改表");
+  });
 });
 
 describe("Unit C1-B r1b · page.tsx 分发", () => {
@@ -122,6 +145,19 @@ describe("Unit C1-B r1b · page.tsx 分发", () => {
     const src = readFile("app/teacher/ai-assistant/page.tsx");
     expect(src).not.toContain("<Label>分段标题</Label>");
     expect(src).not.toContain("<Label>下一步动作（一行一条）</Label>");
+  });
+
+  it("lessonPolish 有结果时切 examCheck 会先同步清空旧工具结果", () => {
+    const src = readFile("app/teacher/ai-assistant/page.tsx");
+    const callback = src.match(
+      /const setActiveTool = useCallback\(\(next: ToolKey\) => \{([\s\S]*?)\n  \}, \[activeTool\]\);/,
+    )?.[1];
+
+    expect(callback).toBeDefined();
+    for (const reset of ["setJob(null)", "setResult(null)", "setOriginalResult(null)"]) {
+      expect(callback).toContain(reset);
+      expect(callback!.indexOf(reset)).toBeLessThan(callback!.indexOf("setActiveToolRaw(next)"));
+    }
   });
 });
 
