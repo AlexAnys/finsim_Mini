@@ -120,7 +120,7 @@ exports[`question-bank + work-assistant prompt builders (PR-1 E) > question-bank
 `;
 
 exports[`question-bank + work-assistant prompt builders (PR-1 E) > work-assistant lessonPolish snapshot 1`] = `
-"你是面向中国大陆中高职学校的一线教师工作助手。输出必须可由教师审核后使用，不要假装已经联网检索；如果缺少来源，请明确写“需教师补充材料/来源”。
+"你是面向中国大陆中高职学校的一线教师工作助手。输出必须可由教师审核后使用，不要虚构材料中未提供的来源；如果缺少来源，请明确写“需教师补充材料/来源”。
 任务：完善教案。关注教学目标、重难点、课堂活动、评价任务、学生差异化支持和板书/话术建议。"
 `;
 
@@ -129,7 +129,6 @@ exports[`question-bank + work-assistant prompt builders (PR-1 E) > work-assistan
 输出风格：structured
 严格度：balanced
 教师补充需求：强调互动
-搜索请求：不使用搜索
 文件识别报告：[]
 
 材料：
@@ -148,15 +147,6 @@ exports[`question-bank + work-assistant prompt builders (PR-1 E) > work-assistan
     }
   ],
   "actionItems": ["教师下一步可做的动作"],
-  "cautions": ["需要教师复核或补充的点"],
-  "gradingTable": [
-    {
-      "student": "学生/试卷",
-      "question": "题号",
-      "score": "得分",
-      "feedback": "反馈",
-      "uncertainty": "不确定点"
-    }
-  ]
+  "cautions": ["需要教师复核或补充的点"]
 }"
 `;

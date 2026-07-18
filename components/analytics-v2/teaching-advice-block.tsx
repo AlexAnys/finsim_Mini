@@ -282,12 +282,13 @@ function ColumnList<T>({
               <button
                 type="button"
                 onClick={() => toggle(idx)}
+                aria-expanded={isExpanded}
                 className="flex shrink-0 items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown
                   className={cn("size-3 transition-transform", isExpanded && "rotate-180")}
                 />
-                {isExpanded ? "收" : "据"}
+                {isExpanded ? "收起" : "证据"}
               </button>
             </div>
             {renderSub && (

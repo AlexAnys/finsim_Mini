@@ -31,24 +31,46 @@ export const workAssistantResultSchema = z.object({
     .default([]),
   actionItems: z.array(z.string()).default([]),
   cautions: z.array(z.string()).default([]),
-  gradingTable: z
-    .array(
-      z.object({
-        student: z.string().optional().default(""),
-        question: z.string().optional().default(""),
-        score: z.string().optional().default(""),
-        feedback: z.string().optional().default(""),
-        uncertainty: z.string().optional().default(""),
-      }),
-    )
-    .default([]),
 });
 
-export type WorkAssistantResult = z.infer<typeof workAssistantResultSchema> & {
+const gradingTableSchema = z
+  .array(
+    z.object({
+      student: z.string().optional().default(""),
+      question: z.string().optional().default(""),
+      score: z
+        .union([z.string(), z.number()])
+        .transform(String)
+        .optional()
+        .default(""),
+      feedback: z.string().optional().default(""),
+      uncertainty: z.string().optional().default(""),
+    }),
+  )
+  .default([]);
+
+export const examCheckResultSchema = workAssistantResultSchema.extend({
+  gradingTable: gradingTableSchema,
+});
+
+type WorkAssistantGeneratedResult =
+  | z.infer<typeof workAssistantResultSchema>
+  | z.infer<typeof examCheckResultSchema>;
+
+export type WorkAssistantResult = WorkAssistantGeneratedResult & {
   fallback: boolean;
   fileReports: Array<{ fileName: string; status: string; error?: string; textLength: number }>;
-  searchStatus: "disabled" | "configured" | "not_configured";
 };
+
+const extraFieldsSchema = z.preprocess((value) => {
+  if (value == null || value === "") return {};
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}, z.record(z.string(), z.string()).default({}));
 
 const workAssistantJobInputSchema = z.object({
   toolKey: z.enum(workAssistantToolKeys),
@@ -56,7 +78,7 @@ const workAssistantJobInputSchema = z.object({
   teacherRequest: z.string().default(""),
   outputStyle: z.string().default("structured"),
   strictness: z.string().default("balanced"),
-  enableSearch: z.boolean().default(false),
+  extraFields: extraFieldsSchema,
   files: z
     .array(
       z.object({
@@ -118,11 +140,6 @@ export async function runAiWorkAssistantJob(
   }
 
   await onProgress?.(68);
-  const searchStatus = input.enableSearch
-    ? process.env.SEARCH_PROVIDER && process.env.SEARCH_API_KEY
-      ? "configured"
-      : "not_configured"
-    : "disabled";
 
   try {
     const builtPrompt = buildWorkAssistantPrompt({
@@ -131,16 +148,16 @@ export async function runAiWorkAssistantJob(
       teacherRequest: input.teacherRequest.trim(),
       outputStyle: input.outputStyle,
       strictness: input.strictness,
-      enableSearch: input.enableSearch,
-      searchConfigured: searchStatus === "configured",
+      extraFields: input.extraFields,
       fileReports,
     });
-    const ai = await aiGenerateJSON(
+    const resultSchema = input.toolKey === "examCheck" ? examCheckResultSchema : workAssistantResultSchema;
+    const ai = await aiGenerateJSON<WorkAssistantGeneratedResult>(
       featureForTool(input.toolKey),
       userId,
       builtPrompt.systemPrompt,
       builtPrompt.userPrompt,
-      workAssistantResultSchema,
+      resultSchema,
       1,
       { promptVersion: WORK_ASSISTANT_PROMPT_VERSION },
     );
@@ -149,7 +166,6 @@ export async function runAiWorkAssistantJob(
       ...ai,
       fallback: false,
       fileReports,
-      searchStatus,
     };
   } catch (err) {
     await onProgress?.(94);
@@ -157,7 +173,6 @@ export async function runAiWorkAssistantJob(
       ...fallbackResult(input.toolKey, materialText, input.teacherRequest.trim(), err),
       fallback: true,
       fileReports,
-      searchStatus: input.enableSearch ? "not_configured" : "disabled",
     };
   }
 }
@@ -170,10 +185,10 @@ function fallbackResult(toolKey: WorkAssistantToolKey, materialText: string, tea
   const toolLabel: Record<WorkAssistantToolKey, string> = {
     lessonPolish: "教案完善",
     ideologyMining: "思政挖掘",
-    questionAnalysis: "搜题与解析",
+    questionAnalysis: "题目解析",
     examCheck: "试卷检查",
   };
-  return {
+  const baseResult = {
     title: `${toolLabel[toolKey]}（离线占位）`,
     summary: "AI 服务暂不可用，系统已完成材料识别。请稍后重试或检查 AI 设置。",
     sections: [
@@ -186,8 +201,8 @@ function fallbackResult(toolKey: WorkAssistantToolKey, materialText: string, tea
     ],
     actionItems: ["稍后重新生成", "确认 OCR/AI provider 配置"],
     cautions: [errorMessage(err)],
-    gradingTable: [],
   };
+  return toolKey === "examCheck" ? { ...baseResult, gradingTable: [] } : baseResult;
 }
 
 function errorMessage(err: unknown) {

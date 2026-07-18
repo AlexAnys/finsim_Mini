@@ -3,7 +3,6 @@
 import {
   ActionItemsAndCautions,
   FileReportsBlock,
-  GradingTableBlock,
   SectionEditor,
   TitleAndSummary,
   type ToolResultProps,
@@ -34,7 +33,6 @@ export function LessonPolishResult({
           />
         ))}
       </div>
-      <GradingTableBlock rows={result.gradingTable} />
       <ActionItemsAndCautions
         result={result}
         patchResult={patchResult}

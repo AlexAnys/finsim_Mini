@@ -22,6 +22,7 @@ export function ExamCheckResult({
   viewMode,
 }: ToolResultProps) {
   const isRead = viewMode === "read";
+  const gradingRows = result.gradingTable ?? [];
 
   return (
     <div data-tool="examCheck" className="space-y-5">
@@ -39,10 +40,10 @@ export function ExamCheckResult({
         </div>
       )}
 
-      {result.gradingTable.length > 0 ? (
+      {gradingRows.length > 0 ? (
         <div className="space-y-1">
           <div className="text-xs font-semibold text-ink-3">逐题批改结果</div>
-          <GradingTableBlock rows={result.gradingTable} />
+          <GradingTableBlock rows={gradingRows} />
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-line bg-paper-alt px-3 py-4 text-center text-xs text-ink-4">
