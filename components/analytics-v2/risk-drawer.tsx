@@ -32,12 +32,15 @@ export interface RiskDrawerState {
   loading: boolean;
   items: unknown[];
   error: string | null;
+  title?: string;
+  description?: string;
 }
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: RiskDrawerState | null;
+  onRiskKindChange?: (kind: "risk_chapter" | "risk_student") => void;
 }
 
 const REASON_LABELS: Record<RiskStudentDetail["reason"], string> = {
@@ -46,14 +49,18 @@ const REASON_LABELS: Record<RiskStudentDetail["reason"], string> = {
   declining: "退步",
 };
 
-export function RiskDrawer({ open, onOpenChange, state }: Props) {
+export function RiskDrawer({ open, onOpenChange, state, onRiskKindChange }: Props) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
         className="w-[min(560px,100vw)] overflow-y-auto sm:max-w-[560px]"
       >
-        {state ? <RenderState state={state} /> : <EmptyState />}
+        {state ? (
+          <RenderState state={state} onRiskKindChange={onRiskKindChange} />
+        ) : (
+          <EmptyState />
+        )}
       </SheetContent>
     </Sheet>
   );
@@ -68,15 +75,42 @@ function EmptyState() {
   );
 }
 
-function RenderState({ state }: { state: RiskDrawerState }) {
-  const title = headerTitle(state.kind, state.items.length, state.loading);
-  const description = headerDescription(state.kind);
+function RenderState({
+  state,
+  onRiskKindChange,
+}: {
+  state: RiskDrawerState;
+  onRiskKindChange?: Props["onRiskKindChange"];
+}) {
+  const title = headerTitle(state.kind, state.items.length, state.loading, state.title);
+  const description = state.description ?? headerDescription(state.kind);
   return (
     <div className="space-y-4 px-1">
       <SheetHeader className="space-y-1 px-0">
         <SheetTitle className="text-base">{title}</SheetTitle>
         {description && <SheetDescription>{description}</SheetDescription>}
       </SheetHeader>
+      {(state.kind === "risk_chapter" || state.kind === "risk_student") && (
+        <div className="flex rounded-md bg-muted p-1" role="tablist" aria-label="风险详情类型">
+          {(["risk_chapter", "risk_student"] as const).map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              role="tab"
+              aria-selected={state.kind === kind}
+              disabled={state.loading}
+              onClick={() => onRiskKindChange?.(kind)}
+              className={`flex-1 rounded px-3 py-1.5 text-xs transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                state.kind === kind
+                  ? "bg-background font-medium text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {kind === "risk_chapter" ? "风险章节" : "风险学生"}
+            </button>
+          ))}
+        </div>
+      )}
       {state.loading ? (
         <LoadingState />
       ) : state.error ? (
@@ -312,7 +346,12 @@ function EmptyHint({ kind }: { kind: RiskDrawerKind }) {
   );
 }
 
-function headerTitle(kind: RiskDrawerKind, count: number, loading: boolean): string {
+function headerTitle(
+  kind: RiskDrawerKind,
+  count: number,
+  loading: boolean,
+  titleOverride?: string,
+): string {
   const labels: Record<RiskDrawerKind, [string, string]> = {
     score_bin: ["分数区间学生", "人"],
     completion_rate: ["未提交学生", "人"],
@@ -321,14 +360,15 @@ function headerTitle(kind: RiskDrawerKind, count: number, loading: boolean): str
     risk_chapter: ["风险章节", "个"],
     risk_student: ["风险学生", "名"],
   };
-  const [label, unit] = labels[kind];
+  const [defaultLabel, unit] = labels[kind];
+  const label = titleOverride ?? defaultLabel;
   if (loading) return `${label} · 加载中`;
   return `${label} · ${count} ${unit}`;
 }
 
 function headerDescription(kind: RiskDrawerKind): string {
   const map: Record<RiskDrawerKind, string> = {
-    score_bin: "该分数区间内的学生 · 限 50 行",
+    score_bin: "与成绩分布图当前所选范围一致",
     completion_rate: "尚未提交当前范围任务的学生 · 限 50 行",
     avg_score: "归一化得分低于 60% 的提交 · 限 50 行",
     pending_release: "DDL 已到但分数尚未发布给学生 · 限 50 行",

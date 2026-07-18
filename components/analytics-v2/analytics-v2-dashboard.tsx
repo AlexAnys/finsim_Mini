@@ -31,6 +31,7 @@ import {
 import type {
   ScoreDistributionBin,
 } from "@/components/analytics-v2/score-distribution-chart";
+import { buildScoreDrilldownItems } from "@/components/analytics-v2/score-distribution-drilldown";
 import type {
   ScopeSimulationInsight as ScopeSimulationInsightShape,
   ScopeStudyBuddySummary as ScopeStudyBuddySummaryShape,
@@ -578,18 +579,30 @@ export function AnalyticsV2Dashboard() {
   }
 
   function handleBinClick(bin: ScoreDistributionBin, classId: string) {
-    void openRiskDrawerByKind("score_bin", {
-      binLabel: bin.label,
-      binClassId: classId,
-    });
+    openScoreDrawer([bin], classId);
   }
 
-  function handleViewAllScores() {
-    if (!courseId || !diagnosis) return;
-    const firstBin = diagnosis.scoreDistribution.bins[0];
-    if (!firstBin) return;
-    void openRiskDrawerByKind("score_bin", {
-      binLabel: firstBin.label,
+  function handleViewAllScores(bins: ScoreDistributionBin[]) {
+    openScoreDrawer(bins, undefined, true);
+  }
+
+  function openScoreDrawer(
+    bins: ScoreDistributionBin[],
+    classId?: string,
+    viewAll = false,
+  ) {
+    setRiskDrawerOpen(true);
+    setRiskDrawerState({
+      kind: "score_bin",
+      loading: false,
+      items: buildScoreDrilldownItems(bins, classId),
+      error: null,
+      ...(viewAll
+        ? {
+            title: "全部成绩学生",
+            description: "当前成绩分布范围内的全部学生",
+          }
+        : {}),
     });
   }
 
@@ -601,8 +614,7 @@ export function AnalyticsV2Dashboard() {
     <div
       className={cn(
         "flex flex-col gap-3",
-        "h-[calc(100vh-3.5rem-3rem)]",
-        "overflow-hidden",
+        "min-h-[calc(100vh-3.5rem-3rem)]",
       )}
     >
       <div className="flex flex-wrap items-center gap-3 shrink-0">
@@ -646,16 +658,16 @@ export function AnalyticsV2Dashboard() {
           {/* 主体两行布局：
               row1 = 学生成绩分布 (1/3) + 任务表现 (2/3)
               row2 = Study Buddy (1/3) + AI 教学建议 (2/3) */}
-          <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-2 overflow-hidden">
+          <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[minmax(350px,1fr)_minmax(350px,1fr)]">
             {/* row 1 */}
-            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1 lg:row-start-1">
+            <div className="flex min-h-[350px] flex-col lg:col-span-1 lg:row-start-1">
               <ScoreDistributionChart
                 distribution={diagnosis.scoreDistribution}
                 onBinClick={handleBinClick}
                 onViewAll={handleViewAllScores}
               />
             </div>
-            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-2 lg:row-start-1">
+            <div className="flex min-h-[350px] flex-col lg:col-span-2 lg:row-start-1">
               <TaskPerformanceBlock
                 data={scopeInsights.simulation}
                 loading={scopeInsightsLoading && !scopeInsights.simulation}
@@ -669,14 +681,14 @@ export function AnalyticsV2Dashboard() {
             </div>
 
             {/* row 2 */}
-            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1 lg:row-start-2">
+            <div className="flex min-h-[300px] flex-col lg:col-span-1 lg:row-start-2">
               <StudyBuddyBlock
                 data={scopeInsights.studyBuddy}
                 loading={scopeInsightsLoading && !scopeInsights.studyBuddy}
                 onOpenEvidence={openEvidence}
               />
             </div>
-            <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-2 lg:row-start-2">
+            <div className="flex min-h-[350px] flex-col lg:col-span-2 lg:row-start-2">
               <TeachingAdviceBlock
                 data={scopeInsights.teachingAdvice}
                 loading={scopeInsightsLoading && !scopeInsights.teachingAdvice}
@@ -702,6 +714,7 @@ export function AnalyticsV2Dashboard() {
           if (!open) setTimeout(() => setRiskDrawerState(null), 200);
         }}
         state={riskDrawerState}
+        onRiskKindChange={(kind) => void openRiskDrawerByKind(kind)}
       />
       <EvidenceDrawer
         open={evidenceOpen}
