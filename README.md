@@ -30,7 +30,7 @@
 
 AI 客户对话与资产配置练习 · 个人成绩和薄弱点分析 · 师生工作台 · 班级看板与学生明细 · AI 教学建议
 
-[▶ 观看宣传片](https://github.com/AlexAnys/finsim_Mini/releases/tag/media-2026-09-08)
+https://github.com/user-attachments/assets/67cf52a8-12c3-4c69-932c-709694137f0a
 
 [体验灵析](https://finsim.anlanai.cn) · [下载 1080p](https://github.com/AlexAnys/finsim_Mini/releases/download/media-2026-09-08/Lingxi-Complete-1080p60.mp4) · [下载 4K](https://github.com/AlexAnys/finsim_Mini/releases/download/media-2026-09-08/Lingxi-Complete-4K60.mp4)
 
