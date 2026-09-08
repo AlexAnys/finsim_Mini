@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 行为底线（不可妥协，所有 session / agent 必须遵守）
 
-**不走捷径 — 任何跳过 / 接受 < 100% acceptance 必须先 ask 用户，结果立刻写进 `.harness/spec.md` + commit。**
+**按 AGENTS.md 的变更分类选择验证：纯说明文档走正常轻量路径，无须额外申请跳过测试；代码、运行时指令与配置保留完整验证。不得把未完成的检查写成通过。**
 
 ## Project Overview
 
@@ -36,7 +36,7 @@ npx prisma migrate dev                 # Run DB migrations (creates + applies)
 npx prisma generate                    # Regenerate Prisma Client (REQUIRED after schema changes)
 npm run db:seed                        # Seed test data
 npm run dev                            # Dev server (port 3000)
-npx tsc --noEmit                       # Type check (run after every change)
+npx tsc --noEmit                       # Type check (application changes)
 npm run build                          # Production build
 npm run lint                           # ESLint
 docker compose up --build              # Full Docker deploy
@@ -109,13 +109,17 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 - `SubjectiveConfig.allowedAttachmentTypes.length > 0` → runner `allowAttachment`
 - `AllocationItem` has no `defaultValue`; runner defaults to 0
 
+## Validation scope
+
+Follow `AGENTS.md` and `agent_docs/validation-routing.md`. Before committing, run `python3 .github/scripts/change_policy.py --base origin/main --working-tree`. For `docs_only=true`, run the lightweight docs check and inspect changed media/links; do not install app dependencies, run app tests, start servers, deploy, or force `.harness` updates. Workflow changes receive routing/YAML checks locally and one full CI validation. All other application checks below apply to the full path.
+
 ## Workflow (Must Follow)
 
 1. Present plan first, don't write code until confirmed
-2. After each feature: run `npx tsc --noEmit` (full type check)
+2. For application changes: run `npx tsc --noEmit` and the required tests; pure docs use the validation scope above.
 3. Keep each diff under 150 lines
 4. After editing `schema.prisma`: **must** `npx prisma migrate dev` + `npx prisma generate` + **kill & restart dev server** + 验证页面正常加载（不能跳过重启！）
-5. Each session ends with: list all modified files + update `.harness/HANDOFF.md` if work spans sessions
+5. List modified files and validation evidence; pure docs record this in the PR without forced `.harness` edits.
 6. If unsure, switch to Plan Mode: explore + propose plan before editing.
 7. **Model upgrade review** — 每次 Claude 模型升级后，回看 `.claude/agents/` 定义 + Stop/SessionStart hooks + `.harness/` 结构，删掉不再增值的脚手架，追加一行到 `.harness/progress.tsv`（unit=harness-upgrade，记录删/留决策）。这是防止 harness 随模型进化持续膨胀的唯一机制。
 
@@ -157,14 +161,14 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 - API layer: at least test 200 + 401 + 403 per endpoint
 - After each milestone: create smoke tests verifying core end-to-end flows
 - Smoke tests are never deleted — all sessions must ensure they pass
-- Run `npx vitest run` after changes (full suite, not just the current module)
+- Application code changes retain the full vitest suite. Pure docs do not run it; workflow-only changes use their full CI run instead of duplicating local application checks.
 - TDD: write test → confirm failure → write implementation → test passes — never modify tests to accommodate implementation
 
 ## CI/CD & Deployment
 
-- 仓库：GitHub `AlexAnys/finsim_Mini`（私有）
-- main 受 branch protection 保护：必须 PR + `quality` + `staging-deploy` 两项 check 全绿才能 merge；admin 可紧急 bypass
-- 流程：feature 分支 → push → 自动开 PR → CI quality + staging deploy 并行 → 用户 staging 实测 → squash merge → 生产部署 (~4 min)
+- 仓库：GitHub `AlexAnys/finsim_Mini`（公开）
+- main 受 branch protection 保护：必须 PR + `quality` + `staging-deploy` 两项 check 全绿才能 merge；不关闭或绕过保护
+- 流程：feature 分支 → PR → 变更分类 → `quality` + `staging-deploy`。纯说明文档走轻量检查且不部署；完整路径保留应用测试、staging 与生产部署。
 - 本地开发：`docker compose up --build`
 - 详见 `agent_docs/deployment.md`、`AGENTS.md`
 
@@ -173,9 +177,9 @@ Runner components use different naming than DB. Mapping happens in `(student)/ta
 > 详见仓库根目录 `AGENTS.md`。所有 agent（Claude / Codex / 其他）在本仓库工作必须遵守。
 
 1. **不直 push main**：被 protection 拒绝。每个任务一个 feature 分支 `<agent>-<topic>`（例 `claude-quiz-fix`、`codex-deploy-env`）
-2. **commit 前必跑** `npx tsc --noEmit && npx vitest run`，绿了才 commit
-3. **每个 PR 自动起 staging**：https://staging.finsim.anlanai.cn（共享栈，跨 PR 串行）
-4. **用户兜底 QA**：靠 staging 浏览器实测，不读代码 review
+2. **提交前按变更分类验证**：纯说明文档轻量检查；应用代码跑类型与全套测试；工作流修改本地验证路由/YAML、CI 完整验证一次。
+3. **完整路径起 staging**：https://staging.finsim.anlanai.cn（共享栈）；纯说明文档同名检查直接完成轻量验证。
+4. **按内容验证**：文档看排版/引用/媒体；应用变更在 staging 实测。
 5. **squash merge**：repo 强制 squash + 自动删分支，main 历史一行一 PR
 6. **撞车 rebase**：`git rebase origin/main` + `git push --force-with-lease` 自己分支
 7. **core-change 标签自动打**：触摸 `lib/auth/`、`grading.service`、`prisma/schema.prisma`、`prisma/migrations/`、`.github/workflows/`、`Dockerfile`、`docker-compose*.yml` 时自动加红色 `core-change` 标签提醒（不阻塞 merge）

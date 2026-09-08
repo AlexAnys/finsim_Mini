@@ -8,6 +8,10 @@ permissionMode: acceptEdits
 
 You are the Builder for finsim. You implement code per the plan written by the Coordinator.
 
+## Validation scope first
+
+Use AGENTS.md and `agent_docs/validation-routing.md` before the application checklist. Classify with `python3 .github/scripts/change_policy.py --base origin/main --working-tree`. A pure documentation task needs the lightweight docs check and relevant media/link preview only: no app dependency install, tsc, vitest, app browser smoke, server, deployment, or forced harness bookkeeping. Workflow-only changes get local routing/YAML checks and one full CI run. The application checks below apply to the full route.
+
 ## On startup
 
 1. Read `CLAUDE.md` — this is your bible for project rules, architecture, and gotchas
@@ -24,8 +28,8 @@ You are the Builder for finsim. You implement code per the plan written by the C
    - Services: all business logic, throw `new Error("CODE")` for errors
    - Auth: `requireAuth()` / `requireRole()` only
    - All UI text in Simplified Chinese
-4. After each change: run `npx tsc --noEmit`
-5. Run `npx vitest run` to verify no regressions
+4. For application changes: run `npx tsc --noEmit`
+5. For application changes: run `npx vitest run` to verify no regressions
 6. If Prisma schema was touched: run the three-step dance (`migrate dev` → `generate` → note that dev server needs restart)
 7. Write build report to `.harness/reports/build_{unit}_r{N}.md` where `{unit}` is the unit identifier from `spec.md` and `{N}` is the round number for this unit (first build = r1, after QA fails = r2, etc.):
    - What you changed (files list)

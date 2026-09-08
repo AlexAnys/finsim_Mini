@@ -1,0 +1,35 @@
+name: Classify changes and check documentation
+description: Conservative docs-only routing using Python standard library.
+outputs:
+  docs_only:
+    description: True only for non-runtime documentation paths.
+    value: ${{ steps.scope.outputs.docs_only }}
+runs:
+  using: composite
+  steps:
+    - name: Classify complete change range
+      id: scope
+      shell: bash
+      run: |
+        python3 .github/scripts/change_policy.py \
+          --event "$GITHUB_EVENT_PATH" \
+          --result "$RUNNER_TEMP/finsim-change-scope.json" \
+          --github-output "$GITHUB_OUTPUT"
+    - name: Check documentation and references
+      shell: bash
+      run: python3 .github/scripts/check_docs.py --scope "$RUNNER_TEMP/finsim-change-scope.json"
+    - name: Verify change-routing guardrails
+      shell: bash
+      run: python3 -m unittest discover -s .github/scripts/tests -v
+    - name: Explain selected route
+      shell: bash
+      env:
+        DOCS_ONLY: ${{ steps.scope.outputs.docs_only }}
+      run: |
+        if [ "$DOCS_ONLY" = "true" ]; then
+          echo '### Documentation-only: lightweight checks passed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No application dependencies, app tests, build, staging deployment, or production rebuild are needed.' >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo '### Full validation required' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Code, mixed changes, runtime instructions, configuration, and unknown paths retain the full pipeline.' >> "$GITHUB_STEP_SUMMARY"
+        fi

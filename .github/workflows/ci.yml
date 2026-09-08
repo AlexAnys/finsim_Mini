@@ -20,25 +20,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select validation scope
+        id: changes
+        uses: ./.github/actions/change-scope
 
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.docs_only != 'true'
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm ci
 
       - name: Generate Prisma Client
+        if: steps.changes.outputs.docs_only != 'true'
         run: npx prisma generate
 
       - name: Type check
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm run typecheck
 
       - name: Lint
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm run lint
 
       - name: Test
+        if: steps.changes.outputs.docs_only != 'true'
         run: npx vitest run --passWithNoTests
 
   # 触摸核心模块（auth / grading / schema / deploy infra）的 PR 自动打 core-change 标签提醒
@@ -64,7 +76,7 @@ jobs:
           echo "$FILES"
 
           # 核心路径白名单
-          CORE_PATTERN='^(lib/auth/|lib/services/grading\.service\.|app/api/auth/|prisma/schema\.prisma|prisma/migrations/|\.github/workflows/|Dockerfile|docker-compose.*\.yml)'
+          CORE_PATTERN='^(lib/auth/|lib/services/grading\.service\.|app/api/auth/|prisma/schema\.prisma|prisma/migrations/|\.github/|Dockerfile|docker-compose.*\.yml)'
           if echo "$FILES" | grep -E "$CORE_PATTERN" >/dev/null 2>&1; then
             echo "core_touched=true" >> "$GITHUB_OUTPUT"
             echo "✅ Core path touched — will add core-change label"
