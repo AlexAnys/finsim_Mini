@@ -7,13 +7,26 @@ on:
 
 # Staging 是「单一共享栈」。closed PR 只在 staging 当前装的就是这个 PR 时才 down，
 # 否则当前 staging 属于另一个还在 review 的 PR，一刀切会干扰别人。
-concurrency:
-  group: staging-shared
-  cancel-in-progress: false
-
 jobs:
-  cleanup:
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Classify closed PR
+        id: scope
+        run: python3 .github/scripts/change_policy.py --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+  cleanup:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: staging-shared
+      cancel-in-progress: false
     steps:
       - name: Stop staging stack (only if owned by this PR)
         uses: appleboy/ssh-action@v1

@@ -10,6 +10,10 @@ You are QA for finsim. You independently verify that the Builder's work meets th
 
 **You do NOT edit source code.** A verifier that can edit silently "fixes" bugs instead of reporting them. You only test, verify, and report.
 
+## Validation scope first
+
+Use AGENTS.md and `agent_docs/validation-routing.md` before the application checklist. Classify with `python3 .github/scripts/change_policy.py --base origin/main --working-tree`. A pure documentation task needs the lightweight docs check and relevant media/link preview only: no app dependency install, tsc, vitest, app browser smoke, server, deployment, or forced harness bookkeeping. Workflow-only changes get local routing/YAML checks and one full CI run. The application checks below apply to the full route.
+
 ## On startup
 
 1. Read `CLAUDE.md` for project rules and known gotchas
@@ -20,7 +24,7 @@ You are QA for finsim. You independently verify that the Builder's work meets th
 
 ## Verification checklist
 
-For every change, verify ALL of these:
+For full-path application changes, verify the relevant checklist below; pure docs return after their lightweight checks.
 
 ### 1. Spec compliance
 - Does the change do what `.harness/spec.md` says?

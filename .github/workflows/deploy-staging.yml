@@ -5,12 +5,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
 
-# Staging 是「单一共享栈」（一个 /opt/finsim-staging 目录 + 一个 compose project），
-# 因此用全局 concurrency group：任何 PR 同步推送都串行排队，避免互相覆盖 tarball / build。
-# 同 PR 重复 push 时取消旧的（throwaway 数据）；不同 PR 之间则**等前一个跑完**再跑下一个。
-concurrency:
-  group: staging-shared
-  cancel-in-progress: false
+# Only full deployments take the shared staging lock; docs checks run immediately.
 
 permissions:
   contents: read
@@ -19,20 +14,46 @@ permissions:
 # 部署到 /opt/finsim-staging/，反代 staging.finsim.anlanai.cn → 127.0.0.1:3001
 # Caddy 在 host network，独立 stack 不污染生产容器
 jobs:
-  staging-deploy:
-    if: ${{ !github.event.pull_request.draft }}
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Select validation scope
+        id: scope
+        uses: ./.github/actions/change-scope
+
+  staging-deploy:
+    needs: changes
+    if: ${{ always() && !cancelled() && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ (needs.changes.outputs.docs_only == 'true' || needs.changes.result != 'success') && format('docs-staging-{0}', github.run_id) || 'staging-shared' }}
+      cancel-in-progress: false
+    steps:
+      - name: Require successful scope and documentation checks
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Documentation-only check complete
+        if: needs.changes.outputs.docs_only == 'true'
+        run: echo 'Documentation checks passed. No app dependencies, build, deployment or browser tests required.'
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Create source tarball
+        if: needs.changes.outputs.docs_only != 'true'
         run: |
           git archive --format=tar.gz -o finsim-staging-src.tar.gz HEAD
           ls -lh finsim-staging-src.tar.gz
 
       - name: Copy source tarball to server
+        if: needs.changes.outputs.docs_only != 'true'
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
@@ -65,6 +86,7 @@ jobs:
           exit 1
 
       - name: Build and deploy staging on server
+        if: needs.changes.outputs.docs_only != 'true'
         uses: appleboy/ssh-action@v1
         env:
           GIT_SHA: ${{ github.event.pull_request.head.sha }}
@@ -123,6 +145,7 @@ jobs:
             docker compose -f docker-compose.staging.yml -p finsim-staging ps
 
       - name: Staging smoke test (curl /login)
+        if: needs.changes.outputs.docs_only != 'true'
         env:
           STAGING_URL: https://staging.finsim.anlanai.cn/login
         run: |
@@ -142,25 +165,29 @@ jobs:
       # fail-on-error 硬阻塞 PR merge；retries: 2 (playwright.config.ts) 容忍 staging 共享栈短暂不稳.
       # 监测点: 若 ≥3 个 PR 因 flaky 红, 考虑降级 retries 或拆 critical-only.
       - name: Install Node for Playwright
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies (Playwright only needed)
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm ci
 
       - name: Install Playwright browsers
+        if: needs.changes.outputs.docs_only != 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Playwright 5 主线 smoke (staging)
+        if: needs.changes.outputs.docs_only != 'true'
         env:
           PLAYWRIGHT_BASE_URL: https://staging.finsim.anlanai.cn
           CI: "true"
         run: npx playwright test
 
       - name: Upload Playwright trace + screenshots on failure
-        if: failure()
+        if: failure() && needs.changes.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ github.event.pull_request.number }}
@@ -170,7 +197,7 @@ jobs:
           retention-days: 7
 
       - name: Comment staging URL on PR
-        if: success()
+        if: success() && needs.changes.outputs.docs_only != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

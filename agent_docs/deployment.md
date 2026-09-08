@@ -2,9 +2,9 @@
 
 ## Git Remote
 
-- GitHub: `AlexAnys/finsim_Mini`（私有仓库）
+- GitHub: `AlexAnys/finsim_Mini`（公开仓库）
 - Remote: `origin` → `https://github.com/AlexAnys/finsim_Mini.git`
-- main 受 branch protection 保护：必须 PR + `quality` + `staging-deploy` 两个 status check 全绿才能 merge；admin 可紧急 bypass。
+- main 受 branch protection 保护：必须 PR + `quality` + `staging-deploy` 两个 status check 全绿才能 merge；不关闭或绕过保护。
 
 ## CI/CD Pipeline（GitHub Actions）
 
@@ -12,12 +12,14 @@
 
 | Workflow | 触发条件 | 作用 |
 |----------|---------|------|
-| `ci.yml` | PR + push 到非 main 分支 | 类型检查 + lint + 测试；触摸核心模块的 PR 自动打 `core-change` 标签 |
-| `deploy-staging.yml` | PR 开/同步/重开/转 ready_for_review | tarball→scp→`docker compose -p finsim-staging up`→migrate→curl smoke→PR 评论 staging URL |
-| `deploy.yml` | push 到 main（PR merge 触发） | tarball→scp→服务器本地 build→docker compose up→prod /login smoke |
-| `cleanup-staging.yml` | PR closed | 仅当 staging 当前装的就是这个 PR 时才 down（owner check 用 `last-deployed-pr` 文件） |
+| `ci.yml` | PR + push 到非 main 分支 | 先分类；纯文档轻量检查，其余类型检查 + lint + 测试；核心改动打标签 |
+| `deploy-staging.yml` | PR 开/同步/重开/转 ready_for_review | 纯文档报告轻量检查成功；其余部署 staging、迁移、健康检查与 Playwright smoke |
+| `deploy.yml` | push 到 main（PR merge 触发） | 纯文档只检查文档；其余 tarball→scp→build→docker compose up→prod /login smoke |
+| `cleanup-staging.yml` | PR closed | 纯文档不连接服务器；其余仅在 staging 属于这个 PR 时 down |
 
-部署架构（不走 ghcr.io）：runner 跑 quality → `git archive` 成 tarball → scp 到阿里云 → 服务器本地 `docker compose build + up`。规避国际带宽问题。
+分类范围与本地命令见 [按变更范围验证](validation-routing.md)。只有完整路径占用共享 staging 锁；文档失败会明确报告失败，不把整个必需检查留在等待状态。
+
+完整路径的部署架构（不走 ghcr.io）：runner 跑 quality → `git archive` 成 tarball → scp 到阿里云 → 服务器本地 `docker compose build + up`。规避国际带宽问题。
 
 ## 生产服务器（finsim.anlanai.cn）
 
@@ -73,6 +75,8 @@ rm /tmp/dump.sql
 
 ## 日常开发部署流程
 
+先分类。纯说明文档只运行轻量检查，并确认新增媒体的实际展示；两个必需检查成功后正常合并，不部署 staging 或生产。以下为完整验证路径：
+
 ```
 feat 分支开发 → push → 自动开 PR
     ↓
@@ -103,7 +107,7 @@ git fetch origin && git checkout -b <agent>-<topic> origin/main
 # 推送（push 到非 main 分支触发 ci.yml）
 git push -u origin <branch>
 
-# 开 PR（自动起 staging）
+# 开 PR（先分类，完整路径才起 staging）
 gh pr create --base main --fill
 
 # 看 PR 状态
@@ -126,18 +130,7 @@ gh pr view <revert-pr-number>
 
 ## 紧急 hotfix 流程
 
-如果 staging 暂时坏了不能验证，**仍然必须走 PR**（admin 可临时绕过 protection）：
-
-```bash
-# 临时关 protection
-gh api -X DELETE repos/AlexAnys/finsim_Mini/branches/main/protection
-# 直 push hotfix
-git push origin main
-# 立刻重启 protection（用 deployment.md 里同一份 JSON）
-gh api -X PUT repos/AlexAnys/finsim_Mini/branches/main/protection --input <protection.json>
-```
-
-事后必须发 ops note 给团队说明绕过原因。
+如果 staging 暂时不可用，仍保留 PR 和两个必需检查，不关闭保护或伪造成功。纯文档走正常轻量路径，不受 staging 服务影响；应用变更先定位并修复实际阻塞，再按对应范围验证。紧急发布需要人工决定时，说明具体失败、影响与已验证范围。
 
 ## Branch protection 配置
 

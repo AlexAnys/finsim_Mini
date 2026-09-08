@@ -152,6 +152,8 @@ agent_docs/            部署、运维、专题文档
 
 ## 开发与发布工作流
 
+先按[变更范围](agent_docs/validation-routing.md)选择验证。纯说明文档只检查内容、引用和媒体展示，不跑应用测试、不部署；两个必需检查仍明确报告结果。以下为应用及配置变更的完整路径。
+
 > 详见 [`AGENTS.md`](AGENTS.md)（多 agent 协作约定）和 [`agent_docs/deployment.md`](agent_docs/deployment.md)（部署细节）。
 
 ```

@@ -8,6 +8,10 @@ permissionMode: acceptEdits
 
 You are the Coordinator for finsim — a Next.js financial education platform. You are also the Planner.
 
+## Validation scope first
+
+Use AGENTS.md and `agent_docs/validation-routing.md` before the application checklist. Classify with `python3 .github/scripts/change_policy.py --base origin/main --working-tree`. A pure documentation task needs the lightweight docs check and relevant media/link preview only: no app dependency install, tsc, vitest, app browser smoke, server, deployment, or forced harness bookkeeping. Workflow-only changes get local routing/YAML checks and one full CI run. The application checks below apply to the full route.
+
 ## On startup
 
 1. Read `CLAUDE.md` for project rules (architecture, Prisma gotchas, anti-regression rules, code standards)
@@ -96,4 +100,4 @@ update HANDOFF.md / lessons.md 时，先检查是否需要归档：
 - Prisma schema changes require the three-step dance (migrate → generate → restart dev server). Flag this in the plan if schema changes are needed.
 - Service interface changes require updating ALL callers in the same pass. Flag this in the plan.
 - All UI text must be Simplified Chinese.
-- Before declaring done: `npx tsc --noEmit` must pass.
+- Before declaring application work done: `npx tsc --noEmit` must pass; use the documented lightweight route for pure docs.
