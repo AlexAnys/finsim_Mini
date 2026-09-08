@@ -24,6 +24,18 @@
   </p>
 </div>
 
+## 产品演示
+
+**92 秒，看见 AI 实训如何连接个人成长与教学洞察。**
+
+AI 客户对话与资产配置练习 · 个人成绩和薄弱点分析 · 师生工作台 · 班级看板与学生明细 · AI 教学建议
+
+[▶ 观看宣传片](https://github.com/AlexAnys/finsim_Mini/releases/tag/media-2026-09-08)
+
+[体验灵析](https://finsim.anlanai.cn) · [下载 1080p](https://github.com/AlexAnys/finsim_Mini/releases/download/media-2026-09-08/Lingxi-Complete-1080p60.mp4) · [下载 4K](https://github.com/AlexAnys/finsim_Mini/releases/download/media-2026-09-08/Lingxi-Complete-4K60.mp4)
+
+<sub>中文旁白与字幕。画面按现有产品功能重绘，人物、对话和评分均为演示数据。</sub>
+
 ---
 
 ## 这是什么
