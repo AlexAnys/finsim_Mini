@@ -1,3 +1,4 @@
+import { studentTaskView } from "@/lib/utils/student-task-view";
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { createTaskInstance, getTaskInstances } from "@/lib/services/task-instance.service";
@@ -5,7 +6,7 @@ import { createTaskInstanceSchema } from "@/lib/validators/task.schema";
 import {
   assertTaskReadable,
 } from "@/lib/auth/resource-access";
-import { assertCourseAccess, assertCourseNotArchived } from "@/lib/auth/course-access";
+import { assertCourseAccessForStudent, assertCourseAccess, assertCourseNotArchived } from "@/lib/auth/course-access";
 import { prisma } from "@/lib/db/prisma";
 import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
@@ -75,6 +76,7 @@ export async function GET(request: NextRequest) {
     const { user } = result.session;
     if (user.role === "student") {
       if (!user.classId) throw new Error("FORBIDDEN");
+      if (courseId) await assertCourseAccessForStudent(courseId, user.classId);
       filters.classId = user.classId;
       filters.status = "published";
     } else if (user.role === "teacher") {
@@ -82,7 +84,7 @@ export async function GET(request: NextRequest) {
     }
 
     const instances = await getTaskInstances(filters);
-    return success(instances);
+    return success(user.role === "student" ? studentTaskView(instances) : instances);
   } catch (err) {
     return handleServiceError(err);
   }

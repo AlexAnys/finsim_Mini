@@ -28,14 +28,14 @@ export async function getTeacherDashboard(teacherId: string) {
         course: { select: { id: true, courseTitle: true } },
         chapter: { select: { id: true, title: true } },
         section: { select: { id: true, title: true } },
-        _count: { select: { submissions: true } },
+        _count: { select: { submissions: { where: { deletedAt: null } } } },
       },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
     // 最近提交
     prisma.submission.findMany({
-      where: {
+      where: { deletedAt: null,
         OR: [
           // 本人任务的提交，但排除其实例属于已归档课程（保留无实例/standalone 提交）
           {
@@ -94,13 +94,13 @@ export async function getTeacherDashboard(teacherId: string) {
   };
   const [submittedCount, gradedCount, pendingCount] = await Promise.all([
     prisma.submission.count({
-      where: { ...submissionFilter, status: "submitted" },
+      where: { deletedAt: null, ...submissionFilter, status: "submitted" },
     }),
     prisma.submission.count({
-      where: { ...submissionFilter, status: "graded" },
+      where: { deletedAt: null, ...submissionFilter, status: "graded" },
     }),
     prisma.submission.count({
-      where: { ...submissionFilter, status: { in: ["submitted", "grading"] } },
+      where: { deletedAt: null, ...submissionFilter, status: { in: ["submitted", "grading"] } },
     }),
   ]);
 
@@ -155,7 +155,7 @@ async function computeLiveAnalytics(
   if (instanceIds.length === 0) return result;
 
   const graded = await prisma.submission.findMany({
-    where: {
+    where: { deletedAt: null,
       taskInstanceId: { in: instanceIds },
       status: "graded",
       score: { not: null },
@@ -214,7 +214,7 @@ export async function getStudentDashboard(studentId: string, classId: string) {
     }),
     // 我的提交
     prisma.submission.findMany({
-      where: { studentId },
+      where: { deletedAt: null, studentId },
       select: {
         id: true,
         taskId: true,
@@ -289,8 +289,8 @@ export async function getStudentDashboard(studentId: string, classId: string) {
       canSubmit,
       attemptsUsed,
       attemptsAllowed: ti.attemptsAllowed,
-      latestScore: latestSub?.status === "graded" ? latestSub.score : null,
-      latestMaxScore: latestSub?.status === "graded" ? latestSub.maxScore : null,
+      latestScore: latestSub?.status === "graded" && latestSub.releasedAt ? latestSub.score : null,
+      latestMaxScore: latestSub?.status === "graded" && latestSub.releasedAt ? latestSub.maxScore : null,
       latestSubmissionId: latestSub?.id ?? null,
     };
   });
@@ -298,7 +298,7 @@ export async function getStudentDashboard(studentId: string, classId: string) {
   return {
     courses,
     tasks: taskWithStatus,
-    recentSubmissions: mySubmissions.slice(0, 10),
+    recentSubmissions: mySubmissions.slice(0, 10).map(s => s.status === "graded" && s.releasedAt ? s : { ...s, score: null, maxScore: null }),
     announcements,
     scheduleSlots,
   };

@@ -16,10 +16,10 @@ describe("AI evaluation prompts include conceptTags extraction directive (PR-5C)
 
   it("ai.service.evaluateSimulation evaluation schema includes conceptTags optional", () => {
     const file = fs.readFileSync(
-      path.join(ROOT, "lib/services/ai.service.ts"),
+      path.join(ROOT, "lib/services/ai-grade-validation.ts"),
       "utf8"
     );
-    expect(file).toMatch(/conceptTags:\s*z\.array\(z\.string\(\)\)\.optional\(\)/);
+    expect(file).toContain("conceptTags: z.array(z.string()).max(5).optional()");
   });
 
   it("ai.service.evaluateSimulation returns conceptTags from result", () => {

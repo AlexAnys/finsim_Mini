@@ -34,9 +34,10 @@ export async function GET() {
       modelOptions: AI_MODEL_OPTIONS,
       providerOptions: AI_PROVIDER_OPTIONS,
       definitions: AI_TOOL_DEFINITIONS,
-      searchProviderConfigured: Boolean(process.env.SEARCH_PROVIDER && process.env.SEARCH_API_KEY),
+      searchProviderConfigured: false,
     });
   } catch (err) {
+    if (err instanceof Error && err.message === "AI_PROVIDER_MODEL_MISMATCH") return validationError("模型与所选服务商不匹配");
     return handleServiceError(err);
   }
 }
@@ -51,6 +52,7 @@ export async function PATCH(request: NextRequest) {
     const setting = await upsertAiToolSetting(result.session.user.id, parsed.data);
     return success(setting);
   } catch (err) {
+    if (err instanceof Error && err.message === "AI_PROVIDER_MODEL_MISMATCH") return validationError("模型与所选服务商不匹配");
     return handleServiceError(err);
   }
 }

@@ -71,6 +71,24 @@ export function handleServiceError(err: unknown) {
       );
     }
 
+    if (err.message === "AI_TIMEOUT") return error("AI_TIMEOUT", "AI 处理超时，请稍后重试", 504);
+    if (err.message === "AI_EVIDENCE_INVALID") return error("AI_EVIDENCE_INVALID", "AI 返回的评分证据不完整，请重试或人工批改", 502);
+    if (err.message === "AI_PROVIDER_MODEL_MISMATCH") return error("AI_PROVIDER_MODEL_MISMATCH", "所选模型与服务商不匹配", 400);
+    const inputErrors: Record<string, string> = {
+      TASK_VERSION_CHANGED: "题目已更新，请刷新任务后重新作答；原草稿仍保留",
+      SUBMISSION_REQUEST_CONFLICT: "本次提交已使用，请刷新后重试",
+      QUIZ_ATTEMPT_REQUIRED: "请从任务页面开始本次测验",
+      QUIZ_ATTEMPT_NOT_FOUND: "本次测验不存在，请重新开始",
+      QUIZ_ATTEMPT_INCOMPLETE: "请先完成本次测验再提交",
+      QUIZ_ATTEMPT_COMPLETE: "本次测验已结束",
+      QUIZ_ANSWERS_INVALID: "答案与本次题目不匹配，请刷新任务检查",
+      SUBMISSION_CONTENT_REQUIRED: "请输入答案或上传附件",
+      ATTACHMENT_FORBIDDEN: "附件不属于当前用户，请重新上传",
+      ATTACHMENT_TYPE_NOT_ALLOWED: "附件类型不在本任务允许范围内",
+      MODE_NOT_ADAPTIVE: "本测验不允许逐题查询答案",
+      ASYNC_JOB_LEASE_LOST: "任务状态已更新，旧结果已停止写入",
+    };
+    if (inputErrors[err.message]) return error(err.message, inputErrors[err.message], err.message === "ATTACHMENT_FORBIDDEN" ? 403 : 409);
     switch (err.message) {
       case "FORBIDDEN":
         return forbidden();
@@ -111,6 +129,10 @@ export function handleServiceError(err: unknown) {
         return error("TASK_TYPE_MISMATCH", "任务类型不匹配，无法修改", 400);
       case "TASK_NOT_FOUND":
         return notFound("任务不存在");
+      case "TASK_INSTANCE_CHANGED":
+        return error("TASK_INSTANCE_CHANGED", "任务状态已变化，请刷新后再保存", 409);
+      case "TASK_RUBRIC_REQUIRED":
+        return error("TASK_RUBRIC_REQUIRED", "请至少添加一项有效评分标准（名称不能为空、分值须大于 0）后再发布；也可以先保存草稿", 400);
       case "TASK_CONFIG_INCOMPLETE":
         return error("TASK_CONFIG_INCOMPLETE", "任务配置未完成，无法发布", 400);
       case "TASK_SCOPE_MISMATCH":

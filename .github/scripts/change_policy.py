@@ -43,6 +43,8 @@ def event_refs(event: dict, event_name: str, env: dict) -> tuple[str, str, bool]
     if event_name == "pull_request":
         pr = event["pull_request"]
         return pr["base"]["sha"], pr["head"]["sha"], True
+    if event_name == "workflow_dispatch":
+        return "origin/main", env["GITHUB_SHA"], True
     if event_name == "push":
         default = event["repository"]["default_branch"]
         head = event.get("after") or env["GITHUB_SHA"]
@@ -102,6 +104,8 @@ def main() -> None:
         try:
             base, head, use_merge_base = event_refs(json.loads(args.event.read_text()), os.environ.get("GITHUB_EVENT_NAME", ""), os.environ)
             result = classify(args.repo, base, head, use_merge_base)
+            if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+                result.update(docs_only=False, reason="explicit manual full validation")
         except (KeyError, ValueError, OSError):
             result = {"docs_only": False, "base": None, "head": None, "changes": [], "reason": "event unavailable; full checks required"}
     else:

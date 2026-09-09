@@ -63,6 +63,8 @@ agent_docs/export/
 .harness/spec-builder-deploy-rewrite.md
 .harness/r5-analytics-static-research.md
 .harness/dev-db-backup-*.sql
+.harness/*-original-hash.txt
+.harness/restore-*-password.sh
 
 # playwright artifacts (per-run output, not source)
 test-results/
@@ -82,3 +84,15 @@ id_ed25519.*
 secrets.json
 credentials.json
 gha-creds-*.json
+
+# Per-worktree agent task state and append-only QA evidence
+.harness/current-task.json
+.harness/records.jsonl
+.harness/state/
+
+# Python verification cache
+__pycache__/
+*.py[cod]
+
+# Private local uploads (legacy public/uploads is retained, never auto-moved)
+/data/uploads/

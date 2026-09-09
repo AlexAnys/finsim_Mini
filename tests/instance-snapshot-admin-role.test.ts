@@ -50,6 +50,7 @@ describe("Slice 4 · updateTaskInstanceSnapshot admin auth", () => {
       createdBy: "teacher-1",
       courseId: "course-1",
       taskType: "quiz",
+      status: "draft",
       taskSnapshot: {
         id: "t1",
         taskType: "quiz",
@@ -81,6 +82,7 @@ describe("Slice 4 · updateTaskInstanceSnapshot admin auth", () => {
       createdBy: "teacher-1",
       courseId: "course-1",
       taskType: "quiz",
+      status: "draft",
       taskSnapshot: { id: "t2", taskType: "quiz" },
     });
     mCollab().mockResolvedValue(null);
@@ -101,6 +103,7 @@ describe("Slice 4 · updateTaskInstanceSnapshot admin auth", () => {
       createdBy: "teacher-1",
       courseId: "course-1",
       taskType: "quiz",
+      status: "draft",
       taskSnapshot: {
         id: "t3",
         taskType: "quiz",
@@ -125,6 +128,7 @@ describe("Slice 4 · updateTaskInstanceSnapshot admin auth", () => {
       createdBy: "teacher-1",
       courseId: "course-1",
       taskType: "quiz",
+      status: "draft",
       taskSnapshot: {
         id: "t4",
         taskType: "quiz",

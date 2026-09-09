@@ -16,14 +16,13 @@ vi.mock("@ai-sdk/openai-compatible", () => ({
   createOpenAICompatible: vi.fn(() => ({ chat: vi.fn(() => ({})) })),
 }));
 
-import { prisma } from "@/lib/db/prisma";
 import { generateText } from "ai";
 import { countMismatchedEvidence } from "@/lib/services/ai.service";
 
 const mk = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   process.env.AI_PROVIDER = "qwen";
   process.env.QWEN_API_KEY = "test";
   process.env.QWEN_BASE_URL = "https://example.test";
@@ -87,178 +86,46 @@ describe("countMismatchedEvidence", () => {
   });
 });
 
-describe("evaluateSimulation evidence wiring (Unit 9)", () => {
-  it("propagates evidence from AI response; flags unverified for fabricated quotes", async () => {
-    mk(prisma.aiRun.create).mockResolvedValue({ id: "r1" });
-    mk(prisma.aiRun.update).mockResolvedValue({});
-    mk(generateText).mockResolvedValue({
-      text: JSON.stringify({
-        totalScore: 18,
-        feedback: "整体表现不错",
-        rubricBreakdown: [
-          {
-            criterionId: "C1",
-            score: 9,
-            maxScore: 10,
-            comment: "沟通清晰",
-            evidence: [
-              { studentText: "您好，我是您的理财顾问", comment: "礼貌开场" },
-            ],
-          },
-          {
-            criterionId: "C2",
-            score: 9,
-            maxScore: 10,
-            comment: "专业",
-            evidence: [
-              { studentText: "捏造的原话", comment: "AI 编的" },
-            ],
-          },
-        ],
-        conceptTags: ["资产配置"],
-      }),
-      usage: { inputTokens: 200, outputTokens: 80 },
-    });
-
+describe("evaluateSimulation evidence wiring", () => {
+  const input = { taskName: "理财", scenario: "咨询", strictnessLevel: "MODERATE", transcript: [{ role: "student", text: "收益与风险相关" }], rubric: [{ id: "C1", name: "风险", maxPoints: 10 }] };
+  const response = (evidence: unknown) => ({ text: JSON.stringify({ totalScore: 5, feedback: "反馈", rubricBreakdown: [{ criterionId: "C1", score: 5, maxScore: 10, comment: "评语", ...(evidence === undefined ? {} : { evidence }) }] }), usage: { inputTokens: 100, outputTokens: 30 } });
+  it("preserves verified student evidence", async () => {
+    mk(generateText).mockResolvedValue(response([{ studentText: "收益与风险相关", comment: "正确识别风险" }]));
     const { evaluateSimulation } = await import("@/lib/services/ai.service");
-    const result = await evaluateSimulation("u1", {
-      taskName: "理财咨询",
-      requirements: "",
-      scenario: "客户咨询理财",
-      strictnessLevel: "MODERATE",
-      transcript: [
-        { role: "student", text: "您好，我是您的理财顾问" },
-        { role: "client", text: "请问怎么配置？" },
-      ],
-      rubric: [
-        { id: "C1", name: "沟通", maxPoints: 10 },
-        { id: "C2", name: "专业", maxPoints: 10 },
-      ],
-    });
-
-    expect(result.rubricBreakdown).toHaveLength(2);
-    expect(result.rubricBreakdown[0].evidence?.[0]?.studentText).toBe(
-      "您好，我是您的理财顾问",
-    );
-    expect(result.rubricBreakdown[0].evidence?.[0]?.unverified).toBe(false);
-    // C2's fabricated quote → unverified=true
-    expect(result.rubricBreakdown[1].evidence?.[0]?.studentText).toBe("捏造的原话");
-    expect(result.rubricBreakdown[1].evidence?.[0]?.unverified).toBe(true);
+    const result = await evaluateSimulation("u", input);
+    expect(result.rubricBreakdown[0].evidence[0]).toMatchObject({ studentText: "收益与风险相关", unverified: false });
   });
-
-  it("retries when evidence mismatches; accepts after second attempt with unverified flag", async () => {
-    mk(prisma.aiRun.create).mockResolvedValue({ id: "r2" });
-    mk(prisma.aiRun.update).mockResolvedValue({});
-    // First call: fabricated quote; second call: also fabricated
-    mk(generateText)
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          totalScore: 5,
-          feedback: "f",
-          rubricBreakdown: [
-            {
-              criterionId: "C1",
-              score: 5,
-              maxScore: 10,
-              comment: "c",
-              evidence: [{ studentText: "假的", comment: "x" }],
-            },
-          ],
-        }),
-        usage: { inputTokens: 100, outputTokens: 30 },
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          totalScore: 5,
-          feedback: "f",
-          rubricBreakdown: [
-            {
-              criterionId: "C1",
-              score: 5,
-              maxScore: 10,
-              comment: "c",
-              evidence: [{ studentText: "仍然假的", comment: "x" }],
-            },
-          ],
-        }),
-        usage: { inputTokens: 100, outputTokens: 30 },
-      });
-
+  it("rejects fabricated evidence after one evidence retry", async () => {
+    mk(generateText).mockResolvedValue(response([{ studentText: "学生没说过", comment: "编造" }]));
     const { evaluateSimulation } = await import("@/lib/services/ai.service");
-    const result = await evaluateSimulation("u1", {
-      taskName: "T",
-      scenario: "S",
-      strictnessLevel: "MODERATE",
-      transcript: [{ role: "student", text: "真的原话" }],
-      rubric: [{ id: "C1", name: "C", maxPoints: 10 }],
-    });
-
-    // generateText called 2 times (1 initial + 1 evidence retry)
-    expect(mk(generateText).mock.calls.length).toBe(2);
-    expect(result.rubricBreakdown[0].evidence?.[0]?.unverified).toBe(true);
+    await expect(evaluateSimulation("u", input)).rejects.toThrow("AI_EVIDENCE_INVALID");
+    expect(generateText).toHaveBeenCalledTimes(2);
   });
-
-  it("limits evidence to 3 entries per rubric (防爆量)", async () => {
-    mk(prisma.aiRun.create).mockResolvedValue({ id: "r3" });
-    mk(prisma.aiRun.update).mockResolvedValue({});
-    mk(generateText).mockResolvedValue({
-      text: JSON.stringify({
-        totalScore: 5,
-        feedback: "f",
-        rubricBreakdown: [
-          {
-            criterionId: "C1",
-            score: 5,
-            maxScore: 10,
-            comment: "c",
-            evidence: [
-              { studentText: "a", comment: "1" },
-              { studentText: "b", comment: "2" },
-              { studentText: "c", comment: "3" },
-              { studentText: "d", comment: "4" },
-              { studentText: "e", comment: "5" },
-            ],
-          },
-        ],
-      }),
-      usage: { inputTokens: 100, outputTokens: 30 },
-    });
-
+  it("recovers when the evidence retry replaces a fabricated quote with the actual student sentence", async () => {
+    mk(generateText).mockResolvedValueOnce(response([{ studentText: "编造的话", comment: "错误引用" }]))
+      .mockResolvedValueOnce(response([{ studentText: "收益与风险相关", comment: "学生原话" }]));
     const { evaluateSimulation } = await import("@/lib/services/ai.service");
-    const result = await evaluateSimulation("u1", {
-      taskName: "T",
-      scenario: "S",
-      strictnessLevel: "MODERATE",
-      transcript: [{ role: "student", text: "abcde" }],
-      rubric: [{ id: "C1", name: "C", maxPoints: 10 }],
-    });
-
-    expect(result.rubricBreakdown[0].evidence).toHaveLength(3);
+    const result = await evaluateSimulation("u", input);
+    expect(result.totalScore).toBe(5);
+    expect(result.rubricBreakdown[0].evidence[0].studentText).toBe("收益与风险相关");
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(mk(generateText).mock.calls[1][0].prompt).toContain("上一轮你引用的 1 条");
   });
-
-  it("defaults evidence to [] when AI omits the field (旧 prompt 兼容)", async () => {
-    mk(prisma.aiRun.create).mockResolvedValue({ id: "r4" });
-    mk(prisma.aiRun.update).mockResolvedValue({});
-    mk(generateText).mockResolvedValue({
-      text: JSON.stringify({
-        totalScore: 5,
-        feedback: "f",
-        rubricBreakdown: [
-          { criterionId: "C1", score: 5, maxScore: 10, comment: "c" },
-        ],
-      }),
-      usage: { inputTokens: 100, outputTokens: 30 },
-    });
-
+  it("rejects a customer quote misattributed to the student", async () => {
+    mk(generateText).mockResolvedValue(response([{ studentText: "客户说的话", comment: "不属于学生" }]));
     const { evaluateSimulation } = await import("@/lib/services/ai.service");
-    const result = await evaluateSimulation("u1", {
-      taskName: "T",
-      scenario: "S",
-      strictnessLevel: "MODERATE",
-      transcript: [{ role: "student", text: "hi" }],
-      rubric: [{ id: "C1", name: "C", maxPoints: 10 }],
-    });
-
-    expect(result.rubricBreakdown[0].evidence).toEqual([]);
+    await expect(evaluateSimulation("u", { ...input, transcript: [...input.transcript, { role: "ai", text: "客户说的话" }] })).rejects.toThrow("AI_EVIDENCE_INVALID");
+  });
+  it("does not repair truncated grading JSON into a partial success", async () => {
+    const full = response([{ studentText: "收益与风险相关", comment: "原话" }]);
+    mk(generateText).mockResolvedValue({ ...full, text: full.text.slice(0, -1) });
+    const { evaluateSimulation } = await import("@/lib/services/ai.service");
+    await expect(evaluateSimulation("u", input)).rejects.toThrow();
+    expect(generateText).toHaveBeenCalledTimes(3);
+  });
+  it.each([undefined, [], Array.from({length:4}, () => ({studentText:"收益与风险相关",comment:"依据"}))])("rejects missing or oversized evidence arrays: %s", async (evidence) => {
+    mk(generateText).mockResolvedValue(response(evidence));
+    const { evaluateSimulation } = await import("@/lib/services/ai.service");
+    await expect(evaluateSimulation("u", input)).rejects.toThrow();
   });
 });

@@ -64,6 +64,7 @@ test("smoke-02 teacher 建 sim → student 提交", async ({ browser }) => {
   // student1 提交 (transcript shape per createSimulationSubmissionSchema)
   const submitRes = await sr.post("/api/submissions", {
     data: {
+      requestId: crypto.randomUUID(),
       taskType: "simulation",
       taskId,
       taskInstanceId: instanceId,

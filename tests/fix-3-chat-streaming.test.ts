@@ -161,12 +161,12 @@ describe("Fix 3 r3 · MiMo enable_thinking 顶层字段拦截器（acceptance #1
     expect(src).toMatch(/MiMo[^\n]*?reasoning OFF/);
   });
 
-  it("createProvider 对 mimo 走 fetch 拦截路径，其它 provider 不走", () => {
+  it("createProvider 对 MiMo 与 DeepSeek/Qwen 使用各自字段适配", () => {
     const src = readFile("lib/services/ai.service.ts");
     // mimo branch 注入 fetch
     expect(src).toMatch(/config\.name === "mimo"[\s\S]+?fetch:\s*createMimoFetch\(\)/);
-    // 非 mimo 走原生 createOpenAI（不传 fetch）
-    expect(src).toMatch(/return createOpenAI\(\{\s*apiKey:\s*config\.apiKey,\s*baseURL:\s*config\.baseURL,\s*\}\);/);
+    expect(src).toContain('config.name === "deepseek" || config.name === "qwen"');
+    expect(src).toContain("fetch: createThinkingFetch(config.name)");
   });
 
   it("拦截器规则：reasoning_effort='low' → 删字段 + 注入 enable_thinking:false（OFF 路径）", async () => {

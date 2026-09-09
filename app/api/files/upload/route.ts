@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/db/prisma";
 import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { getStorage, validateFile } from "@/lib/services/storage.service";
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
       return validationError("请选择要上传的文件");
     }
 
-    const allowedTypes = ["image", "pdf", "word"];
+    const allowedTypes = ["image", "pdf", "word", "spreadsheet", "text"];
     const validation = validateFile(file.type, file.size, allowedTypes);
     if (!validation.valid) {
       return validation.code
@@ -27,7 +28,9 @@ export async function POST(request: NextRequest) {
     const storage = getStorage();
     const { filePath, fileSize } = await storage.save(buffer, file.name, file.type);
 
+    const upload = await prisma.fileUpload.create({ data: { ownerId: result.session.user.id, filePath, fileName: file.name, fileSize, contentType: file.type } });
     return created({
+      uploadId: upload.id,
       filePath,
       fileName: file.name,
       fileSize,

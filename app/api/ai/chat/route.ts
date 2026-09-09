@@ -1,3 +1,4 @@
+import { loadInstanceGradingTask } from "@/lib/services/task-version";
 import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { chatReply, chatReplyStream } from "@/lib/services/ai.service";
@@ -126,10 +127,13 @@ export async function POST(request: NextRequest) {
       taskInstanceId: parsed.data.taskInstanceId,
     });
 
+    const frozenTask = parsed.data.taskInstanceId ? await loadInstanceGradingTask(parsed.data.taskInstanceId) : null;
+    const frozenConfig = frozenTask?.simulationConfig;
     const chatInput = {
       ...parsed.data,
       transcript: trimmedTranscript,
-      systemPrompt: trustedSystemPrompt,
+      systemPrompt: frozenConfig?.systemPrompt ?? trustedSystemPrompt,
+      ...(frozenConfig && { scenario: frozenConfig.scenario, openingLine: frozenConfig.openingLine, objectives: frozenTask!.scoringCriteria.map(c => c.name) }),
     };
     const callerOptions = {
       settingsUserId,

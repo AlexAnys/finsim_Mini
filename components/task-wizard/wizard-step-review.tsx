@@ -1,4 +1,5 @@
 "use client";
+import { hasUsableRubric } from "@/lib/utils/task-publish-readiness";
 
 import { Check, Clock, Info, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -99,6 +100,12 @@ export function WizardStepReview(props: ReviewProps) {
       title="预览并创建"
       subtitle='确认下方信息无误。点击"创建并发布"后立即发布给班级。'
     >
+      {taskType !== "quiz" && !hasUsableRubric(props.scoringCriteria.filter(c => c.name.trim())) && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          缺少有效评分标准：请至少添加一项名称和正分值后再发布。当前内容仍可保存为草稿。
+        </div>
+      )}
+
       {draftSourceLabel && (
         <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-900">
           {draftSourceLabel}

@@ -1,5 +1,7 @@
 "use client";
 
+import { submissionRequestId, finishSubmissionRequest } from "@/lib/utils/submission-request";
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { CheckCircle, AlertCircle, BookOpen } from "lucide-react";
@@ -42,6 +44,7 @@ interface AdaptiveProgress {
 interface AdaptiveRunnerProps {
   taskId: string;
   taskInstanceId: string;
+  taskVersion?: number;
   taskName: string;
   userId: string;
   taskSubtitle?: string;
@@ -76,6 +79,7 @@ function normalizeOptions(raw: unknown): QuizOption[] | null {
 export function QuizAdaptiveRunner({
   taskId,
   taskInstanceId,
+  taskVersion,
   taskName,
   userId,
   taskSubtitle,
@@ -95,10 +99,13 @@ export function QuizAdaptiveRunner({
   const [submitted, setSubmitted] = useState(false);
   const [gradingJob, setGradingJob] = useState<AsyncJobSnapshot | null>(null);
   const startTimeRef = useRef(Date.now());
+  const attemptKey = `finsim_quiz_attempt_${userId}_${taskInstanceId}`;
+  const attemptIdRef = useRef<string | null>(typeof window === "undefined" ? null : localStorage.getItem(attemptKey));
 
   /** 拉下一题（或终态） */
   const fetchNext = useCallback(
     async (currentHistory: typeof history) => {
+      void currentHistory;
       setLoading(true);
       setErrorMsg(null);
       try {
@@ -108,13 +115,17 @@ export function QuizAdaptiveRunner({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             // Codex-P1-1: taskInstanceId 必填，服务端校验学生班级 access
-            body: JSON.stringify({ history: currentHistory, taskInstanceId }),
+            body: JSON.stringify({ taskInstanceId, attemptId: attemptIdRef.current ?? undefined }),
           },
         );
         const data = await res.json();
         if (!data.success) {
           setErrorMsg(data.error?.message ?? "获取下一题失败");
           return;
+        }
+        if (data.data.attemptId) {
+          attemptIdRef.current = data.data.attemptId;
+          localStorage.setItem(attemptKey, data.data.attemptId);
         }
         if (data.data.fallback === "fixed") {
           setFallbackReason(data.data.reason);
@@ -141,7 +152,7 @@ export function QuizAdaptiveRunner({
         setLoading(false);
       }
     },
-    [taskId],
+    [taskId, taskInstanceId, attemptKey],
   );
 
   useEffect(() => {
@@ -180,9 +191,12 @@ export function QuizAdaptiveRunner({
       // Codex-P1-3 r2: 服务端要求 taskInstanceId 校验班级 access
       const checkBody =
         currentQuestion.type === "short_answer"
-          ? { taskInstanceId, textAnswer: currentAnswer }
+          ? { taskInstanceId, attemptId: attemptIdRef.current, textAnswer: currentAnswer }
           : {
               taskInstanceId,
+          requestId: submissionRequestId(userId, taskInstanceId),
+          taskVersion,
+              attemptId: attemptIdRef.current,
               selectedOptionIds: Array.isArray(currentAnswer)
                 ? currentAnswer
                 : [currentAnswer as string],
@@ -240,6 +254,9 @@ export function QuizAdaptiveRunner({
         taskType: "quiz" as const,
         taskId,
         taskInstanceId,
+        requestId: submissionRequestId(userId, taskInstanceId),
+        taskVersion,
+        attemptId: attemptIdRef.current ?? undefined,
         answers: answeredHistory.map((a) => ({
           questionId: a.questionId,
           ...(a.type === "short_answer"
@@ -266,6 +283,8 @@ export function QuizAdaptiveRunner({
         throw new Error(err?.error?.message ?? "提交失败");
       }
       const data = await res.json();
+      localStorage.removeItem(attemptKey);
+      finishSubmissionRequest(userId, taskInstanceId);
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
       toast.success("提交成功，系统正在后台批改");

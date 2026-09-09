@@ -43,11 +43,12 @@ export async function releaseSubmission(
       id: true,
       status: true,
       releasedAt: true,
+      deletedAt: true,
       taskInstanceId: true,
       studentId: true,
     },
   });
-  if (!sub) throw new Error("SUBMISSION_NOT_FOUND");
+  if (!sub || sub.deletedAt) throw new Error("SUBMISSION_NOT_FOUND");
 
   // 写权校验：通过 task instance 的写权（或独立任务的 task creator）
   if (sub.taskInstanceId) {
@@ -61,7 +62,7 @@ export async function releaseSubmission(
 
   const updated = await prisma.submission.update({
     where: { id: submissionId },
-    data: { releasedAt: new Date() },
+    data: { releasedAt: new Date(), releaseSuppressedAt: null },
   });
 
   await logAuditEvent({
@@ -93,11 +94,12 @@ export async function unreleaseSubmission(
       id: true,
       status: true,
       releasedAt: true,
+      deletedAt: true,
       taskInstanceId: true,
       studentId: true,
     },
   });
-  if (!sub) throw new Error("SUBMISSION_NOT_FOUND");
+  if (!sub || sub.deletedAt) throw new Error("SUBMISSION_NOT_FOUND");
 
   if (sub.taskInstanceId) {
     await assertTaskInstanceWritable(sub.taskInstanceId, user);
@@ -107,7 +109,7 @@ export async function unreleaseSubmission(
 
   const updated = await prisma.submission.update({
     where: { id: submissionId },
-    data: { releasedAt: null },
+    data: { releasedAt: null, releaseSuppressedAt: new Date() },
   });
 
   await logAuditEvent({
@@ -143,7 +145,7 @@ export async function batchReleaseSubmissions(
 
   // 拉所有 + 各自的 instanceId
   const subs = await prisma.submission.findMany({
-    where: { id: { in: submissionIds } },
+    where: { id: { in: submissionIds }, deletedAt: null },
     select: {
       id: true,
       status: true,
@@ -174,8 +176,8 @@ export async function batchReleaseSubmissions(
 
   if (eligibleIds.length > 0) {
     await prisma.submission.updateMany({
-      where: { id: { in: eligibleIds } },
-      data: { releasedAt: released ? new Date() : null },
+      where: { id: { in: eligibleIds }, deletedAt: null, ...(released && { status: "graded" as const }) },
+      data: { releasedAt: released ? new Date() : null, releaseSuppressedAt: released ? null : new Date() },
     });
   }
 
@@ -261,9 +263,11 @@ export async function autoReleaseSubmissions(
     where: {
       status: "graded",
       releasedAt: null,
+      releaseSuppressedAt: null,
+      deletedAt: null,
       taskInstance: {
         releaseMode: "auto",
-        autoReleaseAt: { lte: t },
+        OR: [{ autoReleaseAt: null }, { autoReleaseAt: { lte: t } }],
       },
     },
     select: { id: true, taskInstanceId: true },
@@ -288,8 +292,8 @@ export async function autoReleaseSubmissions(
     eligible.map((s) => s.taskInstanceId).filter((x): x is string => !!x),
   );
 
-  await prisma.submission.updateMany({
-    where: { id: { in: eligible.map((s) => s.id) } },
+  const updated = await prisma.submission.updateMany({
+    where: { id: { in: eligible.map((s) => s.id) }, status: "graded", releasedAt: null, releaseSuppressedAt: null, deletedAt: null, taskInstance: { releaseMode: "auto", OR: [{ autoReleaseAt: null }, { autoReleaseAt: { lte: t } }] } },
     data: { releasedAt: t },
   });
 
@@ -300,11 +304,11 @@ export async function autoReleaseSubmissions(
     targetType: "submission",
     metadata: {
       scannedAt: t.toISOString(),
-      affectedCount: eligible.length,
+      affectedCount: updated.count,
       instanceCount: instanceIds.size,
       ids: eligible.slice(0, 100).map((s) => s.id),
     },
   });
 
-  return { released: eligible.length, instances: instanceIds.size };
+  return { released: updated.count, instances: instanceIds.size };
 }

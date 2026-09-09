@@ -1,5 +1,5 @@
-import { writeFile, mkdir, unlink } from "fs/promises";
-import { join, extname } from "path";
+import { writeFile, mkdir, unlink, readFile } from "fs/promises";
+import { join, extname, resolve, sep } from "path";
 import { v4 as uuidv4 } from "uuid";
 
 export interface StorageProvider {
@@ -13,7 +13,7 @@ class LocalStorageProvider implements StorageProvider {
   private basePath: string;
 
   constructor() {
-    this.basePath = process.env.FILE_STORAGE_PATH || "./public/uploads";
+    this.basePath = process.env.FILE_STORAGE_PATH || "./data/uploads";
   }
 
   async save(file: Buffer, originalName: string, contentType: string): Promise<{ filePath: string; fileSize: number }> {
@@ -49,6 +49,7 @@ class LocalStorageProvider implements StorageProvider {
 const ALLOWED_TYPES: Record<string, string[]> = {
   image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
   pdf: ["application/pdf"],
+  spreadsheet: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"],
   word: [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/msword",
@@ -98,4 +99,11 @@ export function getStorage(): StorageProvider {
     storageInstance = new LocalStorageProvider();
   }
   return storageInstance;
+}
+
+export async function readStoredFile(filePath: string): Promise<Buffer> {
+  const base = resolve(process.env.FILE_STORAGE_PATH || "./data/uploads");
+  const fullPath = resolve(base, filePath);
+  if (!fullPath.startsWith(base + sep) || filePath.includes("\\") || filePath.includes("\0")) throw new Error("INVALID_PATH");
+  return readFile(fullPath);
 }

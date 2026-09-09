@@ -9,6 +9,7 @@ vi.mock("@/lib/db/prisma", () => ({
     class: { findUnique: vi.fn() },
     submission: { findUnique: vi.fn(), findFirst: vi.fn() },
     attachment: { findFirst: vi.fn() },
+    fileUpload: { findUnique: vi.fn() },
     importJob: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
 }));

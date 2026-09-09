@@ -97,6 +97,7 @@ describe("F2: getSubmissions 过滤已归档课程提交", () => {
     expect(where.studentId).toBe("s-1");
     expect(where.OR).toEqual([
       { taskInstanceId: null },
+      { taskInstance: { courseId: null } },
       { taskInstance: { course: { deletedAt: null } } },
     ]);
   });

@@ -1,4 +1,5 @@
 "use client";
+import { DeletedSubmissions } from "@/components/instance-detail/deleted-submissions";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -814,6 +815,8 @@ export default function InstanceDetailPage() {
               retryingId={retryingSubmissionId}
               bulkReleasing={bulkReleasing}
             />
+
+            <DeletedSubmissions instanceId={instanceId} onRestore={() => void fetchData()} />
 
             {/* 讨论区（保留入口） */}
             <Card id="discussion-section">

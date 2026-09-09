@@ -325,6 +325,7 @@ interface SubmissionDetail {
 }
 
 interface DiagnosisSubmission extends AttemptSubmission {
+  taskSnapshot?: unknown;
   taskType: TaskType;
   student: { id: string; name: string };
   simulationSubmission: SubmissionDetail | null;
@@ -333,6 +334,7 @@ interface DiagnosisSubmission extends AttemptSubmission {
 }
 
 interface DiagnosisInstance {
+  taskSnapshot?: unknown;
   id: string;
   title: string;
   taskType: TaskType;
@@ -349,6 +351,7 @@ interface DiagnosisInstance {
   chapter: { id: string; title: string; order: number } | null;
   section: { id: string; title: string; chapterId: string; order: number } | null;
   task: {
+    quizConfig?: { mode?: string } | null;
     quizQuestions: Array<{
       id: string;
       prompt: string;
@@ -629,6 +632,7 @@ export async function getAnalyticsV2Diagnosis(
       section: { select: { id: true, title: true, chapterId: true, order: true } },
       task: {
         select: {
+          quizConfig: { select: { mode: true } },
           quizQuestions: {
             orderBy: { order: "asc" },
             select: { id: true, prompt: true, points: true, order: true },
@@ -640,7 +644,7 @@ export async function getAnalyticsV2Diagnosis(
         },
       },
       submissions: {
-        where: dateFrom ? { submittedAt: { gte: dateFrom } } : undefined,
+        where: { deletedAt: null, ...(dateFrom ? { submittedAt: { gte: dateFrom } } : {}) },
         include: {
           student: { select: { id: true, name: true } },
           simulationSubmission: { select: { evaluation: true, conceptTags: true } },
@@ -698,6 +702,8 @@ export async function getAnalyticsV2Diagnosis(
   const pendingReleaseCount = await prisma.submission.count({
     where: {
       releasedAt: null,
+      deletedAt: null,
+      status: "graded",
       taskInstance: {
         ...buildInstanceWhere(input, null),
         dueAt: { lt: now },
@@ -707,6 +713,8 @@ export async function getAnalyticsV2Diagnosis(
   const pendingReleaseDistinct = await prisma.submission.findMany({
     where: {
       releasedAt: null,
+      deletedAt: null,
+      status: "graded",
       taskInstance: {
         ...buildInstanceWhere(input, null),
         dueAt: { lt: now },
@@ -1885,60 +1893,56 @@ function buildStudentGrowth(metrics: InstanceMetrics[]): StudentGrowthPoint[] {
     .slice(0, 50);
 }
 
+function diagnosticTask(instance: DiagnosisInstance, submission?: DiagnosisSubmission): DiagnosisInstance["task"] {
+  const snapshot = submission?.taskSnapshot ?? instance.taskSnapshot;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return instance.task;
+  const task = snapshot as Partial<DiagnosisInstance["task"]>;
+  return {
+    quizConfig: task.quizConfig ?? instance.task.quizConfig,
+    quizQuestions: Array.isArray(task.quizQuestions) ? task.quizQuestions : instance.task.quizQuestions,
+    scoringCriteria: Array.isArray(task.scoringCriteria) ? task.scoringCriteria : instance.task.scoringCriteria,
+  };
+}
+
 function buildQuizDiagnostics(metrics: InstanceMetrics[]): QuizQuestionDiagnostic[] {
   const diagnostics: QuizQuestionDiagnostic[] = [];
-
   for (const metric of metrics) {
     if (metric.instance.taskType !== "quiz") continue;
-    const questions = metric.instance.task.quizQuestions;
-    if (questions.length === 0) continue;
-
-    const selectedSubmissions = getSelectedDiagnosisSubmissions(metric).filter(
-      (submission) => submission.quizSubmission,
-    );
-    if (selectedSubmissions.length === 0) continue;
-
-    for (const question of questions) {
+    const groups = new Map<string, { question: DiagnosisInstance["task"]["quizQuestions"][number]; submissions: DiagnosisSubmission[] }>();
+    for (const submission of getSelectedDiagnosisSubmissions(metric).filter((s) => s.quizSubmission)) {
+      const task = diagnosticTask(metric.instance, submission);
+      const breakdown = getQuizBreakdown(getEvaluation(submission));
+      for (const question of task.quizQuestions) {
+        // Adaptive students were never asked the other questions in the bank.
+        if (task.quizConfig?.mode === "adaptive" && !breakdown.some((row) => row.questionId === question.id)) continue;
+        const key = JSON.stringify([question.id, question.prompt, question.points]);
+        const group = groups.get(key) ?? { question, submissions: [] };
+        if (!group.submissions.some((s) => s.id === submission.id)) group.submissions.push(submission);
+        groups.set(key, group);
+      }
+    }
+    for (const { question, submissions } of groups.values()) {
       const scoreRates: number[] = [];
       const weakTagCounts = new Map<string, number>();
       let correctCount = 0;
       let unansweredCount = 0;
-
-      for (const submission of selectedSubmissions) {
-        const breakdown = getQuizBreakdown(getEvaluation(submission));
-        const row = breakdown.find((item) => item.questionId === question.id);
-        if (!row) {
-          unansweredCount += 1;
-          continue;
-        }
-
-        if (row.correct === true) correctCount += 1;
-        if (isUnansweredQuizRow(row)) unansweredCount += 1;
-
+      for (const submission of submissions) {
+        const row = getQuizBreakdown(getEvaluation(submission)).find((item) => item.questionId === question.id);
+        if (!row) { unansweredCount++; continue; }
+        if (row.correct === true) correctCount++;
+        if (isUnansweredQuizRow(row)) unansweredCount++;
         const rowScoreRate = normalizeScore(row.score, row.maxScore);
         if (rowScoreRate !== null) scoreRates.push(rowScoreRate);
         if (row.correct === false || (rowScoreRate !== null && rowScoreRate < LOW_SCORE_THRESHOLD)) {
-          for (const tag of getConceptTags(submission)) {
-            weakTagCounts.set(tag, (weakTagCounts.get(tag) ?? 0) + 1);
-          }
+          for (const tag of getConceptTags(submission)) weakTagCounts.set(tag, (weakTagCounts.get(tag) ?? 0) + 1);
         }
       }
-
-      diagnostics.push({
-        questionId: question.id,
-        order: question.order,
-        prompt: question.prompt,
-        correctRate: rate(correctCount, selectedSubmissions.length),
-        unansweredRate: rate(unansweredCount, selectedSubmissions.length),
-        avgScoreRate: average(scoreRates),
-        weakTags: Array.from(weakTagCounts.entries())
-          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"))
-          .slice(0, 5)
-          .map(([tag]) => tag),
+      diagnostics.push({ questionId: question.id, order: question.order, prompt: question.prompt,
+        correctRate: rate(correctCount, submissions.length), unansweredRate: rate(unansweredCount, submissions.length),
+        avgScoreRate: average(scoreRates), weakTags: [...weakTagCounts].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0], "zh-CN")).slice(0,5).map(([tag])=>tag),
       });
     }
   }
-
   return diagnostics.sort((a, b) => a.order - b.order || a.questionId.localeCompare(b.questionId));
 }
 
@@ -1956,37 +1960,23 @@ function buildRubricDiagnostics(metrics: InstanceMetrics[]): RubricCriterionDiag
 
   for (const metric of metrics) {
     if (metric.instance.taskType !== "simulation" && metric.instance.taskType !== "subjective") continue;
-    const criteria = metric.instance.task.scoringCriteria;
-    if (criteria.length === 0) continue;
-
-    const selectedSubmissions = getSelectedDiagnosisSubmissions(metric);
-    if (selectedSubmissions.length === 0) continue;
-
-    for (const criterion of criteria) {
-      const row = byCriterion.get(criterion.id) ?? {
-        criterionId: criterion.id,
-        criterionName: criterion.name,
-        scoreRates: [],
-        weakStudents: new Map<string, string>(),
-        sampleComments: [],
-      };
-
-      for (const submission of selectedSubmissions) {
-        const breakdown = getRubricBreakdown(getEvaluation(submission));
+    for (const submission of getSelectedDiagnosisSubmissions(metric)) {
+      const breakdown = getRubricBreakdown(getEvaluation(submission));
+      for (const criterion of diagnosticTask(metric.instance, submission).scoringCriteria) {
         const item = breakdown.find((entry) => entry.criterionId === criterion.id);
         if (!item) continue;
-
+        const key = JSON.stringify([criterion.id, criterion.name, criterion.maxPoints]);
+        const row = byCriterion.get(key) ?? { criterionId: criterion.id, criterionName: criterion.name,
+          scoreRates: [], weakStudents: new Map<string, string>(), sampleComments: [],
+        };
         const scoreRate = normalizeScore(item.score, item.maxScore);
         if (scoreRate !== null) row.scoreRates.push(scoreRate);
         if (scoreRate !== null && scoreRate < LOW_SCORE_THRESHOLD) {
           row.weakStudents.set(submission.student.id, submission.student.name);
-          if (item.comment && row.sampleComments.length < 3) {
-            row.sampleComments.push(item.comment);
-          }
+          if (item.comment && row.sampleComments.length < 3) row.sampleComments.push(item.comment);
         }
+        byCriterion.set(key, row);
       }
-
-      byCriterion.set(criterion.id, row);
     }
   }
 

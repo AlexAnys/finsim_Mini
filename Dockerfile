@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 # === deps stage: install all dependencies ===
 FROM base AS deps
@@ -10,35 +10,35 @@ RUN npm ci
 # === builder stage: build the Next.js app ===
 FROM base AS builder
 WORKDIR /app
+ARG APP_GIT_SHA=development
+ENV APP_GIT_SHA=$APP_GIT_SHA
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# === runner stage: production image ===
-# 关键：把 standalone 拆成多个 COPY 层，让"运行时 node_modules"（最大层 ~136MB）
-# 在 package.json 不变时稳定缓存，每次部署只需重传应用代码层（~10-30MB）。
-#
-# 不要从 builder 额外 COPY @prisma 全包到 runner —— 这会带入 dev-only 的 @prisma/config，
-# 让 `npm install --no-save prisma` 误判 deps 已满足、跳过装它的 transitive deps（effect 等），
-# 导致 prisma migrate deploy 启动时 `Cannot find module 'effect'` 容器反复 crash。
-# standalone 已自带 @prisma/client + .prisma/client，prisma CLI 由 npm install 装齐即可。
+# Keep the exact lockfile production dependency tree, including Prisma CLI/OCR workers.
+FROM builder AS production-deps
+RUN npm prune --omit=dev --ignore-scripts --no-audit --no-fund
+
 FROM base AS runner
 WORKDIR /app
+ARG APP_GIT_SHA=development
+ENV APP_GIT_SHA=$APP_GIT_SHA
 ENV NODE_ENV=production
 # The deploy target is in mainland China; the default Alpine CDN can stall long
 # enough to hit the GitHub Actions timeout while installing OCR runtime deps.
 RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.aliyun.com/alpine|g' /etc/apk/repositories \
   && apk add --no-cache poppler-utils
 RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN adduser --system --uid 1001 -G nodejs nextjs
 
 # Layer 1: public assets（仅 public/ 内容变才变）
 COPY --from=builder /app/public ./public
 
-# Layer 2: standalone 的运行时 node_modules（最大层；仅 package-lock.json 变才变）
-# 已自带 @prisma/client + .prisma/client（next file-tracing 选入），无需额外 COPY
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/node_modules ./node_modules
+# Layer 2: lockfile-pinned production dependencies, Prisma CLI and generated client
+COPY --from=production-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 
 # Layer 3: standalone 的服务端构建产物（每次 build 都变，但 ~10MB）
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/.next ./.next
@@ -50,13 +50,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/package.json ./p
 # Layer 5: 静态 chunks（每次 build 都变，~10-30MB）
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Layer 6: prisma CLI + 全部 transitive deps（@prisma/config / @prisma/engines / effect / 等）
-# 关键：在 standalone/node_modules 已铺好 @prisma/client 的基础上，由 npm 自己装齐 prisma CLI 链
-RUN npm config set registry https://registry.npmmirror.com
-RUN npm install --no-save prisma@6.19.3
+# Prisma CLI and its transitive dependencies come from package-lock.json above.
 
 # Layer 7: prisma schema（仅 schema/migration 变才变）— migrate deploy 需要
 COPY --from=builder /app/prisma ./prisma
+# One-off root maintenance process only; the app still runs as nextjs.
+COPY --from=builder /app/scripts/ops/migrate-text-ai-settings.mjs ./scripts/ops/migrate-text-ai-settings.mjs
+COPY --from=builder /app/lib/ai/text-model-policy.json ./lib/ai/text-model-policy.json
 
 USER nextjs
 EXPOSE 3000

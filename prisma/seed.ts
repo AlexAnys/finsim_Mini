@@ -1,6 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
+if (process.env.NODE_ENV === "production") {
+  throw new Error("禁止在生产环境运行演示 seed");
+}
 const prisma = new PrismaClient();
 
 async function main() {
@@ -112,6 +115,7 @@ async function main() {
       courseCode: "FIN301",
       description: "本课程涵盖个人理财的基本概念、投资策略、风险管理和财务规划。",
       classId: class1.id,
+      classes: { create: { classId: class1.id } },
       createdBy: teacher1.id,
     },
   });
@@ -122,6 +126,7 @@ async function main() {
       courseCode: "FIN302",
       description: "学习股票、债券、基金等金融产品的分析方法和投资决策框架。",
       classId: class2.id,
+      classes: { create: { classId: class2.id } },
       createdBy: teacher2.id,
     },
   });

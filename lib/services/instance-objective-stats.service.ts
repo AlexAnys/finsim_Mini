@@ -84,7 +84,7 @@ export async function getInstanceObjectiveStats(
 
   // 仅 select 客观面板必要字段，避免过取（QA caution + spec 风险登记）
   const submissions = await prisma.submission.findMany({
-    where: { taskInstanceId: instanceId, status: "graded" },
+    where: { deletedAt: null, taskInstanceId: instanceId, status: "graded" },
     select: {
       student: { select: { id: true, name: true } },
       simulationSubmission: {

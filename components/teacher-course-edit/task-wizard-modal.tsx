@@ -1,4 +1,5 @@
 "use client";
+import { hasUsableRubric } from "@/lib/utils/task-publish-readiness";
 
 /**
  * PR-COURSE-1+2 · C2 任务向导 Modal
@@ -271,7 +272,7 @@ function collectMissingFields(form: FormData): string[] {
     if (!form.scenario.trim()) missing.push("模拟场景");
     if (!form.openingLine.trim()) missing.push("客户开场白");
     if (!form.requirements.some((item) => item.trim())) missing.push("对话要求");
-    if (!form.scoringCriteria.some((item) => item.name.trim())) missing.push("评分维度");
+    if (!hasUsableRubric(form.scoringCriteria.filter(item => item.name.trim()))) missing.push("评分维度");
   } else if (form.taskType === "quiz") {
     const hasUsableQuestion = form.questions.some((question) => question.stem.trim());
     if (!hasUsableQuestion) missing.push("题目");
@@ -284,7 +285,7 @@ function collectMissingFields(form: FormData): string[] {
     }
   } else if (form.taskType === "subjective") {
     if (!form.prompt.trim()) missing.push("主观题题干");
-    if (!form.scoringCriteria.some((item) => item.name.trim())) missing.push("评分标准");
+    if (!hasUsableRubric(form.scoringCriteria.filter(item => item.name.trim()))) missing.push("评分标准");
   }
 
   return Array.from(new Set(missing));
@@ -949,6 +950,11 @@ export function TaskWizardModal({
 
   async function handleSubmit() {
     if (!context) return;
+    if (form.taskType !== "quiz" && !hasUsableRubric(form.scoringCriteria.filter(c => c.name.trim()))) {
+      toast.error("请至少添加一项有效评分标准（名称不能为空、分值须大于 0）后再发布；也可以先保存草稿");
+      setStep(2);
+      return;
+    }
     if (form.taskType === "quiz") {
       const incompleteIndex = form.questions.findIndex(
         (question) => !isQuizQuestionComplete(question),

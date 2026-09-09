@@ -15,6 +15,7 @@ vi.mock("@/lib/auth/resource-access", () => ({
 
 vi.mock("@/lib/auth/course-access", () => ({
   assertCourseAccess: vi.fn(),
+  assertCourseAccessForStudent: vi.fn(),
 }));
 
 vi.mock("@/lib/services/ai.service", () => ({
@@ -29,6 +30,10 @@ vi.mock("@/lib/services/task-instance.service", () => ({
 
 vi.mock("@/lib/db/prisma", () => {
   const tx = {
+    submission: { findMany: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
+    asyncJob: { updateMany: vi.fn() },
+    auditLog: { create: vi.fn() },
+    analysisReport: { updateMany: vi.fn() },
     user: { findMany: vi.fn() },
     studentGroup: {
       create: vi.fn(),
@@ -57,7 +62,7 @@ vi.mock("@/lib/db/prisma", () => {
       task: { findUnique: vi.fn() },
       class: { findMany: vi.fn() },
       studentGroup: { findUnique: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
-      submission: { findMany: vi.fn(), findUnique: vi.fn(), deleteMany: vi.fn() },
+      submission: tx.submission,
       scheduleSlot: { findUnique: vi.fn(), delete: vi.fn() },
     },
   };
@@ -259,7 +264,7 @@ describe("ANL-36 batch submission delete", () => {
   it("authorizes every requested submission and returns actual deleted count", async () => {
     mk(prisma.submission.findMany).mockResolvedValue([{ id: "sub-1" }, { id: "sub-2" }]);
     mk(assertSubmissionReadable).mockResolvedValue(undefined);
-    mk(prisma.submission.deleteMany).mockResolvedValue({ count: 2 });
+    mk(prisma.submission.updateMany).mockResolvedValue({ count: 2 });
 
     const result = await batchDeleteSubmissions(["sub-1", "sub-2", "sub-2"], {
       id: "admin-1",
@@ -268,9 +273,11 @@ describe("ANL-36 batch submission delete", () => {
     });
 
     expect(assertSubmissionReadable).toHaveBeenCalledTimes(2);
-    expect(prisma.submission.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ["sub-1", "sub-2"] } },
+    expect(prisma.submission.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["sub-1", "sub-2"] }, deletedAt: null },
+      data: { deletedAt: expect.any(Date), deletedBy: "admin-1" },
     });
+    expect(prisma.submission.deleteMany).not.toHaveBeenCalled();
     expect(result.count).toBe(2);
   });
 

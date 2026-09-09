@@ -16,7 +16,7 @@ const manualGradeSchema = z.object({
   maxScore: z.number().min(0),
   feedback: z.string().optional(),
   rubricBreakdown: z.array(rubricBreakdownSchema).optional(),
-});
+}).refine(data => data.maxScore > 0 && data.score <= data.maxScore, { message: "分数必须在 0 到满分之间" });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const result = await requireRole(["teacher", "admin"]);
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       parsed.data.rubricBreakdown !== undefined
     ) {
       const existing = await getSubmissionById(id);
-      if (!existing) return notFound("提交不存在");
+      if (!existing || existing.deletedAt) return notFound("提交不存在");
       const subDetail =
         existing.simulationSubmission ??
         existing.quizSubmission ??

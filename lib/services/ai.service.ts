@@ -4,6 +4,9 @@ import { z } from "zod";
 import type { AIFeature } from "@/lib/types";
 import { prisma } from "@/lib/db/prisma";
 import { createHash } from "crypto";
+import { createRubricEvaluationSchema } from "./ai-grade-validation";
+import { getAiDeadline } from "./ai-deadline-context";
+import textModelPolicy from "@/lib/ai/text-model-policy.json";
 import {
   buildSimulationChatPrompt,
   buildSimulationChatPersona,
@@ -23,14 +26,14 @@ import {
 // AI Provider 配置
 // ============================================
 
-interface ProviderConfig {
+export interface ProviderConfig {
   name: "mimo" | "qwen" | "deepseek" | "openai" | "gemini";
   apiKey: string;
   baseURL: string;
   defaultModel: string;
 }
 
-interface AiRuntimeSetting {
+export interface AiRuntimeSetting {
   provider?: string | null;
   model?: string | null;
   thinking?: "disabled" | "enabled" | null;
@@ -45,6 +48,13 @@ export interface AiCallOptions {
   maxOutputTokens?: number;
   /** PR-1 E · prompt builder 的契约版本（如 "v1"）；未迁移 caller 默认 "v1"。 */
   promptVersion?: string;
+  /** Absolute action deadline, shared by retries and additional hint/evidence calls. */
+  deadlineAt?: number;
+  timeoutMs?: number;
+  /** One-off diagnostic settings; never persisted. */
+  runtimeSetting?: AiRuntimeSetting;
+  allowFallback?: boolean;
+  onResolved?: (value: { provider: string; model: string; runId: string | null }) => void;
 }
 
 export function getProviderConfig(name: string): ProviderConfig | null {
@@ -69,14 +79,14 @@ export function getProviderConfig(name: string): ProviderConfig | null {
         name: "deepseek",
         apiKey: process.env.DEEPSEEK_API_KEY || "",
         baseURL: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
-        defaultModel: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+        defaultModel: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
       };
     case "openai":
       return {
         name: "openai",
         apiKey: process.env.OPENAI_API_KEY || "",
         baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-        defaultModel: "gpt-4o-mini",
+        defaultModel: process.env.OPENAI_MODEL || "gpt-4o-mini",
       };
     case "gemini":
       // Gemini 走 OpenAI-compatible adapter（@ai-sdk/google 与 createOpenAI 不兼容签名；
@@ -86,7 +96,7 @@ export function getProviderConfig(name: string): ProviderConfig | null {
         name: "gemini",
         apiKey: process.env.GEMINI_API_KEY || "",
         baseURL:
-          process.env.GEMINI_PROXY_URL ||
+          process.env.GEMINI_PROXY_URL || process.env.GEMINI_BASE_URL ||
           "https://generativelanguage.googleapis.com/v1beta/openai/",
         defaultModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       };
@@ -124,7 +134,7 @@ const FEATURE_TEMPERATURES: Record<AIFeature, number> = {
 };
 
 // Feature -> 环境变量前缀
-const FEATURE_ENV_MAP: Record<AIFeature, string> = {
+export const FEATURE_ENV_MAP: Record<AIFeature, string> = {
   simulation: "AI_SIMULATION",
   evaluation: "AI_EVALUATION",
   studyBuddyReply: "AI_STUDY_BUDDY",
@@ -143,7 +153,7 @@ const FEATURE_ENV_MAP: Record<AIFeature, string> = {
   examCheck: "AI_EXAM_CHECK",
 };
 
-const FEATURE_TOOL_KEYS: Record<AIFeature, string> = {
+export const FEATURE_TOOL_KEYS: Record<AIFeature, string> = {
   simulation: "simulationChat",
   evaluation: "simulationGrading",
   studyBuddyReply: "studyBuddy",
@@ -175,7 +185,7 @@ export function getProviderForFeature(
     setting?.provider ||
     process.env[`${envPrefix}_PROVIDER`] ||
     process.env.AI_PROVIDER ||
-    "mimo";
+    textModelPolicy.provider;
   // Fix 4 (review fixes batch 1): 不再把所有 provider 强制改写成 mimo。
   // 历史这里硬 lock 到 MiMo 是因为部署阶段 qwen/deepseek/gemini/openai 配置
   // 不完整，老师在 UI 选了其它 provider 但实际仍走 mimo（"幽灵设置"，对用户
@@ -195,7 +205,7 @@ export function getProviderForFeature(
     const requestedFallbackName =
       process.env[`${envPrefix}_FALLBACK_PROVIDER`] ||
       process.env.AI_FALLBACK_PROVIDER ||
-      "mimo";
+      textModelPolicy.fallbackProvider;
     // Fix 4: 同样不强制改写 fallback；让 AI_FALLBACK_PROVIDER / AI_<feature>_FALLBACK_PROVIDER 真生效
     const fallbackName = requestedFallbackName;
     const fallback = getProviderConfig(fallbackName);
@@ -204,21 +214,29 @@ export function getProviderForFeature(
     }
     return {
       provider: fallback,
-      model: resolveModelForProvider(fallback, requestedModel),
+      model: resolveFeatureModel(feature, fallback, requestedModel),
     };
   }
 
-  return { provider, model: resolveModelForProvider(provider, requestedModel) };
+  return { provider, model: resolveFeatureModel(feature, provider, requestedModel) };
 }
 
-function resolveModelForProvider(provider: ProviderConfig, requestedModel: string): string {
+export function resolveFeatureModel(feature: AIFeature, provider: ProviderConfig, requestedModel: string): string {
+  if (requestedModel && isModelCompatible(provider, requestedModel)) return requestedModel;
+  if (provider.name === "deepseek") {
+    return process.env.DEEPSEEK_MODEL || textModelPolicy.tools[FEATURE_TOOL_KEYS[feature] as keyof typeof textModelPolicy.tools];
+  }
+  return provider.defaultModel;
+}
+
+export function resolveModelForProvider(provider: ProviderConfig, requestedModel: string): string {
   if (!requestedModel) return provider.defaultModel;
   return isModelCompatible(provider, requestedModel)
     ? requestedModel
     : provider.defaultModel;
 }
 
-function isModelCompatible(provider: ProviderConfig, model: string): boolean {
+export function isModelCompatible(provider: ProviderConfig, model: string): boolean {
   switch (provider.name) {
     case "mimo":
       return model.startsWith("mimo-");
@@ -229,8 +247,7 @@ function isModelCompatible(provider: ProviderConfig, model: string): boolean {
     case "gemini":
       return model.startsWith("gemini-");
     case "openai":
-      // OpenAI / Anthropic 兼容客户端用任意 model id（teacher 在 UI 选好即可）
-      return true;
+      return /^(gpt-|chatgpt-|o[1-9](?:-|$))/.test(model);
   }
 }
 
@@ -257,6 +274,8 @@ function createProvider(config: ProviderConfig) {
   return createOpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,
+    ...(config.name === "deepseek" || config.name === "qwen"
+      ? { fetch: createThinkingFetch(config.name) } : {}),
   });
 }
 
@@ -296,6 +315,28 @@ function createMimoFetch(): typeof fetch {
     const headers = new Headers(init.headers);
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
     return baseFetch(input, { ...init, body: JSON.stringify(body), headers });
+  };
+}
+
+/** Vendor fields must be written after the SDK serializes its allowlisted options.
+ * DeepSeek: https://api-docs.deepseek.com/guides/thinking_mode/ (2026-09-09).
+ */
+function createThinkingFetch(provider: "deepseek" | "qwen"): typeof fetch {
+  const baseFetch = globalThis.fetch.bind(globalThis);
+  return async (input, init) => {
+    if (typeof init?.body !== "string") return baseFetch(input, init);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(init.body); } catch { return baseFetch(input, init); }
+    const enabled = body.reasoning_effort === "high";
+    if (provider === "deepseek") {
+      body.thinking = { type: enabled ? "enabled" : "disabled" };
+      if (!enabled) delete body.reasoning_effort;
+      if (enabled) delete body.temperature;
+    } else {
+      body.enable_thinking = enabled;
+      delete body.reasoning_effort;
+    }
+    return baseFetch(input, { ...init, body: JSON.stringify(body) });
   };
 }
 
@@ -357,10 +398,8 @@ export function getProviderOptions(
     };
   }
 
-  if (provider.name === "qwen") {
-    return {
-      openai: { enable_thinking: false },
-    };
+  if (provider.name === "qwen" || provider.name === "deepseek") {
+    return { openai: { reasoningEffort: thinking === "enabled" ? "high" : "low" } };
   }
 
   return undefined;
@@ -826,151 +865,127 @@ function errorMessage(err: unknown) {
 // 公共 AI 调用接口
 // ============================================
 
-export async function aiGenerateText(
-  feature: AIFeature,
-  userId: string,
-  systemPrompt: string,
-  userPrompt: string,
-  options: AiCallOptions = {},
-): Promise<string> {
-  if (!checkRateLimit(userId, feature)) {
-    throw new Error("RATE_LIMIT_EXCEEDED");
-  }
+export function aiActionDeadline(feature: AIFeature, options: AiCallOptions = {}): number {
+  const defaultMs = feature === "simulation" || feature === "studyBuddyReply" ? 30_000 : 90_000;
+  return Math.min(options.deadlineAt ?? Date.now() + (options.timeoutMs ?? defaultMs), getAiDeadline() ?? Infinity);
+}
 
-  const settingsUserId = options.settingsUserId || userId;
-  const setting = await getRuntimeSetting(settingsUserId, feature);
-  const { provider, model } = getProviderForFeature(feature, setting);
-  const openai = createProvider(provider);
-  const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
-  const mergedSystemPrompt = mergeSystemPrompt(systemPrompt, setting);
-  const startedAt = Date.now();
-  const aiRun = await createAiRun({
-    feature,
-    userId,
-    settingsUserId,
-    provider,
-    model,
-    systemPrompt: mergedSystemPrompt,
-    userPrompt,
-    metadata: options.metadata,
-    promptVersion: options.promptVersion,
-  });
+function requestFallback(feature: AIFeature, primary: ProviderConfig, primaryModel: string) {
+  const prefix = FEATURE_ENV_MAP[feature];
+  const name = process.env[`${prefix}_FALLBACK_PROVIDER`] || process.env.AI_FALLBACK_PROVIDER || textModelPolicy.fallbackProvider;
+  const provider = getProviderConfig(name);
+  if (!provider?.apiKey) return null;
+  const requestedModel = process.env[`${prefix}_FALLBACK_MODEL`] || process.env.AI_FALLBACK_MODEL || (provider.name === "deepseek" ? textModelPolicy.fallbackModel : "");
+  const model = resolveModelForProvider(provider, requestedModel);
+  if (provider.name === primary.name && model === primaryModel) return null;
+  return { provider, model };
+}
 
+/** A timer bounds even a misbehaving adapter; abort also stops the HTTP request. */
+async function boundedGenerate(
+  args: Parameters<typeof generateText>[0], deadlineAt: number,
+) {
+  const remaining = Math.floor(deadlineAt - Date.now());
+  if (remaining <= 0) throw new Error("AI_TIMEOUT");
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const { text, usage } = await generateText({
-      model: openai.chat(model),
-      system: mergedSystemPrompt,
-      prompt: userPrompt,
-      temperature,
-      maxOutputTokens: 4096,
-      providerOptions: getProviderOptions(provider, setting, feature),
-    });
-
-    await finishAiRun(aiRun?.id, {
-      status: "succeeded",
-      startedAt,
-      output: text,
-      usage,
-      model,
-    });
-    return text;
-  } catch (error) {
-    await finishAiRun(aiRun?.id, { status: "failed", startedAt, error, model });
-    console.error(`[AI ${feature}] provider=${provider.name} model=${model} error:`, error);
-    throw error;
+    return await Promise.race([
+      generateText({ ...args, maxRetries: 0, abortSignal: controller.signal, timeout: remaining }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new Error("AI_TIMEOUT")); }, remaining);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
-export async function aiGenerateJSON<T>(
-  feature: AIFeature,
-  userId: string,
-  systemPrompt: string,
-  userPrompt: string,
-  schema: z.ZodType<T>,
-  maxRetries: number = 2,
-  options: AiCallOptions = {},
+async function executeAi<T>(
+  feature: AIFeature, userId: string, systemPrompt: string, userPrompt: string,
+  parse: (text: string) => T, maxRetries: number, options: AiCallOptions,
 ): Promise<T> {
-  if (!checkRateLimit(userId, feature)) {
-    throw new Error("RATE_LIMIT_EXCEEDED");
-  }
-
+  if (!checkRateLimit(userId, feature)) throw new Error("RATE_LIMIT_EXCEEDED");
+  const deadlineAt = aiActionDeadline(feature, options);
   const settingsUserId = options.settingsUserId || userId;
-  const setting = await getRuntimeSetting(settingsUserId, feature);
-  const { provider, model } = getProviderForFeature(feature, setting);
-  const openai = createProvider(provider);
-  const temperature = setting?.temperature ?? FEATURE_TEMPERATURES[feature];
-  const mergedSystemPrompt = `${mergeSystemPrompt(systemPrompt, setting)}\n\n请严格返回 JSON 格式，不要包含其他文字。`;
-  const startedAt = Date.now();
-  const aiRun = await createAiRun({
-    feature,
-    userId,
-    settingsUserId,
-    provider,
-    model,
-    systemPrompt: mergedSystemPrompt,
-    userPrompt,
-    metadata: options.metadata,
-    promptVersion: options.promptVersion,
-  });
-
-  let lastError: Error | null = null;
-  let lastUsage: { inputTokens?: number; outputTokens?: number } | undefined;
-
-  // M1 (PR #11) · 调用方可覆盖默认 8192：outline / 长 schema 在 8192 易截断 → 16384。
-  const maxOutputTokens = options.maxOutputTokens ?? 8192;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      // 上一轮是 JSON / Schema 失败时，下一轮在 prompt 末尾追加严格 JSON 提示
-      const repairHint =
-        attempt > 0 && lastError && isJsonShapeError(lastError)
-          ? "\n\n上一次返回的 JSON 不完整或包含多余内容，请只输出严格 JSON 对象，不要 Markdown 代码块、不要多余文字。"
-          : "";
-      const { text, usage: attemptUsage } = await generateText({
-        model: openai.chat(model),
-        system: mergedSystemPrompt,
-        prompt: userPrompt + repairHint,
-        temperature,
-        // 提高输出上限：weeklyInsight / questionBank 长 prompt 在 4096 容易截断
-        maxOutputTokens,
-        providerOptions: getProviderOptions(provider, setting, feature),
-      });
-      lastUsage = attemptUsage;
-
-      const jsonStr = extractJSON(text);
-      // M1 · JSON resilient parse：先尝试严格 parse；SyntaxError 时走截断修复再 parse。
-      let parsed: unknown;
+  const setting = options.runtimeSetting ?? await getRuntimeSetting(settingsUserId, feature);
+  // Diagnostics must fail for the exact requested configuration, without fallback or model substitution.
+  const primary = getProviderForFeature(feature, setting);
+  if (options.runtimeSetting && (
+    primary.provider.name !== setting?.provider || (setting?.model && primary.model !== setting.model)
+  )) throw new Error("AI_PROVIDER_MODEL_MISMATCH");
+  const fallback = options.allowFallback === false ? null : requestFallback(feature, primary.provider, primary.model);
+  const candidates = fallback ? [primary, fallback] : [primary];
+  const mergedSystemPrompt = mergeSystemPrompt(systemPrompt, setting);
+  let lastError: unknown;
+  for (const [candidateIndex, { provider, model }] of candidates.entries()) {
+    const openai = createProvider(provider);
+    const startedAt = Date.now();
+    const run = await createAiRun({ feature, userId, settingsUserId, provider, model,
+      systemPrompt: mergedSystemPrompt, userPrompt, promptVersion: options.promptVersion,
+      metadata: { ...options.metadata, fallback: candidateIndex > 0 },
+    });
+    const totals: { inputTokens?: number; outputTokens?: number } = {};
+    let lastOutput: string | undefined;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        parsed = JSON.parse(jsonStr);
-      } catch (parseErr) {
-        if (!(parseErr instanceof SyntaxError)) throw parseErr;
-        const repaired = tryRepairTruncatedJSON(jsonStr);
-        if (!repaired) throw parseErr;
+        const repair = attempt > 0 ? "\n上次输出未通过校验，请完整返回所有要求的字段和评分项，不要省略或重复。" : "";
+        // Leave time for an explicitly configured fallback when the primary stalls.
+        const attemptDeadline = candidateIndex === 0 && fallback
+          ? Math.min(deadlineAt, Date.now() + Math.max(1, (deadlineAt - Date.now()) * 0.65)) : deadlineAt;
+        const response = await boundedGenerate({ model: openai.chat(model), system: mergedSystemPrompt,
+          prompt: userPrompt + repair, temperature: setting?.temperature ?? FEATURE_TEMPERATURES[feature],
+          maxOutputTokens: options.maxOutputTokens ?? 8192,
+          providerOptions: getProviderOptions(provider, setting, feature),
+        }, attemptDeadline);
+        for (const key of ["inputTokens", "outputTokens"] as const) {
+          if (response.usage?.[key] != null) totals[key] = (totals[key] ?? 0) + response.usage[key]!;
+        }
+        lastOutput = response.text;
+        const data = parse(response.text);
+        await finishAiRun(run?.id, { status: "succeeded", startedAt, output: lastOutput, usage: totals, model });
+        options.onResolved?.({ provider: provider.name, model, runId: run?.id ?? null });
+        return data;
+      } catch (error) {
+        lastError = error;
+        // JSON/contract repairs stay with the selected model. Network failures use the next provider once.
+        if (!isJsonShapeError(error instanceof Error ? error : new Error(String(error))) || Date.now() >= deadlineAt) break;
+      }
+    }
+    await finishAiRun(run?.id, { status: "failed", startedAt, output: lastOutput, usage: totals, error: lastError, model });
+    if (Date.now() >= deadlineAt || isJsonShapeError(lastError instanceof Error ? lastError : new Error(String(lastError)))) break;
+  }
+  throw lastError || new Error("AI_GENERATE_FAILED");
+}
+
+export async function aiGenerateText(
+  feature: AIFeature, userId: string, systemPrompt: string, userPrompt: string,
+  options: AiCallOptions = {},
+): Promise<string> {
+  return executeAi(feature, userId, systemPrompt, userPrompt, (text) => {
+    if (!text.trim()) throw new Error("AI_EMPTY_RESPONSE");
+    return text;
+  }, 0, { ...options, maxOutputTokens: options.maxOutputTokens ?? 4096 });
+}
+
+export async function aiGenerateJSON<T>(
+  feature: AIFeature, userId: string, systemPrompt: string, userPrompt: string,
+  schema: z.ZodType<T>, maxRetries = 2, options: AiCallOptions = {},
+): Promise<T> {
+  return executeAi(feature, userId,
+    `${systemPrompt}\n\n请严格返回 JSON 格式，不要包含其他文字。`, userPrompt,
+    (text) => {
+      const json = extractJSON(text);
+      let parsed: unknown;
+      try { parsed = JSON.parse(json); } catch (error) {
+        // Grading may never accept a truncated partial evaluation.
+        if (feature === "evaluation" || feature === "subjectiveGrade" || feature === "quizGrade") throw error;
+        const repaired = tryRepairTruncatedJSON(json);
+        if (!repaired) throw error;
         parsed = JSON.parse(repaired);
       }
-      const data = schema.parse(parsed);
-      await finishAiRun(aiRun?.id, {
-        status: "succeeded",
-        startedAt,
-        output: text,
-        usage: lastUsage,
-        model,
-      });
-      return data;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < maxRetries) continue;
-    }
-  }
-
-  await finishAiRun(aiRun?.id, {
-    status: "failed",
-    startedAt,
-    error: lastError,
-    usage: lastUsage,
-    model,
-  });
-  throw lastError || new Error("AI_GENERATE_FAILED");
+      return schema.parse(parsed);
+    }, maxRetries, options);
 }
 
 // ============================================
@@ -1168,6 +1183,7 @@ export async function chatReply(
 
   const callOptions: AiCallOptions = {
     ...options,
+    deadlineAt: aiActionDeadline("simulation", options),
     promptVersion: options.promptVersion ?? SIMULATION_CHAT_PROMPT_VERSION,
   };
 
@@ -1200,7 +1216,7 @@ export async function chatReply(
     };
   }
 
-  return finalizeChatReply(parsed, data, userId, options);
+  return finalizeChatReply(parsed, data, userId, callOptions);
 }
 
 // ============================================
@@ -1242,6 +1258,7 @@ export async function chatReplyStream(
   data: ChatRequestData,
   options: AiCallOptions = {},
 ): Promise<ChatReplyStreamResult> {
+  options = { ...options, deadlineAt: aiActionDeadline("simulation", options) };
   const { systemPrompt, userPrompt } = buildChatPrompts(data);
 
   if (!checkRateLimit(userId, "simulation")) {
@@ -1249,7 +1266,7 @@ export async function chatReplyStream(
   }
 
   const settingsUserId = options.settingsUserId || userId;
-  const setting = await getRuntimeSetting(settingsUserId, "simulation");
+  const setting = options.runtimeSetting ?? await getRuntimeSetting(settingsUserId, "simulation");
   const { provider, model } = getProviderForFeature("simulation", setting);
   const openai = createProvider(provider);
   const temperature = setting?.temperature ?? FEATURE_TEMPERATURES["simulation"];
@@ -1269,7 +1286,8 @@ export async function chatReplyStream(
 
   // Fix 3 · 30s AbortController 上限。模型卡死时主动断流，前端走中文超时分支。
   const abortController = new AbortController();
-  const timeoutHandle = setTimeout(() => abortController.abort(), CHAT_STREAM_TIMEOUT_MS);
+  const streamFallback = options.allowFallback === false ? null : requestFallback("simulation", provider, model);
+  const timeoutHandle = setTimeout(() => abortController.abort(), Math.max(1, (options.deadlineAt! - Date.now()) * (streamFallback ? 0.65 : 1)));
 
   let result: ReturnType<typeof streamText>;
   try {
@@ -1281,6 +1299,7 @@ export async function chatReplyStream(
       maxOutputTokens: 4096,
       providerOptions: getProviderOptions(provider, setting, "simulation"),
       abortSignal: abortController.signal,
+      maxRetries: 0,
     });
   } catch (err) {
     clearTimeout(timeoutHandle);
@@ -1298,6 +1317,7 @@ export async function chatReplyStream(
   let rawAccum = "";
   let lastReplyEmitted = "";
   let streamError: unknown = null;
+  let recoveredReply: ChatReplyResult | null = null;
   let streamFinished = false;
   let resolveStreamDone: () => void = () => {};
   const streamDone: Promise<void> = new Promise((resolve) => {
@@ -1319,8 +1339,20 @@ export async function chatReplyStream(
       streamFinished = true;
     } catch (err) {
       streamError = err;
+      await finishAiRun(aiRun?.id, { status: "failed", startedAt, error: err, model });
+      // A fallback is safe only before any customer reply has been shown.
+      if (!lastReplyEmitted && streamFallback && Date.now() < options.deadlineAt!) {
+        recoveredReply = await chatReply(userId, data, {
+          ...options,
+          runtimeSetting: { ...setting, provider: streamFallback.provider.name, model: streamFallback.model },
+          allowFallback: false,
+          metadata: { ...options.metadata, fallback: true, streamingFallback: true },
+        });
+        streamFinished = true;
+        yield recoveredReply.reply;
+        return;
+      }
       streamFinished = true;
-      // 异常上抛到 generator 调用者（SSE writer 会捕获并发降级 chunk）
       throw err;
     } finally {
       clearTimeout(timeoutHandle);
@@ -1329,6 +1361,7 @@ export async function chatReplyStream(
   }
 
   async function meta() {
+    if (recoveredReply) return { ...recoveredReply, degraded: false };
     if (!streamFinished) {
       // generator 没被消费完 → 主动拉一遍剩余 textStream（极端 case：caller 直接调 meta 没拿 replyChunks）
       try {
@@ -1519,12 +1552,12 @@ async function generateSocraticHint(
  */
 export function countMismatchedEvidence(
   rubricBreakdown: Array<{ evidence?: Array<{ studentText: string }> }>,
-  transcriptText: string,
+  transcriptText: string | string[],
 ): number {
   let n = 0;
   for (const r of rubricBreakdown) {
     for (const ev of r.evidence ?? []) {
-      if (ev.studentText && !transcriptText.includes(ev.studentText)) {
+      if (ev.studentText && !(Array.isArray(transcriptText) ? transcriptText : [transcriptText]).some((text) => text.includes(ev.studentText))) {
         n++;
       }
     }
@@ -1554,26 +1587,7 @@ export async function evaluateSimulation(
   },
   options: AiCallOptions = {},
 ) {
-  const evaluationSchema = z.object({
-    totalScore: z.number(),
-    feedback: z.string(),
-    rubricBreakdown: z.array(z.object({
-      criterionId: z.string(),
-      score: z.number(),
-      maxScore: z.number(),
-      comment: z.string(),
-      // Unit 9: evidence — 每项 rubric 至少 1 条引用学生原句的依据
-      evidence: z
-        .array(
-          z.object({
-            studentText: z.string(),
-            comment: z.string(),
-          }),
-        )
-        .default([]),
-    })),
-    conceptTags: z.array(z.string()).optional(),
-  });
+  const evaluationSchema = createRubricEvaluationSchema(data.rubric, { requireEvidence: true });
 
   const conversationText = data.transcript
     .map((m) => `${m.role === "student" ? "理财经理" : "客户"}: ${m.text.replace(/\[MOOD:.*?\]/g, "")}`)
@@ -1619,6 +1633,7 @@ export async function evaluateSimulation(
 
   const evalCallOptions: AiCallOptions = {
     ...options,
+    deadlineAt: aiActionDeadline("evaluation", options),
     promptVersion: options.promptVersion ?? SIMULATION_EVALUATE_PROMPT_VERSION,
   };
 
@@ -1634,8 +1649,8 @@ export async function evaluateSimulation(
   );
 
   // Unit 9: 校验每条 evidence.studentText 是否能在原对话中找到。
-  // 找不到 → 1 次 wrap retry 加 hint；仍找不到 → 接受但 unverified=true。
-  let mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, joinedStudentText);
+  // 找不到则重试一次；仍无对应原话时拒绝评分。
+  let mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, studentTextPool);
   if (mismatchedCount > 0) {
     const retryHint = buildEvidenceRetryHint(mismatchedCount);
     result = await aiGenerateJSON(
@@ -1650,18 +1665,16 @@ export async function evaluateSimulation(
         metadata: { ...(options.metadata ?? {}), evidenceRetry: true },
       },
     );
-    mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, joinedStudentText);
+    mismatchedCount = countMismatchedEvidence(result.rubricBreakdown, studentTextPool);
     if (mismatchedCount > 0) {
-      console.warn(
-        `[evaluateSimulation] evidence 引用校验：${mismatchedCount} 条引用在 transcript 中找不到，标记 unverified=true`,
-      );
+      throw new Error("AI_EVIDENCE_INVALID: 评分引用无法在学生作答中找到，请重试批改");
     }
   }
 
-  // 标准化: 确保分数不超上限, 补全缺失项
+  // Schema has validated every ID and bound. Preserve the task order.
   const maxScore = data.rubric.reduce((sum, r) => sum + r.maxPoints, 0);
   const breakdown = data.rubric.map((r) => {
-    const found = result.rubricBreakdown.find((b) => b.criterionId === r.id);
+    const found = result.rubricBreakdown.find((b) => b.criterionId === r.id)!;
     const evidenceRaw = found?.evidence ?? [];
     // 限制每项 evidence ≤ 3 条 + 给每条打 unverified flag
     const evidence = evidenceRaw.slice(0, 3).map((ev) => ({
@@ -1671,7 +1684,7 @@ export async function evaluateSimulation(
     }));
     return {
       criterionId: r.id,
-      score: found ? Math.min(found.score, r.maxPoints) : 0,
+      score: found.score,
       maxScore: r.maxPoints,
       comment: found?.comment || "暂无评语",
       evidence,

@@ -1059,3 +1059,30 @@ describe("phase 9 trailing samples", () => {
     expect(result.kpis.pendingReleaseInstances[2].id).toBe("inst-c");
   });
 });
+
+describe("pilot analytics frozen versions", () => {
+  it("uses each submission's actual question version and excludes other versions from its denominator", async () => {
+    const oldQuestion = { id: "old-q", prompt: "冻结旧题", points: 10, order: 1 };
+    const newQuestion = { id: "new-q", prompt: "冻结新题", points: 10, order: 1 };
+    const old = { ...submission({ id: "old-sub", studentId: "s1", status: "graded", score: 10, maxScore: 10, submittedAt: "2026-01-02T00:00:00Z", quizEvaluation: { quizBreakdown: [{ questionId: "old-q", score: 10, maxScore: 10, correct: true, comment: "正确" }] } }), taskSnapshot: { quizQuestions: [oldQuestion], scoringCriteria: [] } };
+    const newer = { ...submission({ id: "new-sub", studentId: "s2", status: "graded", score: 0, maxScore: 10, submittedAt: "2026-01-03T00:00:00Z", quizEvaluation: { quizBreakdown: [{ questionId: "new-q", score: 0, maxScore: 10, correct: false, comment: "有作答但错误" }] } }), taskSnapshot: { quizQuestions: [newQuestion], scoringCriteria: [] } };
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany).mockResolvedValueOnce([optionInstance]).mockResolvedValueOnce([{ ...instance({ submissions: [old, newer] }), taskSnapshot: { quizQuestions: [newQuestion], scoringCriteria: [] } }]);
+    mk(prisma.user.findMany).mockResolvedValue([{ id: "s1", name: "S1", classId: "class-A" }, { id: "s2", name: "S2", classId: "class-A" }]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    const result = await getAnalyticsV2Diagnosis({ courseId: "course-1", now: new Date("2026-01-10T00:00:00Z") });
+    expect(result.quizDiagnostics).toHaveLength(2);
+    expect(result.quizDiagnostics.find((q) => q.questionId === "old-q")).toMatchObject({ prompt: "冻结旧题", correctRate: 1, unansweredRate: 0 });
+    expect(result.quizDiagnostics.find((q) => q.questionId === "new-q")).toMatchObject({ prompt: "冻结新题", correctRate: 0, unansweredRate: 0 });
+    expect(prisma.submission.count).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "graded", releasedAt: null, deletedAt: null }) }));
+  });
+  it("names rubric diagnostics from the submitted snapshot after the template IDs change", async () => {
+    const frozen = { ...submission({ id: "old-sub", studentId: "s1", taskType: "subjective", status: "graded", score: 5, maxScore: 10, submittedAt: "2026-01-02T00:00:00Z", subjectiveEvaluation: { rubricBreakdown: [{ criterionId: "frozen-r", score: 5, maxScore: 10, comment: "待加强" }] } }), taskSnapshot: { quizQuestions: [], scoringCriteria: [{ id: "frozen-r", name: "原评分标准", maxPoints: 10, order: 1 }] } };
+    mk(prisma.course.findUnique).mockResolvedValue(course);
+    mk(prisma.taskInstance.findMany).mockResolvedValueOnce([{ ...optionInstance, taskType: "subjective" }]).mockResolvedValueOnce([instance({ taskType: "subjective", submissions: [frozen] })]);
+    mk(prisma.user.findMany).mockResolvedValue([{ id: "s1", name: "S1", classId: "class-A" }]);
+    mk(prisma.studentGroup.findMany).mockResolvedValue([]);
+    const result = await getAnalyticsV2Diagnosis({ courseId: "course-1", now: new Date("2026-01-10T00:00:00Z") });
+    expect(result.simulationDiagnostics).toEqual([expect.objectContaining({ criterionId: "frozen-r", criterionName: "原评分标准", avgScoreRate: 50 })]);
+  });
+});

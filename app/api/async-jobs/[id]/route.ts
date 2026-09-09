@@ -9,7 +9,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   try {
     const { id } = await params;
     const job = await getAsyncJob(id, result.session.user);
-    return success(job);
+    return success(result.session.user.role === "student" && job.type === "submission_grade" ? { ...job, result: null } : job);
   } catch (err) {
     return handleServiceError(err);
   }

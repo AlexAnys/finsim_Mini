@@ -6,7 +6,7 @@ import {
   stripSubmissionForStudent,
   deriveAnalysisStatus,
 } from "@/lib/services/submission.service";
-import { enqueueAsyncJob } from "@/lib/services/async-job.service";
+
 import { createSubmissionSchema } from "@/lib/validators/submission.schema";
 import {
   assertTaskInstanceReadable,
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
+    if (!data.requestId) return validationError("缺少提交标识，请刷新作答页面后重试");
     const { user } = result.session;
 
     // PR-FIX-1 A2: 学生提交必须指定 taskInstanceId（防对未分配 task 提交）
@@ -52,15 +53,7 @@ export async function POST(request: NextRequest) {
 
     const submission = await createSubmission(user.id, data);
 
-    const gradingJob = await enqueueAsyncJob({
-      type: "submission_grade",
-      entityType: "Submission",
-      entityId: submission.id,
-      input: { submissionId: submission.id },
-      createdBy: user.id,
-    });
-
-    return created({ ...submission, gradingJob });
+    return created({ ...stripSubmissionForStudent(submission), gradingJob: submission.gradingJob ? { ...submission.gradingJob, result: null } : null });
   } catch (err) {
     return handleServiceError(err);
   }
@@ -114,6 +107,8 @@ export async function GET(request: NextRequest) {
       status,
       page,
       pageSize,
+      actor: user,
+      includeDeleted: user.role !== "student" && searchParams.get("deleted") === "true",
     });
     // PR-SIM-1a D1: 学生看列表时也要剥离未公布的 score/evaluation/conceptTags
     // 教师列表加 analysisStatus 字段供 UI 显示"已分析未公布"标签

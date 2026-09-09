@@ -5,6 +5,9 @@ export interface WeeklyInsightOpts {
   windowEnd: Date;
   submissions: Array<{
     submissionId: string;
+    studentId?: string;
+    classId?: string | null;
+    courseId?: string | null;
     studentName: string;
     className: string | null;
     courseTitle: string | null;
@@ -17,6 +20,7 @@ export interface WeeklyInsightOpts {
     feedback: string;
     conceptTags: string[];
   }>;
+  statistics?: unknown;
   upcomingSlots: Array<{
     scheduleSlotId: string;
     courseId: string;
@@ -29,7 +33,7 @@ export interface WeeklyInsightOpts {
   }>;
 }
 
-export const WEEKLY_INSIGHT_PROMPT_VERSION = "v1";
+export const WEEKLY_INSIGHT_PROMPT_VERSION = "v2";
 
 export const buildWeeklyInsightPrompt: PromptBuilder<WeeklyInsightOpts> = (opts) => {
   const systemPrompt = `你是一位资深的金融教育课程顾问。基于教师过去 7 天班级提交数据 + 接下来 7 天课表，请生成结构化"一周洞察"，帮助教师在课前做有针对性的备课。
@@ -43,7 +47,7 @@ export const buildWeeklyInsightPrompt: PromptBuilder<WeeklyInsightOpts> = (opts)
     .slice(0, 80)
     .map(
       (s, i) =>
-        `[${i + 1}] sub=${s.submissionId} 学生=${s.studentName} 班级=${s.className ?? "（未关联）"} 课程=${s.courseTitle ?? "（未关联）"} 章节=${s.chapterTitle ?? "-"} 小节=${s.sectionTitle ?? "-"} 任务=${s.taskName}（${s.taskType}） 分=${s.score ?? "-"}/${s.maxScore ?? "-"} 概念=${s.conceptTags.join("|") || "-"} 反馈=${s.feedback.slice(0, 200)}`,
+        `[${i + 1}] sub=${s.submissionId} 学生ID=${s.studentId ?? "-"} 学生=${s.studentName} 班级ID=${s.classId ?? "-"} 课程ID=${s.courseId ?? "-"} 班级=${s.className ?? "（未关联）"} 课程=${s.courseTitle ?? "（未关联）"} 章节=${s.chapterTitle ?? "-"} 小节=${s.sectionTitle ?? "-"} 任务=${s.taskName}（${s.taskType}） 分=${s.score ?? "-"}/${s.maxScore ?? "-"} 概念=${s.conceptTags.join("|") || "-"} 反馈=${s.feedback.slice(0, 200)}`,
     )
     .join("\n");
 
@@ -57,8 +61,11 @@ export const buildWeeklyInsightPrompt: PromptBuilder<WeeklyInsightOpts> = (opts)
 
   const userPrompt = `时间窗口: ${opts.windowStart.toISOString().slice(0, 10)} ~ ${opts.windowEnd.toISOString().slice(0, 10)}
 
-【过去 7 天 graded + released 提交数据 (${opts.submissions.length} 条)】
+【过去 7 天已批改并公布的数据样本 (${Math.min(80, opts.submissions.length)} / ${opts.submissions.length} 条；每名学生每个任务取最新)】
 ${submissionLines || "（无）"}
+
+【程序计算的全量统计，数值不得改写】
+${JSON.stringify(opts.statistics ?? {})}
 
 【接下来 7 天课表 (${opts.upcomingSlots.length} 节)】
 ${upcomingLines || "（无）"}
@@ -88,8 +95,8 @@ ${upcomingLines || "（无）"}
 
 要求:
 - weakConceptsByCourse: 仅当某课程内同一概念被 ≥2 名学生明显答错（feedback 反馈中出现弱点）时纳入。errorRate 用 (该概念出错学生数 / 课程下答过该概念的学生数)。
-- classDifferences: 列出本周有提交的班级；avgScore 取真实均分（如无可填 null）。
-- studentClusters: 基于分数与 feedback 模式归纳 2-4 类即可。
+- classDifferences / studentClusters / weakConceptsByCourse 由程序计算，请返回空数组；不要自行推测人数、错误率或均分。
+- 所有实体 ID 只使用提供的真实 ID；同名实体不合并。
 - upcomingClassRecommendations: 仅针对接下来 7 天课表中真实存在的 slot；建议要把"过去 7 天该课程的弱点"映射到"下次课要讲什么"。
 - highlightSummary: 一段总览，开头"本周教学需关注"。
 `;

@@ -90,74 +90,65 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           GIT_SHA: ${{ github.event.pull_request.head.sha }}
+          CRON_TOKEN: ${{ secrets.CRON_TOKEN }}
+          AI_PROVIDER: ${{ vars.AI_PROVIDER }}
+          AI_FALLBACK_PROVIDER: ${{ vars.AI_FALLBACK_PROVIDER }}
+          AI_SIMULATION_PROVIDER: ${{ vars.AI_SIMULATION_PROVIDER }}
+          AI_SIMULATION_MODEL: ${{ vars.AI_SIMULATION_MODEL }}
+          AI_EVALUATION_PROVIDER: ${{ vars.AI_EVALUATION_PROVIDER }}
+          AI_EVALUATION_MODEL: ${{ vars.AI_EVALUATION_MODEL }}
+          AI_EVALUATION_FALLBACK_PROVIDER: ${{ vars.AI_EVALUATION_FALLBACK_PROVIDER }}
+          AI_EVALUATION_FALLBACK_MODEL: ${{ vars.AI_EVALUATION_FALLBACK_MODEL }}
+          AI_QUIZ_GRADE_PROVIDER: ${{ vars.AI_QUIZ_GRADE_PROVIDER }}
+          AI_QUIZ_GRADE_MODEL: ${{ vars.AI_QUIZ_GRADE_MODEL }}
+          AI_SUBJECTIVE_GRADE_PROVIDER: ${{ vars.AI_SUBJECTIVE_GRADE_PROVIDER }}
+          AI_SUBJECTIVE_GRADE_MODEL: ${{ vars.AI_SUBJECTIVE_GRADE_MODEL }}
+          AI_TASK_DRAFT_PROVIDER: ${{ vars.AI_TASK_DRAFT_PROVIDER }}
+          AI_TASK_DRAFT_MODEL: ${{ vars.AI_TASK_DRAFT_MODEL }}
+          AI_QUIZ_DRAFT_PROVIDER: ${{ vars.AI_QUIZ_DRAFT_PROVIDER }}
+          AI_QUIZ_DRAFT_MODEL: ${{ vars.AI_QUIZ_DRAFT_MODEL }}
+          AI_SUBJECTIVE_DRAFT_PROVIDER: ${{ vars.AI_SUBJECTIVE_DRAFT_PROVIDER }}
+          AI_SUBJECTIVE_DRAFT_MODEL: ${{ vars.AI_SUBJECTIVE_DRAFT_MODEL }}
+          AI_LESSON_POLISH_PROVIDER: ${{ vars.AI_LESSON_POLISH_PROVIDER }}
+          AI_LESSON_POLISH_MODEL: ${{ vars.AI_LESSON_POLISH_MODEL }}
+          AI_IDEOLOGY_MINING_PROVIDER: ${{ vars.AI_IDEOLOGY_MINING_PROVIDER }}
+          AI_IDEOLOGY_MINING_MODEL: ${{ vars.AI_IDEOLOGY_MINING_MODEL }}
+          AI_QUESTION_ANALYSIS_PROVIDER: ${{ vars.AI_QUESTION_ANALYSIS_PROVIDER }}
+          AI_QUESTION_ANALYSIS_MODEL: ${{ vars.AI_QUESTION_ANALYSIS_MODEL }}
+          AI_EXAM_CHECK_PROVIDER: ${{ vars.AI_EXAM_CHECK_PROVIDER }}
+          AI_EXAM_CHECK_MODEL: ${{ vars.AI_EXAM_CHECK_MODEL }}
+          AI_STUDY_BUDDY_PROVIDER: ${{ vars.AI_STUDY_BUDDY_PROVIDER }}
+          AI_STUDY_BUDDY_MODEL: ${{ vars.AI_STUDY_BUDDY_MODEL }}
+          AI_IMPORT_PROVIDER: ${{ vars.AI_IMPORT_PROVIDER }}
+          AI_IMPORT_MODEL: ${{ vars.AI_IMPORT_MODEL }}
+          AI_INSIGHTS_PROVIDER: ${{ vars.AI_INSIGHTS_PROVIDER }}
+          AI_INSIGHTS_MODEL: ${{ vars.AI_INSIGHTS_MODEL }}
+          AI_WEEKLY_INSIGHT_PROVIDER: ${{ vars.AI_WEEKLY_INSIGHT_PROVIDER }}
+          AI_WEEKLY_INSIGHT_MODEL: ${{ vars.AI_WEEKLY_INSIGHT_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+          MIMO_BASE_URL: ${{ secrets.MIMO_BASE_URL }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: GIT_SHA,PR_NUMBER
+          envs: GIT_SHA,PR_NUMBER,CRON_TOKEN,MIMO_API_KEY,MIMO_BASE_URL,DEEPSEEK_API_KEY,DEEPSEEK_BASE_URL,AI_PROVIDER,AI_FALLBACK_PROVIDER,AI_SIMULATION_PROVIDER,AI_SIMULATION_MODEL,AI_EVALUATION_PROVIDER,AI_EVALUATION_MODEL,AI_EVALUATION_FALLBACK_PROVIDER,AI_EVALUATION_FALLBACK_MODEL,AI_QUIZ_GRADE_PROVIDER,AI_QUIZ_GRADE_MODEL,AI_SUBJECTIVE_GRADE_PROVIDER,AI_SUBJECTIVE_GRADE_MODEL,AI_TASK_DRAFT_PROVIDER,AI_TASK_DRAFT_MODEL,AI_QUIZ_DRAFT_PROVIDER,AI_QUIZ_DRAFT_MODEL,AI_SUBJECTIVE_DRAFT_PROVIDER,AI_SUBJECTIVE_DRAFT_MODEL,AI_LESSON_POLISH_PROVIDER,AI_LESSON_POLISH_MODEL,AI_IDEOLOGY_MINING_PROVIDER,AI_IDEOLOGY_MINING_MODEL,AI_QUESTION_ANALYSIS_PROVIDER,AI_QUESTION_ANALYSIS_MODEL,AI_EXAM_CHECK_PROVIDER,AI_EXAM_CHECK_MODEL,AI_STUDY_BUDDY_PROVIDER,AI_STUDY_BUDDY_MODEL,AI_IMPORT_PROVIDER,AI_IMPORT_MODEL,AI_INSIGHTS_PROVIDER,AI_INSIGHTS_MODEL,AI_WEEKLY_INSIGHT_PROVIDER,AI_WEEKLY_INSIGHT_MODEL
           command_timeout: 60m
           script: |
-            set -e
+            set -euo pipefail
             cd /opt/finsim-staging
+            bootstrap=$(mktemp -d)
+            trap 'rm -rf "$bootstrap"' EXIT
+            tar -xzf finsim-staging-src.tar.gz -C "$bootstrap" scripts/ops
+            bash "$bootstrap/scripts/ops/deploy-release.sh" /opt/finsim-staging staging "/opt/finsim-staging/finsim-staging-src.tar.gz" "$GIT_SHA" "${PR_NUMBER:-}"
 
-            # .env 由首次手动初始化（cp /opt/finsim/.env + 改 NEXTAUTH_URL），workflow 不覆盖
-            if [ ! -f .env ]; then
-              echo "::error::/opt/finsim-staging/.env missing. First-time bootstrap required (see plan Phase B4)." >&2
-              exit 1
-            fi
-
-            # 解压源码（覆盖文件，保留 .env / last-deployed-* / volumes）
-            tar -xzf finsim-staging-src.tar.gz
-            rm finsim-staging-src.tar.gz
-
-            # 服务器内存只有 ~3.5G，next build 需要 2G+，build 前停旧 staging-app
-            # 释放内存（保留 staging-postgres，volumes 不受影响）
-            docker compose -f docker-compose.staging.yml -p finsim-staging stop staging-app 2>/dev/null || true
-            # docker prune 释放 build cache（保留近期镜像）
-            docker builder prune -f --filter "until=24h" 2>/dev/null || true
-            sleep 2
-
-            docker compose -f docker-compose.staging.yml -p finsim-staging build staging-app
-            docker compose -f docker-compose.staging.yml -p finsim-staging up -d staging-postgres
-            # 等 postgres 健康
-            for i in 1 2 3 4 5 6; do
-              if docker compose -f docker-compose.staging.yml -p finsim-staging ps staging-postgres | grep -q "healthy"; then
-                break
-              fi
-              sleep 5
-            done
-            docker compose -f docker-compose.staging.yml -p finsim-staging up -d staging-app
-
-            # 修 uploads 卷权限（与生产 deploy 一致）
-            docker compose -f docker-compose.staging.yml -p finsim-staging exec -T -u root staging-app sh -lc \
-              'mkdir -p /data/uploads && chown -R 1001:65533 /data/uploads && chmod -R u+rwX /data/uploads'
-
-            # 增量 migrate（首次部署需手动 db:seed，详见 plan Phase B5）
-            docker compose -f docker-compose.staging.yml -p finsim-staging exec -T staging-app npx prisma migrate deploy
-
-            docker image prune -f
-            echo "${GIT_SHA}" > /opt/finsim-staging/last-deployed-sha
-            echo "${PR_NUMBER}" > /opt/finsim-staging/last-deployed-pr
-            date -u +"%Y-%m-%dT%H:%M:%SZ" > /opt/finsim-staging/last-deployed-at
-
-            sleep 5
-            docker compose -f docker-compose.staging.yml -p finsim-staging ps
-
-      - name: Staging smoke test (curl /login)
+      - name: Verify deployed revision and database readiness
         if: needs.changes.outputs.docs_only != 'true'
         env:
-          STAGING_URL: https://staging.finsim.anlanai.cn/login
-        run: |
-          sleep 8
-          for attempt in 1 2 3 4 5 6; do
-            code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 "$STAGING_URL" || echo "000")
-            echo "attempt $attempt: HTTP $code"
-            if [ "$code" = "200" ]; then exit 0; fi
-            sleep 10
-          done
-          echo "::error::staging smoke test failed: $STAGING_URL did not return 200" >&2
-          exit 1
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ops/verify-ready.py https://staging.finsim.anlanai.cn "$EXPECTED_SHA"
 
       # PR-1 A: Playwright 主线 smoke (5 specs) 真浏览器跑 staging.
       # 用 seeded baseline 账号 (teacher1/student1 @finsim.edu.cn / password123) —
@@ -168,7 +159,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies (Playwright only needed)
@@ -184,6 +175,7 @@ jobs:
         env:
           PLAYWRIGHT_BASE_URL: https://staging.finsim.anlanai.cn
           CI: "true"
+          PLAYWRIGHT_EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: npx playwright test
 
       - name: Upload Playwright trace + screenshots on failure
@@ -209,6 +201,7 @@ jobs:
 
           - URL: https://staging.finsim.anlanai.cn
           - Commit: \`${GIT_SHA:0:7}\`
+          - 版本核验: https://staging.finsim.anlanai.cn/api/version（实测前后须与本 PR commit 一致）
           - Stack: \`docker compose -p finsim-staging\`
 
           请用 \`teacher1@finsim.edu.cn / password123\` / \`student1@finsim.edu.cn / password123\` 实测。

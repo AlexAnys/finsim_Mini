@@ -5,7 +5,6 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
-  Quote,
   RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +33,7 @@ export interface InsightsCachedResponse {
         commonIssues: InsightsCommonIssue[];
         highlights: InsightsHighlight[];
         weaknessConcepts: InsightsWeaknessConcept[];
+        sample?: { totalSubmissions: number; selectedStudents: number; analyzedStudents: number };
       }
     | null;
   aggregatedAt: string | null;
@@ -131,7 +131,7 @@ export function InsightsTab({ instanceId, onExplainConcept }: InsightsTabProps) 
             <div className="text-sm font-semibold text-ink">AI 班级洞察</div>
             <p className="mt-0.5 text-[12px] text-ink-4">
               {aggregatedAtLabel
-                ? `最近一次生成于 ${aggregatedAtLabel} · 基于 ${data?.studentCount ?? 0} 份提交`
+                ? `最近一次生成于 ${aggregatedAtLabel} · 每人最新提交，AI 分析 ${data?.commonIssues?.sample?.analyzedStudents ?? "未记录"} / ${data?.studentCount ?? 0} 名学生`
                 : "尚未生成 · 点击右侧按钮触发 AI 聚合（约需 30 秒）"}
             </p>
           </div>
@@ -203,9 +203,9 @@ export function InsightsTab({ instanceId, onExplainConcept }: InsightsTabProps) 
                           <h3 className="text-[13px] font-semibold text-ink">
                             {issue.title}
                           </h3>
-                          {typeof issue.studentCount === "number" && (
+                          {typeof issue.studentCount === "number" && issue.studentCount > 0 && (
                             <span className="rounded bg-warn px-1.5 py-0.5 text-[10px] font-bold text-paper tabular-nums">
-                              {issue.studentCount} 名学生
+                              样本中 {issue.studentCount} 名学生
                             </span>
                           )}
                         </div>
@@ -223,7 +223,7 @@ export function InsightsTab({ instanceId, onExplainConcept }: InsightsTabProps) 
           {/* Right column: Highlights + Weaknesses */}
           <div className="flex flex-col gap-4">
             <section className="rounded-xl border border-line bg-surface p-5">
-              <h2 className="mb-3 text-sm font-semibold text-ink">亮点片段</h2>
+              <h2 className="mb-3 text-sm font-semibold text-ink">提交点评节选</h2>
               {highlights.length === 0 ? (
                 <div className="rounded-md border border-dashed border-line py-4 text-center text-[12px] text-ink-5">
                   暂无亮点
@@ -236,13 +236,12 @@ export function InsightsTab({ instanceId, onExplainConcept }: InsightsTabProps) 
                       className="rounded-md border-l-2 border-l-success bg-paper-alt p-3"
                     >
                       <div className="flex items-start gap-2">
-                        <Quote className="mt-0.5 size-3 shrink-0 text-success" />
                         <div className="min-w-0 flex-1">
                           <p className="text-[12px] leading-relaxed text-ink-2">
                             {h.quote}
                           </p>
                           <div className="mt-1 text-[11px] text-ink-5">
-                            — {h.studentName}
+                            对 {h.studentName} 提交的 AI 点评
                           </div>
                         </div>
                       </div>
@@ -253,7 +252,7 @@ export function InsightsTab({ instanceId, onExplainConcept }: InsightsTabProps) 
             </section>
 
             <section className="rounded-xl border border-line bg-surface p-5">
-              <h2 className="mb-3 text-sm font-semibold text-ink">薄弱概念</h2>
+              <h2 className="mb-3 text-sm font-semibold text-ink">涉及概念</h2>
               {weaknesses.length === 0 ? (
                 <div className="rounded-md border border-dashed border-line py-4 text-center text-[12px] text-ink-5">
                   无标记数据

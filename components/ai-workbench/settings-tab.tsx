@@ -21,6 +21,8 @@ interface ToolSetting {
   provider: string;
   model: string;
   thinking: "disabled" | "enabled";
+  thinkingSupported: boolean;
+  providerConfigured: boolean;
   temperature: number | null;
   systemPromptSuffix: string;
   enableSearch: boolean;
@@ -29,6 +31,7 @@ interface ToolSetting {
 }
 
 interface ModelOption {
+  provider: string;
   value: string;
   label: string;
   description: string;
@@ -44,7 +47,6 @@ export function SettingsTab() {
   const [tools, setTools] = useState<ToolSetting[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [providers, setProviders] = useState<ProviderOption[]>([]);
-  const [searchConfigured, setSearchConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [testingKey, setTestingKey] = useState<string | null>(null);
@@ -66,7 +68,6 @@ export function SettingsTab() {
       setTools(json.data.tools || []);
       setModels(json.data.modelOptions || []);
       setProviders(json.data.providerOptions || []);
-      setSearchConfigured(Boolean(json.data.searchProviderConfigured));
     } finally {
       setLoading(false);
     }
@@ -89,9 +90,7 @@ export function SettingsTab() {
           thinking: tool.thinking,
           temperature: tool.temperature,
           systemPromptSuffix: tool.systemPromptSuffix,
-          enableSearch: searchConfigured ? tool.enableSearch : false,
-          strictness: tool.strictness,
-          outputStyle: tool.outputStyle,
+          enableSearch: false,
         }),
       });
       const json = await res.json();
@@ -100,6 +99,7 @@ export function SettingsTab() {
         return;
       }
       toast.success(`${tool.label} 设置已保存`);
+      await load();
     } finally {
       setSavingKey(null);
     }
@@ -112,7 +112,7 @@ export function SettingsTab() {
       const res = await fetch("/api/ai/tool-settings/test-connection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: tool.provider, model: tool.model }),
+        body: JSON.stringify({ toolKey: tool.key, provider: tool.provider, model: tool.model, thinking: tool.thinking }),
       });
       const json = await res.json();
       if (!json.success) {
@@ -124,7 +124,7 @@ export function SettingsTab() {
       const latencyMs = json.data?.latencyMs;
       setTestResult((prev) => ({
         ...prev,
-        [tool.key]: { ok: true, message: `连通正常（${latencyMs ?? "?"} ms）`, latencyMs },
+        [tool.key]: { ok: true, message: `连通正常：${json.data.providerName} / ${json.data.effectiveModel}（${latencyMs ?? "?"} ms）`, latencyMs },
       }));
       toast.success(`${tool.label} 连通正常（${latencyMs ?? "?"} ms）`);
     } catch (err) {
@@ -158,12 +158,10 @@ export function SettingsTab() {
           <p className="text-[12px] font-semibold text-brand">AI 设置</p>
           <h2 className="mt-1 text-[22px] font-bold tracking-[-0.02em] text-ink">平台 AI 能力配置</h2>
           <p className="mt-2 max-w-2xl text-sm text-ink-4">
-            用教师能理解的方式配置模型、推理强度、搜索开关和工具提示词。环境变量仍是全局兜底。
+            配置模型与工具提示词；未单独保存的工具使用系统默认。当前未接入联网搜索。
           </p>
         </div>
-        <Badge variant="outline" className={searchConfigured ? "bg-success-soft text-success" : "bg-warn-soft text-warn"}>
-          {searchConfigured ? "搜索已启用" : "搜索未启用 · AI 不会联网搜索"}
-        </Badge>
+        <Badge variant="outline">搜索未启用 · AI 不会联网搜索</Badge>
       </div>
 
       {Object.entries(grouped).map(([category, items]) => (
@@ -188,7 +186,12 @@ export function SettingsTab() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Provider</Label>
-                      <Select value={tool.provider} onValueChange={(value) => updateTool(tool.key, { provider: value })}>
+                      <Select value={tool.provider} onValueChange={(value) => updateTool(tool.key, {
+                        provider: value,
+                        model: models.find((model) => model.provider === value)?.value || "",
+                        thinking: "disabled",
+                        thinkingSupported: ["mimo", "qwen", "deepseek"].includes(value) && ["simulationGrading", "quizGrade", "subjectiveGrade", "lessonPolish", "ideologyMining"].includes(tool.key),
+                      })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {providers.map((provider) => (
@@ -204,7 +207,7 @@ export function SettingsTab() {
                       <Select value={tool.model} onValueChange={(value) => updateTool(tool.key, { model: value })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {models.map((model) => (
+                          {models.filter((model) => model.provider === tool.provider).map((model) => (
                             <SelectItem key={model.value} value={model.value}>
                               {model.label} · {model.value}
                             </SelectItem>
@@ -212,44 +215,13 @@ export function SettingsTab() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label>输出风格</Label>
-                      <Select value={tool.outputStyle} onValueChange={(value) => updateTool(tool.key, { outputStyle: value })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="structured">结构化</SelectItem>
-                          <SelectItem value="lesson-ready">教案可用</SelectItem>
-                          <SelectItem value="brief">简洁</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  {tool.thinkingSupported ? (
                     <div className="flex items-center justify-between rounded-lg border border-line p-3">
-                      <div>
-                        <div className="text-sm font-medium text-ink-2">增强推理</div>
-                        <div className="text-xs text-ink-4">深度任务可开，默认关闭。</div>
-                      </div>
-                      <Switch
-                        checked={tool.thinking === "enabled"}
-                        onCheckedChange={(checked) => updateTool(tool.key, { thinking: checked ? "enabled" : "disabled" })}
-                      />
+                      <div><div className="text-sm font-medium">增强推理</div><p className="text-xs text-ink-4">可能增加等待时间。</p></div>
+                      <Switch checked={tool.thinking === "enabled"} onCheckedChange={(checked) => updateTool(tool.key, { thinking: checked ? "enabled" : "disabled" })} />
                     </div>
-                    <div className="flex items-center justify-between rounded-lg border border-line p-3">
-                      <div>
-                        <div className="text-sm font-medium text-ink-2">搜索增强</div>
-                        <div className="text-xs text-ink-4">
-                          {searchConfigured ? "允许使用已配置搜索 provider。" : "搜索未启用，AI 不会联网搜索或伪造结果。"}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={searchConfigured && tool.enableSearch}
-                        disabled={!searchConfigured}
-                        onCheckedChange={(checked) => updateTool(tool.key, { enableSearch: checked })}
-                      />
-                    </div>
-                  </div>
+                  ) : <p className="text-xs text-ink-4">此功能或模型采用固定推理模式。</p>}
 
                   <div className="space-y-2">
                     <Label>基础系统提示词</Label>

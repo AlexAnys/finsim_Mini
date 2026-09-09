@@ -11,12 +11,14 @@ import { getProviderConfig, aiGenerateText } from "@/lib/services/ai.service";
  * body: { provider: "mimo"|..., model?: string }
  *
  * 一次性 ping：发个最短 system/user prompt 走 aiGenerateText，回来证明 key/baseURL/model OK。
- * 不写 DB，只算诊断；缺 key 时返回中文错误。
+ * 不修改工具设置；AiRun 留诊断记录。缺 key 时返回中文错误。
  */
 
 const schema = z.object({
   provider: z.enum(["mimo", "qwen", "deepseek", "gemini", "openai"]),
   model: z.string().max(120).optional().nullable(),
+  thinking: z.enum(["disabled", "enabled"]).optional(),
+  toolKey: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const startedAt = Date.now();
+    let actual: { provider: string; model: string } | undefined;
     const text = await aiGenerateText(
       // 用 simulation feature 跑 ping 是为了走和真实学生 chat 同一条 thinking-OFF 路径，
       // 试出来的状态最接近实战；ai.service 的 createAiRun 会留一条 audit 行供排查。
@@ -68,6 +71,11 @@ export async function POST(request: NextRequest) {
       "test-1-2-3",
       {
         settingsUserId: guard.session.user.id,
+        runtimeSetting: { provider: providerName, model: model || provider.defaultModel, thinking: parsed.data.thinking || "disabled" },
+        allowFallback: false,
+        timeoutMs: 15_000,
+        maxOutputTokens: 32,
+        onResolved: (resolved) => { actual = resolved; },
         metadata: {
           probe: "test-connection",
           requestedProvider: providerName,
@@ -79,11 +87,12 @@ export async function POST(request: NextRequest) {
     return success({
       ok: true,
       latencyMs: Date.now() - startedAt,
-      providerName,
-      effectiveModel: provider.defaultModel,
+      providerName: actual?.provider,
+      effectiveModel: actual?.model,
       sample: text.slice(0, 200),
     });
   } catch (err) {
+    if (err instanceof Error && err.message === "AI_PROVIDER_MODEL_MISMATCH") return validationError("模型与所选服务商不匹配");
     return handleServiceError(err);
   }
 }

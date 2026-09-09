@@ -4,7 +4,7 @@ import { assertFileReadable } from "@/lib/auth/resource-access";
 import { error, handleServiceError } from "@/lib/api-utils";
 import { readFile, stat } from "fs/promises";
 
-const DEFAULT_STORAGE_BASE = "./public/uploads";
+const DEFAULT_STORAGE_BASE = "./data/uploads";
 
 function getStorageBase() {
   const configured = process.env.FILE_STORAGE_PATH?.trim();

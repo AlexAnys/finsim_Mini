@@ -1,5 +1,7 @@
 "use client";
 
+import { submissionRequestId, finishSubmissionRequest } from "@/lib/utils/submission-request";
+
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import {
@@ -71,6 +73,7 @@ interface SubjectiveRunnerProps {
   taskConfig: SubjectiveTaskConfig | { subjectiveConfig: SubjectiveTaskConfig };
   taskId: string;
   taskInstanceId: string;
+  taskVersion?: number;
   taskName: string;
   /** 当前登录用户 ID — localStorage draft 必须 scope 到用户，避免同浏览器
    *  教师 preview / 学生切换时 draft 互串。 */
@@ -85,6 +88,7 @@ interface UploadedFile {
   size: number;
   type: string;
   filePath?: string;
+  uploadId?: string;
   contentType?: string;
 }
 
@@ -141,6 +145,7 @@ export function SubjectiveRunner({
   taskConfig: rawTaskConfig,
   taskId,
   taskInstanceId,
+  taskVersion,
   taskName,
   userId,
   taskSubtitle,
@@ -213,7 +218,7 @@ export function SubjectiveRunner({
       buildDraftKey(userId, isPreview, taskInstanceId),
       JSON.stringify({ content, files })
     );
-  }, [content, files, taskInstanceId]);
+  }, [content, files, taskInstanceId, userId, isPreview]);
 
   // Auto-save every 30 seconds
   useEffect(() => {
@@ -288,6 +293,7 @@ export function SubjectiveRunner({
           size: uploaded.fileSize,
           type: uploaded.contentType,
           filePath: uploaded.filePath,
+          uploadId: uploaded.uploadId,
           contentType: uploaded.contentType,
         }]);
         toast.success(`已上传 ${file.name}`);
@@ -326,8 +332,8 @@ export function SubjectiveRunner({
   async function handleSubmit() {
     if (submitted || isSubmitting) return;
 
-    if (!content.trim()) {
-      toast.error("请输入答案内容");
+    if ((!content.trim() || config.allowTextAnswer === false) && files.length === 0) {
+      toast.error("请输入答案或上传附件");
       return;
     }
 
@@ -349,8 +355,11 @@ export function SubjectiveRunner({
         taskType: "subjective" as const,
         taskId,
         taskInstanceId,
-        textAnswer: content.trim(),
+        requestId: submissionRequestId(userId, taskInstanceId),
+        taskVersion,
+        textAnswer: config.allowTextAnswer === false ? undefined : content.trim(),
         attachments: files.filter(f => f.filePath).map(f => ({
+          uploadId: f.uploadId,
           fileName: f.name,
           filePath: f.filePath!,
           fileSize: f.size,
@@ -370,6 +379,7 @@ export function SubjectiveRunner({
       }
 
       const data = await res.json();
+      finishSubmissionRequest(userId, taskInstanceId);
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
       localStorage.removeItem(buildDraftKey(userId, isPreview, taskInstanceId));
@@ -518,7 +528,7 @@ export function SubjectiveRunner({
         {/* Right panel - Editor (2/3) */}
         <div className="flex flex-1 flex-col gap-4">
           {/* Text editor */}
-          <Card className="flex flex-1 flex-col">
+          {config.allowTextAnswer !== false && <Card className="flex flex-1 flex-col">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
@@ -548,6 +558,8 @@ export function SubjectiveRunner({
               />
             </CardContent>
           </Card>
+
+          }
 
           {/* File upload area */}
           {allowAttachment && (

@@ -161,10 +161,10 @@ describe("aggregateInsights", () => {
     ]);
     mk(aiGenerateJSON).mockResolvedValue({
       commonIssues: [
-        { title: "问题 A", description: "描述 A", studentCount: 2 },
+        { title: "问题 A", description: "描述 A", studentCount: 999, evidenceSubmissionIds: ["s1", "s2", "not-in-input"] },
       ],
       highlights: [
-        { submissionId: "s1", studentName: "甲", quote: "好答" },
+        { submissionId: "s1", studentName: "甲", quote: "甲的反馈" },
       ],
     });
     mk(prisma.analysisReport.upsert).mockResolvedValue({ id: "r-new" });
@@ -179,6 +179,7 @@ describe("aggregateInsights", () => {
       { tag: "资产配置", count: 1 },
     ]);
     expect(result.commonIssues.commonIssues).toHaveLength(1);
+    expect(result.commonIssues.commonIssues[0].studentCount).toBe(2);
     expect(result.commonIssues.highlights).toHaveLength(1);
 
     // Verifies AI was called with feature 'insights'

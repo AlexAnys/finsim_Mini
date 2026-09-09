@@ -56,6 +56,7 @@ interface TaskInstanceDetail {
   slot: string | null;
   attemptsAllowed: number | null;
   taskSnapshot: unknown;
+  contentVersion?: number;
   task: {
     id: string;
     taskName: string;
@@ -137,6 +138,7 @@ function renderRunner(
         <QuizAdaptiveRunner
           taskId={task.id}
           taskInstanceId={instance.id}
+        taskVersion={instance.contentVersion}
           userId={userId}
           taskName={instance.title || task.taskName}
           taskSubtitle="测验 · 自适应"
@@ -148,6 +150,7 @@ function renderRunner(
       <QuizRunner
         taskId={task.id}
         taskInstanceId={instance.id}
+        taskVersion={instance.contentVersion}
         userId={userId}
         taskName={instance.title || task.taskName}
         taskSubtitle={`测验 · 考试模式`}
@@ -190,12 +193,14 @@ function renderRunner(
       <SubjectiveRunner
         taskId={task.id}
         taskInstanceId={instance.id}
+        taskVersion={instance.contentVersion}
         userId={userId}
         taskName={instance.title || task.taskName}
         taskSubtitle="主观题"
         isPreview={isPreview}
         taskConfig={{
           prompt: task.subjectiveConfig.prompt,
+          allowTextAnswer: task.subjectiveConfig.allowTextAnswer,
           wordLimit: null,
           allowAttachment: task.subjectiveConfig.allowedAttachmentTypes.length > 0,
           allowedTypes: task.subjectiveConfig.allowedAttachmentTypes,

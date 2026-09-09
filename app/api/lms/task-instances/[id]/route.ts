@@ -1,3 +1,4 @@
+import { studentTaskView } from "@/lib/utils/student-task-view";
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertTaskInstanceReadable } from "@/lib/auth/resource-access";
@@ -24,7 +25,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     );
     const instance = await getTaskInstanceById(id);
     if (!instance) return notFound("任务实例不存在");
-    return success(instance);
+    return success(user.role === "student" ? studentTaskView(instance) : instance);
   } catch (err) {
     console.error("[task-instance GET] Error:", err);
     return handleServiceError(err);

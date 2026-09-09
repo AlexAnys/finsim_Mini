@@ -32,6 +32,7 @@ interface TaskInstanceDetail {
   slot: string | null;
   attemptsAllowed: number | null;
   taskSnapshot: unknown;
+  contentVersion?: number;
   task: {
     id: string;
     taskName: string;
@@ -160,6 +161,7 @@ export default function SimulationPage() {
       isPreview={isPreview}
       taskId={task.id}
       taskInstanceId={instance.id}
+      taskVersion={instance.contentVersion}
       taskConfig={{
         scenario: simConfig.scenario,
         openingLine: simConfig.openingLine,

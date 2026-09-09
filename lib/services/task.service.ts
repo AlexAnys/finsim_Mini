@@ -196,7 +196,7 @@ export async function getTaskById(taskId: string) {
         select: {
           id: true, title: true, status: true, dueAt: true,
           class: { select: { id: true, name: true } },
-          _count: { select: { submissions: true } },
+          _count: { select: { submissions: { where: { deletedAt: null } } } },
         },
         orderBy: { createdAt: "desc" },
         take: 20,
@@ -233,7 +233,7 @@ export async function updateTask(taskId: string, creatorId: string, input: Updat
   // Unit 4 高危拦截：若 task 有 >=1 graded submission，且客户端未明确 force=true，则拒绝
   const { force, ...patchData } = input;
   const gradedCount = await prisma.submission.count({
-    where: { taskId, status: "graded" },
+    where: { deletedAt: null, taskId, status: "graded" },
   });
   if (gradedCount > 0 && !force) {
     const err = new Error("TASK_HAS_GRADED_SUBMISSIONS") as Error & { gradedCount?: number };

@@ -100,6 +100,7 @@ describe("Slice 1 · service null=clear 语义", () => {
       createdBy: "u1",
       courseId: "c1",
       taskType: "quiz",
+      status: "draft",
       taskSnapshot: {
         id: "t1",
         taskType: "quiz",
@@ -134,6 +135,7 @@ describe("Slice 1 · service null=clear 语义", () => {
       createdBy: "u1",
       courseId: "c1",
       taskType: "simulation",
+      status: "draft",
       taskSnapshot: {
         id: "t2",
         taskType: "simulation",
@@ -167,6 +169,7 @@ describe("Slice 1 · service null=clear 语义", () => {
       createdBy: "u1",
       courseId: "c1",
       taskType: "quiz",
+      status: "draft",
       taskSnapshot: {
         id: "t3",
         taskType: "quiz",

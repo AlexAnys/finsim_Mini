@@ -58,6 +58,7 @@ test("smoke-03 teacher 手动 grade + release → student 看到分数", async (
   // student 提交
   const submitRes = await sr.post("/api/submissions", {
     data: {
+      requestId: crypto.randomUUID(),
       taskType: "subjective",
       taskId,
       taskInstanceId: instanceId,

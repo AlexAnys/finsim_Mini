@@ -386,6 +386,7 @@ async function buildScopeSimulationInsightFresh(
       taskInstanceId: { in: instanceIds },
       taskType: "simulation",
       status: "graded",
+      deletedAt: null,
     },
     select: {
       id: true,
@@ -395,7 +396,10 @@ async function buildScopeSimulationInsightFresh(
       maxScore: true,
       student: { select: { id: true, name: true } },
       simulationSubmission: { select: { transcript: true, evaluation: true } },
+      taskSnapshot: true,
     },
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+    distinct: ["studentId", "taskInstanceId"],
   });
 
   const criterionNameMap = await loadCriterionNameMap(instanceIds);
@@ -433,9 +437,11 @@ async function buildScopeSimulationInsightFresh(
     const normalized = (score / maxScore) * 100;
     const transcript = extractStudentTranscript(s.simulationSubmission?.transcript);
     const rawRubric = extractRubricBreakdown(s.simulationSubmission?.evaluation);
+    const submissionNames = snapshotCriterionNames(s.taskSnapshot);
+    const effectiveNames = new Map([...criterionNameMap, ...submissionNames]);
     const rubric = rawRubric.map((r) => ({
       ...r,
-      criterionName: resolveCriterionName(r.criterionId, r.criterionName, criterionNameMap),
+      criterionName: resolveCriterionName(r.criterionId, r.criterionName, effectiveNames),
     }));
     scored.push({
       submissionId: s.id,
@@ -564,7 +570,7 @@ async function pickCommonIssues(
   const groupedByCriterion = new Map<string, LowItem[]>();
   for (const item of lowItems) {
     const arr = groupedByCriterion.get(item.criterionId) ?? [];
-    arr.push(item);
+    if (!arr.some((existing) => existing.studentId === item.studentId)) arr.push(item);
     groupedByCriterion.set(item.criterionId, arr);
   }
 
@@ -636,7 +642,7 @@ async function pickCommonIssues(
       return {
         title: issue.title.slice(0, 30),
         description: issue.description.slice(0, 200),
-        frequency: issue.frequency,
+        frequency: new Set(lowItems.filter((item) => item.criterionName === issue.relatedCriterion).map((item) => item.studentId)).size,
         relatedCriterion: issue.relatedCriterion,
         evidence: evidenceItems.map((item) => ({
           studentId: item.studentId,
@@ -773,11 +779,18 @@ function isUuidString(value: unknown): boolean {
   return typeof value === "string" && UUID_PATTERN.test(value);
 }
 
+function snapshotCriterionNames(snapshot: unknown): Map<string, string> {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return new Map();
+  const criteria = (snapshot as { scoringCriteria?: unknown }).scoringCriteria;
+  if (!Array.isArray(criteria)) return new Map();
+  return new Map(criteria.filter((row) => row && typeof row.id === "string" && typeof row.name === "string").map((row) => [row.id, row.name]));
+}
+
 async function loadCriterionNameMap(instanceIds: string[]): Promise<Map<string, string>> {
   if (instanceIds.length === 0) return new Map();
   const taskInstances = await prisma.taskInstance.findMany({
     where: { id: { in: instanceIds } },
-    select: { taskId: true },
+    select: { taskId: true, taskSnapshot: true },
   });
   const taskIds = Array.from(new Set(taskInstances.map((t) => t.taskId)));
   if (taskIds.length === 0) return new Map();
@@ -785,7 +798,7 @@ async function loadCriterionNameMap(instanceIds: string[]): Promise<Map<string, 
     where: { taskId: { in: taskIds } },
     select: { id: true, name: true },
   });
-  return new Map(criteria.map((c) => [c.id, c.name]));
+  return new Map([...criteria.map((c): [string,string] => [c.id, c.name]), ...taskInstances.flatMap((task) => [...snapshotCriterionNames(task.taskSnapshot)])]);
 }
 
 function resolveCriterionName(

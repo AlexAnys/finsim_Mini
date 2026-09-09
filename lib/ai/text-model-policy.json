@@ -1,0 +1,23 @@
+{
+  "provider": "deepseek",
+  "fallbackProvider": "deepseek",
+  "fallbackModel": "deepseek-v4-flash",
+  "tools": {
+    "simulationChat": "deepseek-v4-flash",
+    "simulation": "deepseek-v4-flash",
+    "simulationGrading": "deepseek-v4-pro",
+    "taskDraft": "deepseek-v4-pro",
+    "quizDraft": "deepseek-v4-pro",
+    "subjectiveDraft": "deepseek-v4-pro",
+    "importParse": "deepseek-v4-flash",
+    "quizGrade": "deepseek-v4-flash",
+    "subjectiveGrade": "deepseek-v4-pro",
+    "studyBuddy": "deepseek-v4-flash",
+    "insights": "deepseek-v4-pro",
+    "weeklyInsight": "deepseek-v4-pro",
+    "lessonPolish": "deepseek-v4-pro",
+    "ideologyMining": "deepseek-v4-pro",
+    "questionAnalysis": "deepseek-v4-flash",
+    "examCheck": "deepseek-v4-pro"
+  }
+}
