@@ -11,12 +11,12 @@ export interface InsightsAggregateOpts {
   }>;
 }
 
-export const INSIGHTS_AGGREGATE_PROMPT_VERSION = "v1";
+export const INSIGHTS_AGGREGATE_PROMPT_VERSION = "v2";
 
 export const buildInsightsAggregatePrompt: PromptBuilder<InsightsAggregateOpts> = (opts) => {
   const systemPrompt = `你是一位资深的金融教育课程顾问。基于一组学生提交的 AI 批改反馈，归纳：
-1. 全班共性问题（3-5 条），每条包含 title / description / 涉及学生估算数（studentCount）
-2. 亮点提交（最多 3 条），每条引用一份提交的学生名字 + 简短引用 (quote ≤80 字)
+1. 仅归纳提供样本的共性问题（最多 5 条），每条包含 title / description / 支持该判断的 evidenceSubmissionIds 数组；不要估算全班人数。
+2. 亮点提交（最多 3 条），quote 必须逐字摘自提供的批改反馈（≤80 字），属于 AI 点评，不是学生原话。
 
 输出严格 JSON。不要捏造数据 — 仅基于提供的反馈文本归纳。`;
 
@@ -29,7 +29,7 @@ export const buildInsightsAggregatePrompt: PromptBuilder<InsightsAggregateOpts> 
     .join("\n");
 
   const userPrompt = `任务: ${opts.instanceTitle}（${opts.taskType}）
-学生数: ${opts.evaluations.length}
+本次分析样本数: ${Math.min(50, opts.evaluations.length)}（每名学生的最新提交；不代表未提供的数据）
 
 学生反馈片段:
 ${corpus}
@@ -37,7 +37,7 @@ ${corpus}
 请输出 JSON:
 {
   "commonIssues": [
-    {"title": "标题", "description": "描述", "studentCount": 数字}
+    {"title": "标题", "description": "描述", "evidenceSubmissionIds": ["id"]}
   ],
   "highlights": [
     {"submissionId": "id", "studentName": "姓名", "quote": "引用"}

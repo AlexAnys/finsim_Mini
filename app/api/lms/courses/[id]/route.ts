@@ -1,3 +1,4 @@
+import { studentTaskView } from "@/lib/utils/student-task-view";
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
 import { assertCourseAccess, assertCourseReadable } from "@/lib/auth/course-access";
@@ -22,7 +23,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     });
     const course = await getCourseWithStructure(id);
     if (!course) return notFound("课程不存在");
-    return success(course);
+    return success(user.role === "student" ? studentTaskView(course) : course);
   } catch (err) {
     return handleServiceError(err);
   }

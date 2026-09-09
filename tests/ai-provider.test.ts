@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import {
   getProviderConfig,
   getProviderForFeature,
@@ -7,6 +7,12 @@ import {
 } from "@/lib/services/ai.service";
 
 const ORIGINAL_ENV = { ...process.env };
+
+beforeEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (/^(AI_|MIMO_|QWEN_|DEEPSEEK_|GEMINI_|OPENAI_)/.test(key)) delete process.env[key];
+  }
+});
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
@@ -49,16 +55,17 @@ describe("AI provider selection", () => {
     expect(model).toBe("qwen3-max");
   });
 
-  it("defaults feature calls to MiMo when no provider override is set", () => {
-    process.env.MIMO_API_KEY = "test-key";
+  it("defaults text feature calls to the DeepSeek feature policy", () => {
+    process.env.DEEPSEEK_API_KEY = "test-key";
     delete process.env.AI_PROVIDER;
     delete process.env.AI_TASK_DRAFT_PROVIDER;
     delete process.env.AI_TASK_DRAFT_MODEL;
 
     const { provider, model } = getProviderForFeature("taskDraft");
 
-    expect(provider.name).toBe("mimo");
-    expect(model).toBe("mimo-v2.5-pro");
+    expect(provider.name).toBe("deepseek");
+    expect(model).toBe("deepseek-v4-pro");
+    expect(getProviderForFeature("simulation").model).toBe("deepseek-v4-flash");
   });
 
   it("routes MiMo token-plan keys to the token-plan OpenAI-compatible base", () => {
@@ -79,17 +86,17 @@ describe("AI provider selection", () => {
     expect(model).toBe("mimo-v2.5-pro");
   });
 
-  it("uses MiMo as the implicit fallback provider", () => {
+  it("uses DeepSeek as the implicit fallback provider", () => {
     delete process.env.AI_PROVIDER;
     delete process.env.AI_FALLBACK_PROVIDER;
     delete process.env.QWEN_API_KEY;
-    process.env.MIMO_API_KEY = "mimo-key";
+    process.env.DEEPSEEK_API_KEY = "deepseek-key";
     process.env.AI_TASK_DRAFT_PROVIDER = "qwen";
 
     const { provider, model } = getProviderForFeature("taskDraft");
 
-    expect(provider.name).toBe("mimo");
-    expect(model).toBe("mimo-v2.5-pro");
+    expect(provider.name).toBe("deepseek");
+    expect(model).toBe("deepseek-v4-pro");
   });
 
   it("Fix 4 · 老师选 qwen + qwen key 存在 → 真用 qwen，不再被强制改写到 mimo", () => {
@@ -142,7 +149,7 @@ describe("AI provider selection", () => {
     expect(provider.name).toBe("mimo");
   });
 
-  it("sends MiMo reasoningEffort=low by default (MiMo API 拒 'none' 后) + Qwen enable_thinking=false", () => {
+  it("sends MiMo reasoningEffort=low by default (MiMo API 拒 'none' 后) + Qwen SDK-safe thinking marker", () => {
     // 历史曾用 `thinking: { type: 'disabled' }`，但 @ai-sdk/openai 白名单不接受
     // 该字段（SDK 静默吞掉），导致 MiMo 默认开启 reasoning。改用 SDK 白名单内
     // 的标准 reasoningEffort（序列化为 reasoning_effort 下发）。
@@ -163,7 +170,7 @@ describe("AI provider selection", () => {
       openai: { reasoningEffort: "low" },
     });
     expect(getProviderOptions(qwen)).toEqual({
-      openai: { enable_thinking: false },
+      openai: { reasoningEffort: "low" },
     });
   });
 });

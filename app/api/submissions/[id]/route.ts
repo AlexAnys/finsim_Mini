@@ -52,7 +52,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
       role: user.role,
       classId: user.classId,
     });
-    await deleteSubmission(id);
+    await deleteSubmission(id, user);
     return success({ deleted: true });
   } catch (err) {
     return handleServiceError(err);

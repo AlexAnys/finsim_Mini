@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
-import type { AsyncJob, AsyncJobType, Prisma } from "@prisma/client";
+import { getCurrentJobLease, withJobLease } from "./async-job-context";
+import { Prisma, type AsyncJob, type AsyncJobType } from "@prisma/client";
 
 type JsonInput = Prisma.InputJsonValue;
 
@@ -54,18 +55,19 @@ export async function retryAsyncJob(jobId: string, user: { id: string; role: str
   if (job.status === "running" || job.status === "queued") throw new Error("ASYNC_JOB_IN_PROGRESS");
   if (job.attempts >= job.maxAttempts) throw new Error("ASYNC_JOB_MAX_ATTEMPTS");
 
-  const updated = await prisma.asyncJob.update({
-    where: { id: job.id },
+  const retried = await prisma.asyncJob.updateMany({
+    where: { id: job.id, status: job.status, attempts: job.attempts },
     data: {
       status: "queued",
       progress: 0,
       error: null,
-      result: undefined,
+      result: Prisma.DbNull,
       startedAt: null,
       completedAt: null,
     },
   });
-  scheduleAsyncJob(updated.id);
+  const updated = await getAsyncJob(job.id, user);
+  if (retried.count > 0) scheduleAsyncJob(updated.id);
   return updated;
 }
 
@@ -131,7 +133,7 @@ export async function sweepStuckJobs(opts?: { now?: Date }): Promise<SweepStuckJ
     if (job.attempts < job.maxAttempts) {
       // 原子重置：只在仍是 running 时改回 queued（避免覆盖正常完成的写）
       const upd = await prisma.asyncJob.updateMany({
-        where: { id: job.id, status: "running" },
+        where: { id: job.id, status: "running", attempts: job.attempts },
         data: {
           status: "queued",
           startedAt: null,
@@ -145,7 +147,7 @@ export async function sweepStuckJobs(opts?: { now?: Date }): Promise<SweepStuckJ
       }
     } else {
       const upd = await prisma.asyncJob.updateMany({
-        where: { id: job.id, status: "running" },
+        where: { id: job.id, status: "running", attempts: job.attempts },
         data: {
           status: "failed",
           error: "STUCK_TIMEOUT_GAVE_UP",
@@ -162,8 +164,8 @@ export async function sweepStuckJobs(opts?: { now?: Date }): Promise<SweepStuckJ
   let succeeded = 0;
   let failed = 0;
   for (const r of results) {
-    if (r.status === "fulfilled") succeeded++;
-    else failed++;
+    if (r.status === "fulfilled" && r.value?.status === "succeeded") succeeded++;
+    else if (r.status === "rejected" || r.value?.status === "failed") failed++;
   }
 
   return {
@@ -198,9 +200,9 @@ export async function runAsyncJob(jobId: string) {
   if (!job) throw new Error("ASYNC_JOB_NOT_FOUND");
 
   try {
-    const result = await performAsyncJob(job);
-    return prisma.asyncJob.update({
-      where: { id: jobId },
+    const result = await withJobLease({ jobId, attempt: job.attempts }, () => performAsyncJob(job));
+    await prisma.asyncJob.updateMany({
+      where: { id: jobId, status: "running", attempts: job.attempts },
       data: {
         status: "succeeded",
         progress: 100,
@@ -208,22 +210,25 @@ export async function runAsyncJob(jobId: string) {
         completedAt: new Date(),
       },
     });
+    return prisma.asyncJob.findUnique({ where: { id: jobId } });
   } catch (err) {
     const message = errorMessage(err);
-    return prisma.asyncJob.update({
-      where: { id: jobId },
+    await prisma.asyncJob.updateMany({
+      where: { id: jobId, status: "running", attempts: job.attempts },
       data: {
         status: "failed",
         error: message,
         completedAt: new Date(),
       },
     });
+    return prisma.asyncJob.findUnique({ where: { id: jobId } });
   }
 }
 
 export async function updateAsyncJobProgress(jobId: string, progress: number) {
-  return prisma.asyncJob.update({
-    where: { id: jobId },
+  const lease = getCurrentJobLease();
+  return prisma.asyncJob.updateMany({
+    where: { id: jobId, status: "running", ...(lease ? { attempts: lease.attempt } : {}) },
     data: { progress: Math.max(0, Math.min(99, Math.round(progress))) },
   });
 }

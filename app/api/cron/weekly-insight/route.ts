@@ -32,11 +32,15 @@ async function handleCron(request: NextRequest) {
       take: 500,
     });
 
-    const results: Array<{ teacherId: string; email: string; ok: boolean; error?: string }> = [];
+    const results: Array<{ teacherId: string; email: string; ok: boolean; skipped?: boolean; error?: string }> = [];
     for (const teacher of teachers) {
       try {
-        await generateWeeklyInsight(teacher.id, { force: true });
-        results.push({ teacherId: teacher.id, email: teacher.email, ok: true });
+        const insight = await generateWeeklyInsight(teacher.id, { force: true });
+        const skipped = insight.submissionCount === 0;
+        const failed = !skipped && insight.payload.emptyState === true;
+        results.push({ teacherId: teacher.id, email: teacher.email, ok: !failed, skipped,
+          ...(failed ? { error: "AI_INSIGHT_GENERATION_FAILED" } : {}),
+        });
       } catch (err) {
         results.push({
           teacherId: teacher.id,
@@ -49,7 +53,8 @@ async function handleCron(request: NextRequest) {
 
     return success({
       total: results.length,
-      succeeded: results.filter((r) => r.ok).length,
+      succeeded: results.filter((r) => r.ok && !r.skipped).length,
+      skipped: results.filter((r) => r.skipped).length,
       failed: results.filter((r) => !r.ok).length,
       results,
     });

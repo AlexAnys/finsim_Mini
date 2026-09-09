@@ -1,3 +1,6 @@
+import { hasUsableRubric } from "@/lib/utils/task-publish-readiness";
+import { loadInstanceGradingTask, freezeTask } from "./task-version";
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { teacherCourseFilter } from "@/lib/services/course.service";
 import { logAuditEvent } from "@/lib/services/audit.service";
@@ -27,8 +30,9 @@ type PublishableTaskConfig = {
   taskType: string;
   simulationConfig?: unknown | null;
   quizConfig?: unknown | null;
-  subjectiveConfig?: { prompt?: string | null } | null;
+  subjectiveConfig?: { prompt?: string | null; allowTextAnswer?: boolean; allowedAttachmentTypes?: string[] } | null;
   quizQuestions?: unknown[] | null;
+  scoringCriteria?: unknown;
 };
 
 export function assertTaskReadyForPublish(task: PublishableTaskConfig) {
@@ -43,9 +47,12 @@ export function assertTaskReadyForPublish(task: PublishableTaskConfig) {
   }
 
   if (task.taskType === "subjective") {
-    if (!task.subjectiveConfig?.prompt?.trim()) {
+    if (!task.subjectiveConfig?.prompt?.trim() || (task.subjectiveConfig.allowTextAnswer === false && !task.subjectiveConfig.allowedAttachmentTypes?.length)) {
       throw new Error("TASK_CONFIG_INCOMPLETE");
     }
+  }
+  if ((task.taskType === "simulation" || task.taskType === "subjective") && !hasUsableRubric(task.scoringCriteria)) {
+    throw new Error("TASK_RUBRIC_REQUIRED");
   }
 }
 
@@ -244,7 +251,7 @@ export async function getTaskInstances(filters: {
       course: { select: { id: true, courseTitle: true } },
       chapter: { select: { id: true, title: true, order: true } },
       section: { select: { id: true, title: true, order: true } },
-      _count: { select: { submissions: true } },
+      _count: { select: { submissions: { where: { deletedAt: null } } } },
     },
     orderBy: { createdAt: "desc" },
     take: clampTake(filters.take, 100, 200),
@@ -272,7 +279,7 @@ export async function getTaskInstanceById(instanceId: string) {
       course: { select: { id: true, courseTitle: true } },
       chapter: { select: { id: true, title: true } },
       section: { select: { id: true, title: true } },
-      _count: { select: { submissions: true } },
+      _count: { select: { submissions: { where: { deletedAt: null } } } },
     },
   });
 }
@@ -288,9 +295,16 @@ export async function updateTaskInstance(
     throw new Error("FORBIDDEN");
   }
 
+  let publication: { taskSnapshot: Prisma.InputJsonValue; publishedAt: Date } | undefined;
+  if (input.status === "published") {
+    const task = await loadInstanceGradingTask(instanceId);
+    assertTaskReadyForPublish(task);
+    if (existing.status === "draft") publication = { taskSnapshot: freezeTask(task), publishedAt: new Date() };
+  }
   const updated = await prisma.taskInstance.update({
     where: { id: instanceId },
     data: {
+      ...publication,
       ...(input.title && { title: input.title }),
       ...(input.description !== undefined && { description: input.description }),
       ...(input.dueAt && { dueAt: new Date(input.dueAt) }),
@@ -366,6 +380,7 @@ export async function reopenTaskInstance(
   if (existing.status !== "closed") {
     throw new Error("TASK_INSTANCE_NOT_REOPENABLE");
   }
+  assertTaskReadyForPublish(await loadInstanceGradingTask(instanceId));
   const updated = await prisma.taskInstance.update({
     where: { id: instanceId },
     data: { status: "published" },
@@ -434,7 +449,9 @@ export async function updateTaskInstanceSnapshot(
       createdBy: true,
       courseId: true,
       taskType: true,
+      status: true,
       taskSnapshot: true,
+      task: { include: taskSnapshotInclude },
     },
   });
   if (!existing) throw new Error("INSTANCE_NOT_FOUND");
@@ -446,7 +463,7 @@ export async function updateTaskInstanceSnapshot(
   }
 
   // Deep-merge patch 顶层键到现有 snapshot，守 id / taskType / taskName 不变
-  const currentSnapshot = (existing.taskSnapshot ?? {}) as Record<string, unknown>;
+  const currentSnapshot = (existing.taskSnapshot ?? existing.task ?? {}) as Record<string, unknown>;
   const mergedSnapshot: Record<string, unknown> = { ...currentSnapshot };
 
   if (patch.taskType === "simulation") {
@@ -487,20 +504,33 @@ export async function updateTaskInstanceSnapshot(
     }
   }
 
+  // New snapshot rows need stable IDs too; Zod must retain existing row IDs.
+  for (const field of ["quizQuestions", "scoringCriteria"] as const) {
+    const rows = mergedSnapshot[field];
+    if (Array.isArray(rows)) mergedSnapshot[field] = rows.map(row => ({ ...row, id: row.id || randomUUID() }));
+  }
+
   // 守不变字段：强制保留原 id / taskType / taskName（即便 currentSnapshot 里有）
   if (currentSnapshot.id !== undefined) mergedSnapshot.id = currentSnapshot.id;
   if (currentSnapshot.taskType !== undefined) mergedSnapshot.taskType = currentSnapshot.taskType;
   if (currentSnapshot.taskName !== undefined) mergedSnapshot.taskName = currentSnapshot.taskName;
 
+  if (existing.status !== "draft") {
+    assertTaskReadyForPublish({ ...mergedSnapshot, taskType: existing.taskType });
+  }
+
   const [updated, gradedCount] = await prisma.$transaction([
     prisma.taskInstance.update({
-      where: { id: instanceId },
-      data: { taskSnapshot: mergedSnapshot as Prisma.InputJsonValue },
+      where: { id: instanceId, status: existing.status },
+      data: { taskSnapshot: mergedSnapshot as Prisma.InputJsonValue, contentVersion: { increment: 1 } },
     }),
     prisma.submission.count({
       where: { taskInstanceId: instanceId, status: "graded" },
     }),
-  ]);
+  ]).catch((err: unknown) => {
+    if (err && typeof err === "object" && "code" in err && err.code === "P2025") throw new Error("TASK_INSTANCE_CHANGED");
+    throw err;
+  });
 
   // PR-1 D: 教师改 instance taskSnapshot（学生看到的题面/配置）— PR #13 path 之前漏掉
   // 含 gradedCount > 0 时标 force=true（review-pr13 F-7 提到的"我知道，仍然保存"高危场景）

@@ -12,14 +12,35 @@
 
 | Workflow | 触发条件 | 作用 |
 |----------|---------|------|
-| `ci.yml` | PR + push 到非 main 分支 | 先分类；纯文档轻量检查，其余类型检查 + lint + 测试；核心改动打标签 |
+| `ci.yml` | PR opened/synchronize/reopened 或手动dispatch | 先分类；纯文档轻量检查，其余类型检查 + lint + 测试；核心改动打标签 |
 | `deploy-staging.yml` | PR 开/同步/重开/转 ready_for_review | 纯文档报告轻量检查成功；其余部署 staging、迁移、健康检查与 Playwright smoke |
-| `deploy.yml` | push 到 main（PR merge 触发） | 纯文档只检查文档；其余 tarball→scp→build→docker compose up→prod /login smoke |
+| `deploy.yml` | push 到 main（PR merge 触发） | 纯文档只检查文档；其余 tarball→scp→build→docker compose up→prod SHA + schema-ready smoke |
 | `cleanup-staging.yml` | PR closed | 纯文档不连接服务器；其余仅在 staging 属于这个 PR 时 down |
 
 分类范围与本地命令见 [按变更范围验证](validation-routing.md)。只有完整路径占用共享 staging 锁；文档失败会明确报告失败，不把整个必需检查留在等待状态。
 
 完整路径的部署架构（不走 ghcr.io）：runner 跑 quality → `git archive` 成 tarball → scp 到阿里云 → 服务器本地 `docker compose build + up`。规避国际带宽问题。
+
+## 干净版本发布与运行身份
+
+完整路径由 `scripts/ops/deploy-release.sh` 统一执行：tarball 解到全新的 `releases/<完整SHA>/`，构建 `finsim-app:<SHA>`（staging为 `finsim-staging-app:<SHA>`），等待 PostgreSQL ready → 私有备份 → migrate → 切换 current/根 compose → 启动 → 校验 `/api/health/ready` 中实际 SHA 与必要数据库列/表 → 安装定时任务 → 写 last-deployed。不会覆盖解包旧源码，不 reseed、不删卷、不自动回滚数据库迁移。
+
+根 `.env` 保留原位置。Compose 顶层 name 固定；根 compose 指向 current 中同名文件，`.env` 的 FINSIM_BUILD_CONTEXT 指向 current，兼容既有 health-guard 的 `/opt/finsim/docker-compose.yml` 入口。运维命令仍应显式传 `--project-directory /opt/finsim --env-file /opt/finsim/.env -f /opt/finsim/docker-compose.yml -p finsim`，staging替换对应目录/项目名。
+
+应用返回 `/api/version`（app、gitSha、environment、非密钥模型路由配置的configHash）和 `/api/health/ready`（数据库及必要schema契约可读才200）。本地未冻结代码标记development；正式QA使用实际候选commit的APP_GIT_SHA。Playwright CI在整套测试前后检查PLAYWRIGHT_EXPECTED_SHA。共享URL的人工作测也要先后看version，不能把旧PR评论当永久版本地址。
+
+运行依赖全部来自package-lock，Prisma CLI来自同一个production依赖树，不再在runner中无锁npm install。Next固定16.3.4、React/ReactDOM19.2.8；Next关闭agentRules自动改写AGENTS。安全依据：[8月官方安全更新](https://nextjs.org/blog/august-2026-security-release)、[16.3.4修补版](https://github.com/vercel/next.js/releases/tag/v16.3.4)。Node镜像/CI使用22 LTS。
+
+## 业务调度、备份与恢复边界
+
+- 两个环境部署都要求CRON_TOKEN。GitHub Secrets注入CRON_TOKEN及已配置的provider密钥；GitHub Variables可显式配置AI_PROVIDER/AI_FALLBACK_PROVIDER及各AI_*_PROVIDER/MODEL。空值保留服务器现值，部署不再强改mimo或擅自切deepseek。Compose显式传入全部已声明feature配置。
+- Host `/etc/cron.d/finsim-production` 每2分钟运行公布扫描、job/AI-run补偿；每周一03:30生成周报。staging只跑补偿，不自动消耗周报模型。时点采用服务器本地时区。Python ops兼容当前服务器3.6，依赖现有cron、flock、Docker Compose；没有新增云防火墙规则。
+- 每次迁移前及每天03:15，`backup.sh`保存DB custom dump、uploads压缩包、runtime.env、SHA256校验到`ROOT/backups/<UTC时间>/`；目录700/文件600，不在public/uploads或Web目录。先验证pg_restore目录和gzip结构再标成功。DB和文件分步快照不等价于跨存储事务快照，需实际恢复演练。
+- `ROOT/deployment-history/<时间>/`留前一env/compose与本次backup路径。部署失败恢复旧应用配置，保留已做的迁移和所有数据；不执行破坏性数据库回滚。新schema变更应保持旧版本至少可读，不能用应用回滚代替schema恢复计划。
+- 不自动删除备份/旧release；达到容量阈值时应转移和核验后再明确清理。**服务器本地备份不等于异地灾备**：把已校验备份另存到独立受限存储；凭据、目标和保留时长由部署负责人配置。本流程不会擅自上传学生资料。
+- 正式投用前，在隔离PostgreSQL库恢复database.dump（pg_restore --exit-on-error），解压uploads到隔离目录，校验记录数/附件读回/代表性成绩。只检查dump目录不能声称恢复成功。生产或共享staging重置需要单独明确意图。
+
+检查最近调度可读ROOT/last-cron-frequent.json及last-cron-weekly.json；失败细节写私有cron.log/backup.log，按周轮转，不输出token或学生答案。生产/主机故障通知不由这些脚本自动发送，仍使用现有运维通知渠道。
 
 ## 生产服务器（finsim.anlanai.cn）
 
@@ -46,7 +67,7 @@ Reload 命令：`docker exec finsim-caddy caddy reload --config /etc/caddy/Caddy
 ### 生产 stack
 
 - 部署目录：`/opt/finsim/`
-- `.env`：`/opt/finsim/.env`，不进 git，由 deploy.yml 在服务器上 `set_env_value` 维护
+- `.env`：`/opt/finsim/.env`，不进 git，由 `scripts/ops/sync-env.py` 创建私有候选文件，部署成功切换时原子更新；未提供的设置保留
 - Compose project：默认 `finsim`
 - 容器：`finsim-app:3000` + `finsim-postgres:5432`
 - Volumes：`pgdata` + `uploads`
@@ -91,7 +112,7 @@ PR 评论自动出现 staging URL
     ↓
 点 Squash and merge（branch protection 强制 squash + 合并后删分支）
     ↓
-deploy.yml 触发 → tarball → scp → docker compose up → 生产 /login smoke
+deploy.yml 触发 → tarball → scp → docker compose up → 生产 SHA + schema-ready smoke
     ↓
 finsim.anlanai.cn 上线（约 4 分钟）
     ↓
@@ -104,7 +125,7 @@ cleanup-staging.yml 同时跑：仅当 staging 当前装的就是这个 PR 时�
 # 开新 feat 分支
 git fetch origin && git checkout -b <agent>-<topic> origin/main
 
-# 推送（push 到非 main 分支触发 ci.yml）
+# 推送（已有 PR 的 synchronize 触发 CI；不开重复 push CI）
 git push -u origin <branch>
 
 # 开 PR（先分类，完整路径才起 staging）
@@ -150,3 +171,17 @@ gh pr view <revert-pr-number>
   "allow_deletions": false
 }
 ```
+
+### 本地旧上传目录
+
+未显式配置FILE_STORAGE_PATH时默认使用私有`./data/uploads`。以前未显式配置的本地环境若需旧文件，请暂设`FILE_STORAGE_PATH=./public/uploads`，或显式把文件迁移到私有目录；本次不会移动或删除旧文件。生产/staging Compose一直显式挂载`/data/uploads`，不受这个默认值调整影响。
+
+CI不再同时监听push与pull_request，避免同一候选重复跑完整E2E；strict protection仍要求追平最新base，update-branch生成新head并触发synchronize。手动workflow_dispatch明确走完整路径。标题/正文修改不触发重验。
+
+## DeepSeek文本迁移（用户已授权）
+
+文字交互与常规任务默认V4 Flash，复杂评价/主观批改/生成/洞察用V4 Pro，单源为lib/ai/text-model-policy.json。本次迁移MiMo/空文本默认，不改语音/OCR端点或媒体密钥，其他明确自定义provider/model保留。DEEPSEEK_MODEL默认留空，避免遮盖feature策略。
+
+部署先对官方HTTPS api.deepseek.com的Flash/Pro各做一次真实generation，不能用mock、/models、标签或过期记录通过。私有证明绑定key摘要、端点、两模型与时间；构建/备份过久会有界刷新。有效证明后才迁移DB设置和切配置。settings迁移由新镜像的一次性root进程运行，挂载700权限的deployment-history，不要求宿主Node。迁移前备份映射，事务内落盘固定receipt；后续发布失败先CAS恢复仅本次未被用户改过的provider/model，再恢复旧应用env/image，不逆schema/学生数据。
+
+CI使用同DeepSeek调用路径、loopback协议fixture，正式业务的真实模型验证单独记录。协议E2E不能替代官方模型/密钥成功及教学效果评估。

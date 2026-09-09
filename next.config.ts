@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Next 16.3 must not rewrite our tracked AGENTS.md on every dev start.
+  agentRules: false,
   // serverExternalPackages: 这些库通过 dynamic require / 自带 worker / 包含大量子文件，
   // 让 Next.js 标准 tracer 试图把整个 project 拖进 NFT 列表（参考 staging-deploy
   // "Encountered unexpected file in NFT list" 失败）。声明为 external 后 Next.js

@@ -8,7 +8,10 @@ vi.mock("@/lib/db/prisma", () => ({
     subjectiveSubmission: { update: vi.fn() },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        $queryRaw: vi.fn(async () => []),
+        analysisReport: { updateMany: vi.fn() },
         submission: {
+          findUnique: vi.fn(async () => ({ id: "sub", taskType: txTaskType, status: "grading", deletedAt: null, releaseSuppressedAt: null })),
           update: async (args: { where: { id: string } }) => ({
             id: args.where.id,
             taskType: txTaskType,

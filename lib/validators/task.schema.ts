@@ -167,21 +167,21 @@ const subjectiveConfigPatchSchema = subjectiveConfigSchema.partial().extend({
 export const updateInstanceSnapshotSimulationSchema = z.object({
   taskType: z.literal("simulation"),
   simulationConfig: simulationConfigPatchSchema.optional(),
-  scoringCriteria: z.array(scoringCriterionSchema).optional(),
+  scoringCriteria: z.array(scoringCriterionSchema.extend({ id: z.string().max(120).optional() })).optional(),
   allocationSections: z.array(allocationSectionSchema).optional(),
 });
 
 export const updateInstanceSnapshotQuizSchema = z.object({
   taskType: z.literal("quiz"),
   quizConfig: quizConfigPatchSchema.optional(),
-  quizQuestions: z.array(quizQuestionSchema).optional(),
-  scoringCriteria: z.array(scoringCriterionSchema).optional(),
+  quizQuestions: z.array(quizQuestionSchema.extend({ id: z.string().max(120).optional() })).optional(),
+  scoringCriteria: z.array(scoringCriterionSchema.extend({ id: z.string().max(120).optional() })).optional(),
 });
 
 export const updateInstanceSnapshotSubjectiveSchema = z.object({
   taskType: z.literal("subjective"),
   subjectiveConfig: subjectiveConfigPatchSchema.optional(),
-  scoringCriteria: z.array(scoringCriterionSchema).optional(),
+  scoringCriteria: z.array(scoringCriterionSchema.extend({ id: z.string().max(120).optional() })).optional(),
 });
 
 export const updateTaskInstanceSnapshotSchema = z.discriminatedUnion("taskType", [

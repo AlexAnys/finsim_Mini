@@ -1,3 +1,4 @@
+import { loadInstanceGradingTask } from "@/lib/services/task-version";
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { evaluateSimulation } from "@/lib/services/ai.service";
@@ -46,7 +47,11 @@ export async function POST(request: NextRequest) {
       taskId: parsed.data.taskId,
       taskInstanceId: parsed.data.taskInstanceId,
     });
-    const evaluation = await evaluateSimulation(result.session.user.id, parsed.data, {
+    const frozenTask = parsed.data.taskInstanceId ? await loadInstanceGradingTask(parsed.data.taskInstanceId) : null;
+    const input = frozenTask?.simulationConfig ? { ...parsed.data, taskName: frozenTask.taskName, requirements: frozenTask.requirements ?? undefined,
+      scenario: frozenTask.simulationConfig.scenario, evaluatorPersona: frozenTask.simulationConfig.evaluatorPersona ?? undefined,
+      strictnessLevel: frozenTask.simulationConfig.strictnessLevel, rubric: frozenTask.scoringCriteria.map(c => ({ id: c.id, name: c.name, description: c.description ?? undefined, maxPoints: c.maxPoints })) } : parsed.data;
+    const evaluation = await evaluateSimulation(result.session.user.id, input, {
       settingsUserId,
       metadata: {
         taskId: parsed.data.taskId,

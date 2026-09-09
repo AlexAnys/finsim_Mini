@@ -89,7 +89,7 @@ export async function getMissingStudents(scope: ScopeKey): Promise<MissingStuden
       classId: true,
       groupIds: true,
       class: { select: { id: true, name: true } },
-      submissions: { select: { studentId: true } },
+      submissions: { where: { deletedAt: null }, select: { studentId: true } },
     },
     take: 200,
   });
@@ -180,7 +180,7 @@ export async function getLowScorers(scope: ScopeKey, threshold = 60): Promise<Lo
     diagnosis.instanceDiagnostics.map((i) => [i.instanceId, { title: i.title, className: i.className }]),
   );
   const submissions = await prisma.submission.findMany({
-    where: {
+    where: { deletedAt: null,
       status: "graded",
       taskInstance: buildInstanceWhere(scope),
     },
@@ -221,7 +221,7 @@ export async function getLowScorers(scope: ScopeKey, threshold = 60): Promise<Lo
 export async function getPendingReleaseList(scope: ScopeKey): Promise<PendingSubmission[]> {
   const now = new Date();
   const submissions = await prisma.submission.findMany({
-    where: {
+    where: { deletedAt: null,
       releasedAt: null,
       taskInstance: { ...buildInstanceWhere(scope), dueAt: { lt: now } },
     },

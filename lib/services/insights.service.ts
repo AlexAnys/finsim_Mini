@@ -54,6 +54,7 @@ export interface AllocationSnapshotEntry {
 }
 
 export interface AggregatedInsights {
+  sample?: { totalSubmissions: number; selectedStudents: number; analyzedStudents: number; scorePolicy: "latest" };
   commonIssues: Array<{
     title: string;
     description: string;
@@ -90,7 +91,8 @@ const aggregateSchema = z.object({
       z.object({
         title: z.string(),
         description: z.string(),
-        studentCount: z.number(),
+        studentCount: z.number().optional(),
+        evidenceSubmissionIds: z.array(z.string()).default([]),
       }),
     )
     .default([]),
@@ -152,18 +154,23 @@ export async function aggregateInsights(
   });
   if (!instance) throw new Error("INSTANCE_NOT_FOUND");
 
-  const submissions = await prisma.submission.findMany({
-    where: { taskInstanceId: instanceId, status: "graded" },
+  const allSubmissions = await prisma.submission.findMany({
+    where: { taskInstanceId: instanceId, status: "graded", deletedAt: null },
     include: {
       student: { select: { id: true, name: true } },
       simulationSubmission: true,
       quizSubmission: true,
       subjectiveSubmission: true,
     },
-    orderBy: { gradedAt: "desc" },
-    take: 200,
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
   });
 
+  const seenStudents = new Set<string>();
+  const submissions = allSubmissions.filter((submission) => {
+    if (seenStudents.has(submission.student.id)) return false;
+    seenStudents.add(submission.student.id);
+    return true;
+  });
   if (submissions.length === 0) throw new Error("NO_GRADED_SUBMISSIONS");
 
   type EvaluationSummary = {
@@ -338,7 +345,7 @@ export async function aggregateInsights(
   const builtInsights = buildInsightsAggregatePrompt({
     instanceTitle: instance.title,
     taskType: instance.taskType,
-    evaluations: evaluations.map((e) => ({
+    evaluations: evaluations.slice(0, 50).map((e) => ({
       submissionId: e.submissionId,
       studentName: e.studentName,
       score: e.score ?? 0,
@@ -347,7 +354,7 @@ export async function aggregateInsights(
   });
 
   // PR-FIX-2 B3: AI 失败时仍保存 weaknessConcepts + 空 issues/highlights（降级路径，不丢历史 conceptTags 信息）
-  let ai: { commonIssues: Array<{ title: string; description: string; studentCount: number }>; highlights: Array<{ submissionId: string; studentName: string; quote: string }> };
+  let ai: z.infer<typeof aggregateSchema>;
   try {
     ai = await aiGenerateJSON(
       "insights",
@@ -364,8 +371,17 @@ export async function aggregateInsights(
   }
 
   const aggregated: AggregatedInsights = {
-    commonIssues: ai.commonIssues.slice(0, 5),
-    highlights: ai.highlights.slice(0, 3),
+    sample: { totalSubmissions: allSubmissions.length, selectedStudents: evaluations.length, analyzedStudents: Math.min(50, evaluations.length), scorePolicy: "latest" },
+    commonIssues: ai.commonIssues.slice(0, 5).map((issue) => ({
+      title: issue.title, description: issue.description,
+      studentCount: new Set(evaluations.slice(0, 50).filter((e) => (issue.evidenceSubmissionIds ?? []).includes(e.submissionId)).map((e) => e.studentId)).size,
+    })),
+    highlights: ai.highlights.flatMap((highlight) => {
+      const source = evaluations.slice(0, 50).find((e) => e.submissionId === highlight.submissionId);
+      // These are excerpts of grading feedback, not student utterances.
+      return source && highlight.quote.trim() && source.feedback.includes(highlight.quote)
+        ? [{ ...highlight, studentName: source.studentName }] : [];
+    }).slice(0, 3),
     weaknessConcepts,
     ...(allocationSnapshots.length > 0
       ? { allocationSnapshots }

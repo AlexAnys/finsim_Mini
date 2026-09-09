@@ -1,5 +1,7 @@
 "use client";
 
+import { submissionRequestId, finishSubmissionRequest } from "@/lib/utils/submission-request";
+
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
@@ -55,6 +57,7 @@ interface QuizRunnerProps {
   taskConfig: QuizTaskConfig;
   taskId: string;
   taskInstanceId: string;
+  taskVersion?: number;
   taskName: string;
   /** 当前登录用户 ID — localStorage draft 必须 scope 到用户，避免同浏览器
    *  教师 preview / 学生切换时 draft 互串。 */
@@ -106,6 +109,7 @@ export function QuizRunner({
   taskConfig,
   taskId,
   taskInstanceId,
+  taskVersion,
   taskName,
   userId,
   taskSubtitle,
@@ -196,7 +200,7 @@ export function QuizRunner({
       buildDraftKey(userId, isPreview, taskInstanceId),
       JSON.stringify({ answers, timeRemaining })
     );
-  }, [answers, timeRemaining, taskInstanceId]);
+  }, [answers, timeRemaining, taskInstanceId, userId, isPreview]);
 
   useEffect(() => {
     saveDraft();
@@ -273,6 +277,8 @@ export function QuizRunner({
         taskType: "quiz" as const,
         taskId,
         taskInstanceId,
+        requestId: submissionRequestId(userId, taskInstanceId),
+        taskVersion,
         answers: questions.map((q) => {
           const raw = answers[q.id];
           if (q.type === "short_answer") {
@@ -297,6 +303,7 @@ export function QuizRunner({
       }
 
       const data = await res.json();
+      finishSubmissionRequest(userId, taskInstanceId);
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
       localStorage.removeItem(buildDraftKey(userId, isPreview, taskInstanceId));

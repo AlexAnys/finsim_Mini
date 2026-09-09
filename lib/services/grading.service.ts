@@ -1,3 +1,8 @@
+import { withAiDeadline } from "./ai-deadline-context";
+import { resolveGradingTask } from "./task-version";
+import { createRubricEvaluationSchema } from "./ai-grade-validation";
+import { readStoredFile } from "./storage.service";
+import { extractDocumentText } from "./document-ingestion.service";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import * as aiService from "./ai.service";
@@ -99,7 +104,7 @@ function appendLatePenaltyFeedback(
 
 // Fix 6: 批改失败时给学生的中文兜底文案（写进 evaluation.feedback）。
 //
-// 仅 sim / subjective 走这套（quiz 简答已有 per-question fallback）。
+// 三类任务的失败都进入可恢复状态，不发布错误零分。
 // 失败模式分两类：
 //   - JSON parse / schema 失败 → "AI 模型输出格式异常"（提示老师）
 //   - 其它（网络 / 超时 / provider 报错）→ "AI 批改服务暂未完成"（提示重试 / 联系老师）
@@ -119,9 +124,7 @@ async function writeGradingFailureFeedback(
   submission: SubmissionFull,
   err: unknown,
 ) {
-  const taskType = submission.taskType;
-  // quiz 简答已有 per-question 兜底；外层失败也保持不写 evaluation（不覆盖已有 quiz breakdown）
-  if (taskType !== "simulation" && taskType !== "subjective") return;
+  // Every task type must enter a recoverable failure state, including quiz.
 
   const feedback = isJsonShapeFailure(err)
     ? FAILED_FEEDBACK_JSON
@@ -179,7 +182,11 @@ export function computeReleasedAtForGrading(args: {
   return args.autoReleaseAt.getTime() <= now.getTime() ? now : null;
 }
 
-export async function gradeSubmission(submissionId: string) {
+export function gradeSubmission(submissionId: string) {
+  return withAiDeadline(90_000, () => performGrading(submissionId));
+}
+
+async function performGrading(submissionId: string) {
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
     include: {
@@ -194,14 +201,16 @@ export async function gradeSubmission(submissionId: string) {
       },
       simulationSubmission: true,
       quizSubmission: true,
-      subjectiveSubmission: true,
+      subjectiveSubmission: { include: { attachments: true } },
       taskInstance: {
-        select: { id: true, releaseMode: true, autoReleaseAt: true, dueAt: true, createdBy: true },
+        select: { id: true, releaseMode: true, autoReleaseAt: true, dueAt: true, createdBy: true, taskSnapshot: true },
       },
     },
   });
 
   if (!submission) throw new Error("SUBMISSION_NOT_FOUND");
+  if (submission.deletedAt || submission.status === "graded") return;
+  submission.task = resolveGradingTask(submission.taskSnapshot ?? submission.taskInstance?.taskSnapshot, submission.task);
 
   // PR-SIM-1a D1: 提前算好 releasedAt（每个 grade* 函数会传给 updateSubmissionGrade）
   const releasedAt = computeReleasedAtForGrading({
@@ -353,6 +362,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
     questionId: string;
     selectedOptionIds?: string[];
     textAnswer?: string;
+    grade?: { score: number; maxScore: number; correct: boolean; comment: string };
   }>) || [];
 
   const questions = submission.task.quizQuestions;
@@ -402,7 +412,7 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
     // 简答题：AI 批改
     else if (question.type === "short_answer") {
       try {
-        const result = await gradeShortAnswer(
+        const result = answer.grade ?? await gradeShortAnswer(
           submission.studentId,
           settingsUserId,
           question.prompt,
@@ -415,14 +425,8 @@ async function gradeQuiz(submission: SubmissionFull, releasedAt: Date | null) {
           questionId: question.id,
           ...result,
         });
-      } catch {
-        breakdown.push({
-          questionId: question.id,
-          score: 0,
-          maxScore: question.points,
-          correct: false,
-          comment: "AI 批改失败，请等待教师手动批改",
-        });
+      } catch (cause) {
+        throw new Error("QUIZ_GRADING_INCOMPLETE", { cause });
       }
     }
   }
@@ -507,7 +511,7 @@ async function extractQuizConceptTags(
   return Array.isArray(out.conceptTags) ? out.conceptTags.slice(0, 5) : [];
 }
 
-async function gradeShortAnswer(
+export async function gradeShortAnswer(
   userId: string,
   settingsUserId: string,
   prompt: string,
@@ -560,7 +564,21 @@ async function gradeSubjective(submission: SubmissionFull, releasedAt: Date | nu
 
   const config = submission.task.subjectiveConfig;
   const textAnswer = submission.subjectiveSubmission.textAnswer || "";
-  const extractedText = submission.subjectiveSubmission.extractedText || "";
+  let extractedText = submission.subjectiveSubmission.extractedText || "";
+  if (submission.subjectiveSubmission.attachments?.length) {
+    const documents: string[] = [];
+    for (const attachment of submission.subjectiveSubmission.attachments) {
+      const extracted = await extractDocumentText({ buffer: await readStoredFile(attachment.filePath), fileName: attachment.fileName, mimeType: attachment.contentType });
+      if (extracted.status !== "ready" || !extracted.text.trim() || extracted.warnings.some(w => w.includes("已截取"))) {
+        throw new Error("ATTACHMENT_EXTRACTION_INCOMPLETE");
+      }
+      documents.push(`附件：${attachment.fileName}\n${extracted.text}`);
+    }
+    extractedText = documents.join("\n\n");
+    if (extractedText.length > 120000) throw new Error("ATTACHMENT_EXTRACTION_INCOMPLETE");
+    // Persist source text so teacher can inspect the evidence actually graded.
+    await prisma.subjectiveSubmission.update({ where: { submissionId: submission.id }, data: { extractedText } });
+  }
   const combinedText = [textAnswer, extractedText].filter(Boolean).join("\n\n");
 
   if (!combinedText.trim()) {
@@ -586,17 +604,7 @@ async function gradeSubjective(submission: SubmissionFull, releasedAt: Date | nu
     return;
   }
 
-  const evaluationSchema = z.object({
-    totalScore: z.number(),
-    feedback: z.string(),
-    rubricBreakdown: z.array(z.object({
-      criterionId: z.string(),
-      score: z.number(),
-      maxScore: z.number(),
-      comment: z.string(),
-    })),
-    conceptTags: z.array(z.string()).optional(),
-  });
+  const evaluationSchema = createRubricEvaluationSchema(submission.task.scoringCriteria);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const rubric = submission.task.scoringCriteria;

@@ -51,6 +51,7 @@ describe("task publish config guards", () => {
       assertTaskReadyForPublish({
         taskType: "subjective",
         subjectiveConfig: { prompt: "请分析案例。" },
+        scoringCriteria: [{ id: "r1", name: "分析质量", maxPoints: 10 }],
       }),
     ).not.toThrow();
 
@@ -58,6 +59,7 @@ describe("task publish config guards", () => {
       assertTaskReadyForPublish({
         taskType: "simulation",
         simulationConfig: { scenario: "客户咨询" },
+        scoringCriteria: [{ id: "r1", name: "沟通质量", maxPoints: 10 }],
       }),
     ).not.toThrow();
   });
@@ -83,8 +85,12 @@ describe("production UI copy guards", () => {
     );
 
     expect(file).toContain("搜索未启用 · AI 不会联网搜索");
-    expect(file).toContain("AI 不会联网搜索或伪造结果");
-    expect(file).toContain("disabled={!searchConfigured}");
+    expect(file).toContain("当前未接入联网搜索");
+    // Search is not implemented: retain the disclosure and remove the misleading enable switch.
+    expect(file).not.toContain("checked={searchConfigured && tool.enableSearch}");
+    expect(file).not.toContain("onCheckedChange={(checked) => updateTool(tool.key, { enableSearch: checked })}");
+    const route = readFileSync(join(process.cwd(), "app/api/ai/tool-settings/route.ts"), "utf-8");
+    expect(route).toContain("searchProviderConfigured: false");
   });
 
   it("analytics charts keep stable minimum dimensions for Recharts", () => {

@@ -1,3 +1,4 @@
+import { nextQuizQuestion, checkQuizAttemptAnswer } from "@/lib/services/quiz-attempt.service";
 /**
  * Route 三角 — Group 5: 其他高频热区 (5 routes × 3 = 15 case)
  *
@@ -33,6 +34,8 @@ vi.mock("@/lib/services/course.service", () => ({
 vi.mock("@/lib/services/study-buddy.service", () => ({
   continueConversation: vi.fn(),
 }));
+
+vi.mock("@/lib/services/quiz-attempt.service", () => ({ nextQuizQuestion: vi.fn(), checkQuizAttemptAnswer: vi.fn() }));
 
 vi.mock("@/lib/services/quiz-adaptive.service", () => ({
   buildAdaptiveState: vi.fn(),
@@ -91,6 +94,8 @@ const CH_ID = "99999999-9999-4999-8999-999999999999";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mk(nextQuizQuestion).mockResolvedValue({ done: false, attemptId: INST_ID, nextQuestion: { id: Q_ID, prompt: "Q1" } });
+  mk(checkQuizAttemptAnswer).mockResolvedValue({ correct: true, correctOptionIds: ["c"] });
 });
 
 describe("POST /api/lms/tasks/[id]/adaptive-quiz/next", () => {
@@ -165,6 +170,7 @@ describe("POST /api/lms/quiz-questions/[id]/check", () => {
     mk(prisma.taskInstance.findUnique).mockResolvedValue({ taskId: TASK_ID });
     const req = buildJsonRequest(`/api/lms/quiz-questions/${Q_ID}/check`, "POST", {
       taskInstanceId: INST_ID,
+      attemptId: INST_ID,
       selectedOptionIds: ["c"],
     });
     const res = await quizCheckPOST(req, makeRouteContext({ id: Q_ID }));
@@ -175,6 +181,7 @@ describe("POST /api/lms/quiz-questions/[id]/check", () => {
     mk(requireAuth).mockResolvedValue(mockAuthError(401, "UNAUTHORIZED", "未登录"));
     const req = buildJsonRequest(`/api/lms/quiz-questions/${Q_ID}/check`, "POST", {
       taskInstanceId: INST_ID,
+      attemptId: INST_ID,
     });
     const res = await quizCheckPOST(req, makeRouteContext({ id: Q_ID }));
     expect(res.status).toBe(401);
@@ -185,6 +192,7 @@ describe("POST /api/lms/quiz-questions/[id]/check", () => {
     mk(assertTaskInstanceReadable).mockRejectedValue(new Error("FORBIDDEN"));
     const req = buildJsonRequest(`/api/lms/quiz-questions/${Q_ID}/check`, "POST", {
       taskInstanceId: INST_ID,
+      attemptId: INST_ID,
     });
     const res = await quizCheckPOST(req, makeRouteContext({ id: Q_ID }));
     expect(res.status).toBe(403);

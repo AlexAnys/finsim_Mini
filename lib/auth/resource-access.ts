@@ -56,7 +56,7 @@ export async function assertTaskInstanceReadable(
     if (inst.status === "draft") throw new Error("TASK_INSTANCE_DRAFT_NOT_VISIBLE");
     if (inst.status === "closed" && opts.allowClosedWithOwnSubmission) {
       const hasOwnSub = await prisma.submission.findFirst({
-        where: { taskInstanceId: instanceId, studentId: user.id },
+        where: { taskInstanceId: instanceId, studentId: user.id, deletedAt: null },
         select: { id: true },
       });
       if (hasOwnSub) return;
@@ -143,6 +143,7 @@ export async function assertTaskReadable(
         taskId,
         classId: user.classId,
         status: "published",
+        OR: [{ courseId: null }, { course: { deletedAt: null } }],
       },
       select: { id: true },
     });
@@ -227,12 +228,14 @@ export async function assertSubmissionReadable(
       studentId: true,
       taskId: true,
       taskInstanceId: true,
+      deletedAt: true,
+      taskInstance: { select: { course: { select: { deletedAt: true } } } },
     },
   });
   if (!sub) throw new Error("SUBMISSION_NOT_FOUND");
 
   if (user.role === "student") {
-    if (sub.studentId !== user.id) throw new Error("FORBIDDEN");
+    if (sub.studentId !== user.id || sub.deletedAt || sub.taskInstance?.course?.deletedAt) throw new Error("FORBIDDEN");
     return;
   }
 
@@ -277,6 +280,8 @@ export async function assertFileReadable(
 ): Promise<void> {
   if (user.role === "admin") return;
 
+  const upload = await prisma.fileUpload.findUnique({ where: { filePath }, select: { ownerId: true } });
+  if (upload?.ownerId === user.id) return;
   const attachment = await prisma.attachment.findFirst({
     where: { filePath },
     select: {

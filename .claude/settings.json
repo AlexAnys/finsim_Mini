@@ -6,23 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "git -C \"$CLAUDE_PROJECT_DIR\" diff --quiet HEAD 2>/dev/null && exit 0 || exit 1"
-          },
-          {
-            "type": "agent",
-            "prompt": "First apply the validation scope in AGENTS.md and agent_docs/validation-routing.md. Pure non-runtime documentation needs docs/reference checks and relevant media preview only; do not request application dependencies, tsc, vitest, app browser smoke, deployment, or harness edits. Workflow changes retain one full CI run. For full-path changes, You are a QA gate for finsim. Check git diff for uncommitted changes. Verify: (1) No obvious bugs or broken imports (2) If Prisma schema changed, confirm migrate+generate were run and flag that dev server needs restart (3) If service interfaces changed, check that all callers were updated (4) UI text is Simplified Chinese, not English (5) Route handlers have no business logic (6) Changes match the plan in .harness/spec.md if it exists (7) If UI/routing/CSS changed, flag that qa agent should run /qa-only browser verification. Respond {\"ok\": true} or {\"ok\": false, \"reason\": \"specifics\"}. $ARGUMENTS",
-            "timeout": 120
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.harness/scripts/lesson-required-warn.sh\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.harness/scripts/task_state.py\" --root \"$CLAUDE_PROJECT_DIR\" stop",
+            "timeout": 10
           }
         ]
       }

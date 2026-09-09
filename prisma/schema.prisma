@@ -213,6 +213,8 @@ model User {
   auditLogs          AuditLog[]           @relation("AuditActor")
   collaboratingCourses CourseTeacher[]    @relation("CourseCollaborator")
   feedbacks            Feedback[]          @relation("FeedbackAuthor")
+  quizAttempts         QuizAttempt[]
+  fileUploads          FileUpload[]
 
   @@index([role])
   @@index([classId])
@@ -526,6 +528,7 @@ model TaskInstance {
   status           TaskInstanceStatus @default(draft)
   attemptsAllowed  Int?
   taskSnapshot     Json?
+  contentVersion  Int                @default(1)
   releaseMode      ReleaseMode        @default(manual)
   autoReleaseAt    DateTime?
   createdBy        String
@@ -539,6 +542,7 @@ model TaskInstance {
   section         Section?               @relation(fields: [sectionId], references: [id])
   creator         User                   @relation("TaskInstanceCreator", fields: [createdBy], references: [id])
   submissions     Submission[]
+  quizAttempts     QuizAttempt[]
   taskPosts       TaskPost[]
   studyBuddyPosts StudyBuddyPost[]
   analysisReports AnalysisReport[]       @relation("ReportInstance")
@@ -566,21 +570,30 @@ model Submission {
   submittedAt    DateTime         @default(now())
   gradedAt       DateTime?
   releasedAt     DateTime?
+  releaseSuppressedAt DateTime?
+  requestId           String?
+  taskSnapshot        Json?
+  quizAttemptId       String?          @unique
+  deletedAt           DateTime?
+  deletedBy           String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   student              User                   @relation("StudentSubmissions", fields: [studentId], references: [id])
+  quizAttempt          QuizAttempt?          @relation(fields: [quizAttemptId], references: [id], onDelete: SetNull)
   task                 Task                   @relation(fields: [taskId], references: [id])
   taskInstance         TaskInstance?           @relation(fields: [taskInstanceId], references: [id])
   simulationSubmission SimulationSubmission?
   quizSubmission       QuizSubmission?
   subjectiveSubmission SubjectiveSubmission?
 
+  @@unique([studentId, requestId])
   @@index([studentId])
   @@index([taskId])
   @@index([taskInstanceId])
   @@index([status])
   @@index([taskInstanceId, studentId])
+  @@index([deletedAt])
 }
 
 // ============================================
@@ -1095,4 +1108,36 @@ model Feedback {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+}
+
+// A server-owned adaptive sitting: clients cannot invent issued questions or correctness.
+model QuizAttempt {
+  id                String       @id @default(uuid())
+  studentId         String
+  taskInstanceId    String
+  taskSnapshot      Json
+  issuedQuestionIds String[]
+  answers           Json         @default("[]")
+  completedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  student           User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  taskInstance      TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+  submission        Submission?
+
+  @@index([studentId, taskInstanceId])
+}
+
+// Upload ownership exists before an attachment is linked to a submission.
+model FileUpload {
+  id          String   @id @default(uuid())
+  ownerId     String
+  filePath    String   @unique
+  fileName    String
+  fileSize    Int
+  contentType String
+  createdAt   DateTime @default(now())
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
 }

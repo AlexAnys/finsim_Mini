@@ -12,21 +12,9 @@ FinSim is a financial education platform for Chinese university courses. Core lo
 
 ## Harness
 
-本项目使用 coordinator / builder / qa 三角色 Agent Team（定义在 `.claude/agents/`）：
+保留 coordinator / builder / qa 三角色，定义在 `.claude/agents/`。当前任务唯一入口是本 worktree 的 `.harness/current-task.json`，由 `.harness/scripts/task_state.py` 管理；独立 spec、代码指纹、实际运行 SHA、环境与 QA 证据绑定。没有入口时不启动旧 spec.md 的计划。
 
-| 角色 | 产出 | 读什么 | 工具范围 |
-|---|---|---|---|
-| coordinator | `.harness/spec.md`（计划 + acceptance criteria） | 用户意图、CLAUDE.md、`.harness/` 全部 | Agent/TeamCreate/SendMessage/Task*/Read/Write/Bash |
-| builder | `.harness/reports/build_{unit}_r{N}.md` | spec.md、现有代码、gstack `/investigate`（debug 用） | Read/Write/Edit/Bash + SendMessage |
-| qa | `.harness/reports/qa_{unit}_r{N}.md` | spec.md、build 报告、**gstack `/qa-only` 真浏览器**、`/cso`（安全类改动） | Read/Write/Bash + SendMessage（**无 Edit**）|
-
-**自动 QA**：`.claude/settings.json` 的 Stop hook 在每次 Claude 回复结束时触发独立 QA gate，检查 git diff 是否符合 spec + finsim 规则（Prisma 三步、Service interface 全同步、中文 UI、Route Handler 无业务逻辑）。
-
-**Dynamic exit**：r1 PASS 收工 / r2 PASS 后强制写 lesson / r2-r3 同一 FAIL 回 spec 重规划，不硬磨（详见 `.claude/agents/coordinator.md`）。
-
-**Lessons**：`.harness/lessons.md` 是"失败 → 根因 → 检测 → 预防"滚动池。任何 r2+ PASS 单元必须追加一条；Coordinator 在规划新 unit 前 grep tail；QA 在 Step 0 grep active 条目看 Prevention 字段是否命中本轮改动。写作纪律见 `.harness/STYLE.md`，归档规则见 `.harness/archive/README.md`。
-
-**Progress tracking**：`.harness/progress.tsv` 每轮 QA 追加一行；跨会话续工用 `.harness/HANDOFF.md`（由 coordinator 在会话结束前更新，SessionStart hook 自动在新会话显示）。文件膨胀时由 `.harness/scripts/prune.sh` 自动归档（progress.tsv > 30 行 / reports/ unit 收工时入 `.harness/archive/`）。
+流程与命令见 `.harness/WORKFLOW.md`。Stop 只做确定性的证据有效性检查，不调用模型，不在讨论/等待用户时阻断，不替代独立 QA。写入报告不会使源码 QA 失效，修改源码会。历史 progress.tsv/报告/交接保留只读，新结果使用带锁 JSONL ledger；归档默认预览且不删除原件。
 
 ## Commands
 
@@ -115,13 +103,13 @@ Follow `AGENTS.md` and `agent_docs/validation-routing.md`. Before committing, ru
 
 ## Workflow (Must Follow)
 
-1. Present plan first, don't write code until confirmed
+1. 明确计划与验收，沿用用户已给的授权；范围不清时再澄清。
 2. For application changes: run `npx tsc --noEmit` and the required tests; pure docs use the validation scope above.
 3. Keep each diff under 150 lines
 4. After editing `schema.prisma`: **must** `npx prisma migrate dev` + `npx prisma generate` + **kill & restart dev server** + 验证页面正常加载（不能跳过重启！）
 5. List modified files and validation evidence; pure docs record this in the PR without forced `.harness` edits.
 6. If unsure, switch to Plan Mode: explore + propose plan before editing.
-7. **Model upgrade review** — 每次 Claude 模型升级后，回看 `.claude/agents/` 定义 + Stop/SessionStart hooks + `.harness/` 结构，删掉不再增值的脚手架，追加一行到 `.harness/progress.tsv`（unit=harness-upgrade，记录删/留决策）。这是防止 harness 随模型进化持续膨胀的唯一机制。
+7. **Model upgrade review** — 每次 Claude 模型升级后，回看 `.claude/agents/` 定义 + Stop/SessionStart hooks + `.harness/` 结构，删掉不再增值的脚手架，在独立 QA 报告记录删/留决策。这是防止 harness 随模型进化持续膨胀的唯一机制。
 
 ### Anti-Regression Rules
 
@@ -129,7 +117,7 @@ Follow `AGENTS.md` and `agent_docs/validation-routing.md`. Before committing, ru
 7. Bug fixes: change only the minimal code that caused the bug — no "drive-by" refactors
 8. When modifying `lib/services/` interfaces (params, return values): update all callers in the same commit
 9. Don't modify files outside the current task scope unless explicitly confirmed
-10. Beyond 5 conversation rounds: write progress to status, let user decide whether to continue
+10. 同一失败重复出现时记录现状和证据，回根因/计划，不做无意义的固定轮数迭代。
 
 ### Bug Fix Rule
 

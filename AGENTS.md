@@ -107,3 +107,10 @@ docs: update agent_docs/deployment.md with staging stack
 ```
 
 scope 用小写、`-` 连接；消息英文中文都行（团队偏中文）。
+
+
+## 九、任务与独立 QA 的证据绑定
+
+应用任务使用 `.harness/WORKFLOW.md` 的 task_state.py：当前 task/spec/分支/源文件指纹/实际运行版本/环境绑定。Builder 生成，QA 独立验收并记录，coordinator 关闭；不由生成者代写 QA。代码或环境变了，旧 PASS 无效。讨论或等待用户不被 Stop 强制续跑；旧 spec.md 不代表当前任务。历史记录保留，纯文档不强制新建 harness 记录。
+
+CI质量检查由PR opened/synchronize/reopened或手动dispatch触发，不再重复监听push；strict保护下base更新要求update-branch，新head通过synchronize重验。

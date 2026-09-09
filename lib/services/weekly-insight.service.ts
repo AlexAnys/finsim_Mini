@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
-import { aiGenerateJSON, getProviderForFeature, getRuntimeSetting } from "./ai.service";
+import { aiGenerateJSON } from "./ai.service";
 import { assertAiFeatureCooldown } from "./ai-throttle.service";
+import { weeklyStatistics } from "./insight-statistics";
 import { teacherCourseFilter } from "@/lib/services/course.service";
 import {
   buildWeeklyInsightPrompt as buildWeeklyInsightPromptRegistry,
@@ -76,6 +77,7 @@ export interface WeeklyInsightResult {
   windowEnd: Date;
   /** 本次聚合涉及的 graded 提交数 */
   submissionCount: number;
+  sampledSubmissionCount?: number;
   /** cache 命中标记，便于前端展示"已缓存"状态 */
   cached: boolean;
   /** 模型标识 "provider:model"，AI 失败或老条目可为 null */
@@ -99,7 +101,7 @@ interface CacheEntry {
   expiresAt: number;
 }
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const CACHE_TTL_MS = 15 * 60 * 1000; // Short-lived: newly released or corrected grades should appear soon.
 const cache = new Map<string, CacheEntry>();
 
 /** Test-only helper: 清空缓存以便单测之间隔离。 */
@@ -201,7 +203,7 @@ export function buildWeeklyInsightPrompt(input: PromptInput): {
   systemPrompt: string;
   userPrompt: string;
 } {
-  const { systemPrompt, userPrompt } = buildWeeklyInsightPromptRegistry(input);
+  const { systemPrompt, userPrompt } = buildWeeklyInsightPromptRegistry({ ...input, statistics: weeklyStatistics(input.submissions) });
   return { systemPrompt, userPrompt };
 }
 
@@ -286,9 +288,10 @@ export async function generateWeeklyInsight(
   const upcomingEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   // 1) 拉过去 7 天 graded + released submissions（限定教师拥有/协作的课程）
-  const submissions = await prisma.submission.findMany({
+  const allSubmissions = await prisma.submission.findMany({
     where: {
       status: "graded",
+      deletedAt: null,
       releasedAt: { not: null },
       gradedAt: { gte: windowStart, lte: windowEnd },
       OR: [
@@ -311,8 +314,15 @@ export async function generateWeeklyInsight(
       quizSubmission: true,
       subjectiveSubmission: true,
     },
-    orderBy: { gradedAt: "desc" },
-    take: 200,
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+  });
+
+  const seenAttempts = new Set<string>();
+  const submissions = allSubmissions.filter((submission) => {
+    const key = `${submission.studentId}:${submission.taskInstanceId || submission.taskId}`;
+    if (seenAttempts.has(key)) return false;
+    seenAttempts.add(key);
+    return true;
   });
 
   // 2) 拉教师未来 7 天课表（按课程过滤；下游依旧需要按 dayOfWeek/slotIndex/startWeek/endWeek 真正算"接下来 N 次发生时间"，本 PR 简化为列出全部相关 slot 给 AI 参考）
@@ -417,10 +427,7 @@ export async function generateWeeklyInsight(
   let costEstUSD: number | null = null;
   const aiStartedAt = Date.now();
   try {
-    // ai.service 在 aiGenerateJSON 内同样会查 setting；这里提前读 provider 主要为了
-    // 写入 result.modelUsed（modal footer 显示），与下方 AI 调用本质等价（同一 feature/userId）。
-    const setting = await getRuntimeSetting(teacherId, "weeklyInsight");
-    const { provider, model } = getProviderForFeature("weeklyInsight", setting);
+    let effectiveModel: string | null = null;
     const ai = await aiGenerateJSON(
       "weeklyInsight",
       teacherId,
@@ -428,9 +435,9 @@ export async function generateWeeklyInsight(
       userPrompt,
       aiSchema,
       2,
-      { promptVersion: WEEKLY_INSIGHT_PROMPT_VERSION },
+      { promptVersion: WEEKLY_INSIGHT_PROMPT_VERSION, onResolved: (resolved) => { effectiveModel = `${resolved.provider}:${resolved.model}`; } },
     );
-    modelUsed = `${provider.name}:${model}`;
+    modelUsed = effectiveModel;
     durationMs = Date.now() - aiStartedAt;
     // 查最新成功的 AiRun（同 feature + userId，30s 内）拿 token 数据写入 result。
     try {
@@ -453,10 +460,10 @@ export async function generateWeeklyInsight(
       // AiRun 查询失败不阻塞主流程。
     }
     payload = {
-      weakConceptsByCourse: ai.weakConceptsByCourse,
-      classDifferences: ai.classDifferences,
-      studentClusters: ai.studentClusters,
-      upcomingClassRecommendations: ai.upcomingClassRecommendations,
+      ...weeklyStatistics(promptInput.submissions),
+      upcomingClassRecommendations: ai.upcomingClassRecommendations.filter((recommendation) =>
+        promptInput.upcomingSlots.some((slot) => slot.scheduleSlotId === recommendation.scheduleSlotId && slot.date === recommendation.date)
+      ).map((recommendation) => ({ ...recommendation, courseTitle: promptInput.upcomingSlots.find((slot) => slot.scheduleSlotId === recommendation.scheduleSlotId)!.courseTitle })),
       highlightSummary: ai.highlightSummary,
     };
   } catch (err) {
@@ -479,6 +486,7 @@ export async function generateWeeklyInsight(
     windowStart,
     windowEnd,
     submissionCount: promptInput.submissions.length,
+    sampledSubmissionCount: Math.min(80, promptInput.submissions.length),
     cached: false,
     modelUsed,
     durationMs,

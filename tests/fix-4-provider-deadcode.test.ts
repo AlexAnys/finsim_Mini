@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+vi.mock("@/lib/db/prisma", () => ({ prisma: { aiToolSetting: { upsert: vi.fn().mockResolvedValue({}) } } }));
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -40,6 +41,9 @@ function readFile(relPath: string): string {
 }
 
 const ORIGINAL_ENV = { ...process.env };
+beforeEach(() => {
+  for (const key of Object.keys(process.env)) if (/^(AI_|MIMO_|QWEN_|DEEPSEEK_|GEMINI_|OPENAI_)/.test(key)) delete process.env[key];
+});
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
 });

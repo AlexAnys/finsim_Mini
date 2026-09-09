@@ -1,5 +1,7 @@
 "use client";
 
+import { submissionRequestId, finishSubmissionRequest } from "@/lib/utils/submission-request";
+
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -62,6 +64,7 @@ interface SimulationRunnerProps {
   taskConfig: SimulationTaskConfig;
   taskId: string;
   taskInstanceId: string;
+  taskVersion?: number;
   taskName: string;
   /** 当前登录用户 ID — 用于把 localStorage draft key scope 到具体用户，避免同浏览器
    *  教师 preview → 学生切换时学生看到 / 提交教师测试内容（产生错误归因）。 */
@@ -168,6 +171,7 @@ export function SimulationRunner({
   taskConfig,
   taskId,
   taskInstanceId,
+  taskVersion,
   taskName,
   userId,
   evaluatorPersona,
@@ -304,7 +308,7 @@ export function SimulationRunner({
         })
       );
     },
-    [taskInstanceId]
+    [taskInstanceId, userId, isPreview]
   );
 
   useEffect(() => {
@@ -622,6 +626,8 @@ export function SimulationRunner({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            taskId,
+            taskInstanceId,
             taskName,
             requirements: requirements?.join("\n"),
             scenario,
@@ -661,6 +667,8 @@ export function SimulationRunner({
           taskType: "simulation",
           taskId,
           taskInstanceId,
+          requestId: submissionRequestId(userId, taskInstanceId),
+          taskVersion,
           transcript: messages,
           assets:
             allocations.length > 0
@@ -675,6 +683,7 @@ export function SimulationRunner({
       const data = await res.json();
       localStorage.removeItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));
       // PR-SIM-1c · D1 防作弊：不再立即 router.back()，展示"已提交·分析中"页面让学生看到状态确认
+      finishSubmissionRequest(userId, taskInstanceId);
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
       toast.success("提交成功，AI 分析中");
@@ -702,6 +711,8 @@ export function SimulationRunner({
           taskType: "simulation",
           taskId,
           taskInstanceId,
+          requestId: submissionRequestId(userId, taskInstanceId),
+          taskVersion,
           transcript: messages,
           assets:
             allocations.length > 0
@@ -717,6 +728,7 @@ export function SimulationRunner({
       }
 
       const data = await res.json();
+      finishSubmissionRequest(userId, taskInstanceId);
       setSubmitted(true);
       setGradingJob(data.data?.gradingJob ?? null);
       localStorage.removeItem(buildDraftKey(userId, isPreview ?? false, taskInstanceId));

@@ -184,7 +184,7 @@ describe("Fix 6 · grading.service writes user-visible failure feedback", () => 
     expect(evalData?.feedback).not.toContain("格式异常");
   });
 
-  it("quiz: 外层失败时不覆盖 quiz 简答的 per-question fallback（写 evaluation 跳过）", async () => {
+  it("quiz: 外层失败必须写 recoverable failed 状态及可见反馈", async () => {
     (prisma.submission.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "sub-quiz-1",
       studentId: "stu-1",
@@ -219,13 +219,10 @@ describe("Fix 6 · grading.service writes user-visible failure feedback", () => 
 
     await expect(gradeSubmission("sub-quiz-1")).rejects.toThrow();
 
-    // 找 outer-catch 写的那次（status=failed 但 evaluation 应缺省）
-    const failedCalls = updateSubmissionGradeCalls.filter(
-      (c) => (c.data as { status?: string }).status === "failed",
-    );
-    // quiz 走 writeGradingFailureFeedback 但函数体 early return（taskType !== sim/subjective），
-    // 因此 status=failed 的 updateSubmissionGrade 不应被调用（quiz 自身已写 evaluation 或 grading.service 不再写）
-    expect(failedCalls.length).toBe(0);
+    // A provider/database failure is no longer an official zero or a stuck grading row.
+    const failedCalls = updateSubmissionGradeCalls.filter(c => c.data.status === "failed");
+    expect(failedCalls).toHaveLength(1);
+    expect((failedCalls[0].data.evaluation as { feedback: string }).feedback).toContain("AI 批改暂未完成");
   });
 });
 

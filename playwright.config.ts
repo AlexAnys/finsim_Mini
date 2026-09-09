@@ -15,6 +15,7 @@ import { defineConfig, devices } from "@playwright/test";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 
 export default defineConfig({
+  globalSetup: "./tests/e2e/infra/version-check.ts",
   testDir: "./tests/e2e/smoke",
   timeout: 5 * 60 * 1000, // 5 min/test (AI 真调外部 provider 慢)
   fullyParallel: false,

@@ -52,6 +52,7 @@ export interface WeeklyInsightUiResult {
   windowStart: string | Date;
   windowEnd: string | Date;
   submissionCount: number;
+  sampledSubmissionCount?: number;
   cached: boolean;
   modelUsed?: string | null;
   durationMs?: number | null;
@@ -170,7 +171,7 @@ export function WeeklyInsightModal({
                 时间窗口 {fmtDate(data.windowStart)} ~ {fmtDate(data.windowEnd)}
               </span>
               <span className="text-ink-5">·</span>
-              <span>本周纳入 {data.submissionCount} 份提交</span>
+              <span>本周每人每任务取最新，共 {data.submissionCount} 份；AI 文本样本 {data.sampledSubmissionCount ?? "未记录"} 份</span>
               {data.cached && (
                 <Badge variant="secondary" className="text-[11px]">
                   缓存（7天）
@@ -246,13 +247,14 @@ export function WeeklyInsightModal({
               </div>
             </section>
 
-            {/* Section 2: 各课弱点概念聚合 */}
+            {/* Section 2: 相关任务低分学生占比 */}
             <section>
               <h3 className="mb-2 text-[14px] font-semibold text-ink">
-                各课弱点概念聚合
+                相关任务低分学生占比
               </h3>
+              <p className="mb-3 text-xs text-ink-4">按涉及该概念的任务均分低于 60 计算，不等同于该知识点答错。</p>
               {data.payload.weakConceptsByCourse.length === 0 ? (
-                <p className="text-[12.5px] text-ink-4">暂无可聚合的弱点概念</p>
+                <p className="text-[12.5px] text-ink-4">暂无相关任务均分低于 60 的学生</p>
               ) : (
                 <div className="space-y-3">
                   {data.payload.weakConceptsByCourse.map((course) => (
@@ -277,7 +279,7 @@ export function WeeklyInsightModal({
                                 {c.tag}
                               </Badge>
                               <span className="text-ink-3">
-                                出错率 {fmtPercent(c.errorRate)}
+                                低分学生 {fmtPercent(c.errorRate)}
                               </span>
                               {c.exampleStudents.length > 0 && (
                                 <span className="text-ink-4">
@@ -294,14 +296,14 @@ export function WeeklyInsightModal({
               )}
             </section>
 
-            {/* Section 3: 班级差异 + 学生聚类 */}
+            {/* Section 3: 班级百分制均分 + 按均分分组 */}
             <section className="grid gap-4 md:grid-cols-2">
               <div>
                 <h3 className="mb-2 text-[14px] font-semibold text-ink">
-                  班级差异
+                  班级百分制均分
                 </h3>
                 {data.payload.classDifferences.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-4">暂无班级差异数据</p>
+                  <p className="text-[12.5px] text-ink-4">暂无班级百分制均分数据</p>
                 ) : (
                   <ul className="space-y-2">
                     {data.payload.classDifferences.map((c) => (
@@ -329,10 +331,10 @@ export function WeeklyInsightModal({
 
               <div>
                 <h3 className="mb-2 text-[14px] font-semibold text-ink">
-                  学生聚类
+                  按均分分组
                 </h3>
                 {data.payload.studentClusters.length === 0 ? (
-                  <p className="text-[12.5px] text-ink-4">暂无学生聚类数据</p>
+                  <p className="text-[12.5px] text-ink-4">暂无按均分分组数据</p>
                 ) : (
                   <ul className="space-y-2">
                     {data.payload.studentClusters.map((c, i) => (

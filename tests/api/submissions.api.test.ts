@@ -1,3 +1,4 @@
+import { retrySubmissionGrading } from "@/lib/services/submission.service";
 /**
  * Route 三角 — Group 1: submissions mutation (8 routes × 3 case = 24 case)
  *
@@ -38,6 +39,7 @@ vi.mock("@/lib/services/submission.service", () => ({
   batchDeleteSubmissions: vi.fn(),
   ungradeSubmission: vi.fn(),
   resetSubmissionForRetry: vi.fn(),
+  retrySubmissionGrading: vi.fn(),
   stripSubmissionForStudent: vi.fn((s) => s),
   deriveAnalysisStatus: vi.fn(() => "graded"),
 }));
@@ -107,9 +109,18 @@ const INST_ID = "33333333-3333-4333-8333-333333333333";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mk(retrySubmissionGrading).mockResolvedValue({ id: "job-1" });
 });
 
 describe("POST /api/submissions", () => {
+  it("400: missing requestId must not create or enqueue a submission", async () => {
+    mk(requireRole).mockResolvedValue(mockAuthResult(fixtureUsers.studentA1));
+    const req = buildJsonRequest("/api/submissions", "POST", { taskType: "simulation", taskId: TASK_ID, taskInstanceId: INST_ID, transcript: [] });
+    const res = await createPOST(req);
+    expect(res.status).toBe(400);
+    expect(createSubmission).not.toHaveBeenCalled();
+  });
+
   it("200: student 提交 simulation 成功", async () => {
     mk(requireRole).mockResolvedValue(mockAuthResult(fixtureUsers.studentA1));
     mk(assertTaskInstanceReadable).mockResolvedValue(undefined);
@@ -119,6 +130,7 @@ describe("POST /api/submissions", () => {
     mk(enqueueAsyncJob).mockResolvedValue({ id: "job-1" });
 
     const req = buildJsonRequest("/api/submissions", "POST", {
+      requestId: "44444444-4444-4444-8444-444444444444",
       taskType: "simulation",
       taskId: TASK_ID,
       taskInstanceId: INST_ID,

@@ -2,15 +2,15 @@
 
 exports[`insight prompt builders (PR-1 E) > insights-aggregate snapshot 1`] = `
 "你是一位资深的金融教育课程顾问。基于一组学生提交的 AI 批改反馈，归纳：
-1. 全班共性问题（3-5 条），每条包含 title / description / 涉及学生估算数（studentCount）
-2. 亮点提交（最多 3 条），每条引用一份提交的学生名字 + 简短引用 (quote ≤80 字)
+1. 仅归纳提供样本的共性问题（最多 5 条），每条包含 title / description / 支持该判断的 evidenceSubmissionIds 数组；不要估算全班人数。
+2. 亮点提交（最多 3 条），quote 必须逐字摘自提供的批改反馈（≤80 字），属于 AI 点评，不是学生原话。
 
 输出严格 JSON。不要捏造数据 — 仅基于提供的反馈文本归纳。"
 `;
 
 exports[`insight prompt builders (PR-1 E) > insights-aggregate snapshot 2`] = `
 "任务: 第三周练习（quiz）
-学生数: 1
+本次分析样本数: 1（每名学生的最新提交；不代表未提供的数据）
 
 学生反馈片段:
 [1] submissionId=s1 studentName=李四 score=70 feedback=概念混淆
@@ -18,7 +18,7 @@ exports[`insight prompt builders (PR-1 E) > insights-aggregate snapshot 2`] = `
 请输出 JSON:
 {
   "commonIssues": [
-    {"title": "标题", "description": "描述", "studentCount": 数字}
+    {"title": "标题", "description": "描述", "evidenceSubmissionIds": ["id"]}
   ],
   "highlights": [
     {"submissionId": "id", "studentName": "姓名", "quote": "引用"}
@@ -56,8 +56,11 @@ exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empt
 exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empty submissions / slots) 2`] = `
 "时间窗口: 2026-05-10 ~ 2026-05-16
 
-【过去 7 天 graded + released 提交数据 (0 条)】
+【过去 7 天已批改并公布的数据样本 (0 / 0 条；每名学生每个任务取最新)】
 （无）
+
+【程序计算的全量统计，数值不得改写】
+{}
 
 【接下来 7 天课表 (0 节)】
 （无）
@@ -87,8 +90,8 @@ exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empt
 
 要求:
 - weakConceptsByCourse: 仅当某课程内同一概念被 ≥2 名学生明显答错（feedback 反馈中出现弱点）时纳入。errorRate 用 (该概念出错学生数 / 课程下答过该概念的学生数)。
-- classDifferences: 列出本周有提交的班级；avgScore 取真实均分（如无可填 null）。
-- studentClusters: 基于分数与 feedback 模式归纳 2-4 类即可。
+- classDifferences / studentClusters / weakConceptsByCourse 由程序计算，请返回空数组；不要自行推测人数、错误率或均分。
+- 所有实体 ID 只使用提供的真实 ID；同名实体不合并。
 - upcomingClassRecommendations: 仅针对接下来 7 天课表中真实存在的 slot；建议要把"过去 7 天该课程的弱点"映射到"下次课要讲什么"。
 - highlightSummary: 一段总览，开头"本周教学需关注"。
 "

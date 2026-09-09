@@ -1,3 +1,4 @@
+import { studentTaskView } from "@/lib/utils/student-task-view";
 import { requireAuth } from "@/lib/auth/guards";
 import { getTeacherDashboard, getStudentDashboard } from "@/lib/services/dashboard.service";
 import { success, handleServiceError } from "@/lib/api-utils";
@@ -14,7 +15,7 @@ export async function GET() {
       return success(data);
     } else {
       const data = await getStudentDashboard(user.id, user.classId || "");
-      return success(data);
+      return success(studentTaskView(data));
     }
   } catch (err) {
     return handleServiceError(err);

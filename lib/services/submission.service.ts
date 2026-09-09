@@ -1,3 +1,9 @@
+import { invalidateSubmissionInsights } from "./insight-invalidation";
+import { buildAdaptiveState, buildMasteryReport } from "./quiz-adaptive.service";
+import { gradingTaskInclude, resolveGradingTask, freezeTask } from "./task-version";
+import { scheduleAsyncJob } from "./async-job.service";
+import { getCurrentJobLease } from "./async-job-context";
+import { studentTaskView } from "@/lib/utils/student-task-view";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import type { CreateSubmissionInput } from "@/lib/validators/submission.schema";
@@ -52,11 +58,11 @@ export function stripSubmissionForStudent<T extends Record<string, unknown>>(sub
   });
 
   if (analysisStatus === "released") {
-    return { ...(submission as object), analysisStatus } as T & { analysisStatus: SubmissionAnalysisStatus };
+    return { ...studentTaskView(submission), analysisStatus } as T & { analysisStatus: SubmissionAnalysisStatus };
   }
 
   // pending / analyzed_unreleased: 剥离敏感字段
-  const stripped: Record<string, unknown> = { ...submission };
+  const stripped: Record<string, unknown> = { ...studentTaskView(submission) };
   stripped.score = null;
   stripped.maxScore = null;
 
@@ -87,89 +93,93 @@ export function stripSubmissionForStudent<T extends Record<string, unknown>>(sub
 }
 
 export async function createSubmission(studentId: string, input: CreateSubmissionInput) {
-  // 如果有 taskInstanceId，验证提交条件
-  if (input.taskInstanceId) {
-    const instance = await prisma.taskInstance.findUnique({
+  if (!input.taskInstanceId) throw new Error("TASK_INSTANCE_REQUIRED");
+  const result = await prisma.$transaction(async (tx) => {
+    // Serialize attempts, version changes and retries for this assignment.
+    await tx.$queryRaw`SELECT id FROM "TaskInstance" WHERE id = ${input.taskInstanceId} FOR UPDATE`;
+    const instance = await tx.taskInstance.findUnique({
       where: { id: input.taskInstanceId },
+      include: { task: { include: gradingTaskInclude }, course: { select: { deletedAt: true } } },
     });
     if (!instance) throw new Error("TASK_INSTANCE_NOT_FOUND");
-    if (instance.status !== "published") throw new Error("TASK_NOT_PUBLISHED");
-
-    // 检查尝试次数
-    if (instance.attemptsAllowed) {
-      const count = await prisma.submission.count({
-        where: {
-          studentId,
-          taskInstanceId: input.taskInstanceId,
-        },
-      });
-      if (count >= instance.attemptsAllowed) throw new Error("MAX_ATTEMPTS_REACHED");
-    }
-  }
-
-  return prisma.$transaction(async (tx) => {
-    // 创建基础提交记录
-    const submission = await tx.submission.create({
-      data: {
-        studentId,
-        taskId: input.taskId,
-        taskType: input.taskType,
-        taskInstanceId: input.taskInstanceId,
-        status: "submitted",
-      },
-    });
-
-    // 创建类型专属记录
-    if (input.taskType === "simulation") {
-      await tx.simulationSubmission.create({
-        data: {
-          submissionId: submission.id,
-          transcript: input.transcript,
-          assets: input.assets ?? undefined,
-        },
-      });
-    } else if (input.taskType === "quiz") {
-      // Unit 8: adaptive 模式可在 input.masteryReport 携带本次诊断报告，
-      // 先写入 QuizSubmission.evaluation.adaptiveMasteryReport，等 grader
-      // 计算 totalScore/feedback 时 merge 进同一 evaluation Json。
-      const initialEvaluation = input.masteryReport
-        ? { adaptiveMasteryReport: input.masteryReport }
-        : undefined;
-      await tx.quizSubmission.create({
-        data: {
-          submissionId: submission.id,
-          answers: input.answers,
-          startedAt: input.startedAt ? new Date(input.startedAt) : undefined,
-          finishedAt: input.finishedAt ? new Date(input.finishedAt) : undefined,
-          durationSeconds: input.durationSeconds,
-          evaluation: initialEvaluation as Prisma.InputJsonValue | undefined,
-        },
-      });
-    } else if (input.taskType === "subjective") {
-      const subSub = await tx.subjectiveSubmission.create({
-        data: {
-          submissionId: submission.id,
-          textAnswer: input.textAnswer,
-        },
-      });
-
-      if (input.attachments && input.attachments.length > 0) {
-        for (const att of input.attachments) {
-          await tx.attachment.create({
-            data: {
-              subjectiveSubmissionId: subSub.id,
-              fileName: att.fileName,
-              filePath: att.filePath,
-              fileSize: att.fileSize,
-              contentType: att.contentType,
-            },
-          });
-        }
+    const student = await tx.user.findUnique({ where: { id: studentId }, select: { classId: true, role: true } });
+    if (student?.role !== "student" || student.classId !== instance.classId) throw new Error("FORBIDDEN");
+    if (input.requestId) {
+      const previous = await tx.submission.findUnique({ where: { studentId_requestId: { studentId, requestId: input.requestId } } });
+      if (previous) {
+        if (previous.taskInstanceId !== instance.id || previous.deletedAt) throw new Error("SUBMISSION_REQUEST_CONFLICT");
+        const gradingJob = await tx.asyncJob.findFirst({ where: { type: "submission_grade", entityId: previous.id }, orderBy: { createdAt: "desc" } });
+        return { ...previous, gradingJob };
       }
     }
-
-    return submission;
-  });
+    if (instance.status !== "published") throw new Error("TASK_NOT_PUBLISHED");
+    if (instance.course?.deletedAt) throw new Error("COURSE_ARCHIVED");
+    if (!(input.taskType === "quiz" && input.attemptId) && input.taskVersion !== undefined && input.taskVersion !== instance.contentVersion) throw new Error("TASK_VERSION_CHANGED");
+    if (instance.taskId !== input.taskId || instance.taskType !== input.taskType) throw new Error("FORBIDDEN");
+    if (instance.attemptsAllowed) {
+      const count = await tx.submission.count({ where: { studentId, taskInstanceId: instance.id, deletedAt: null } });
+      if (count >= instance.attemptsAllowed) throw new Error("MAX_ATTEMPTS_REACHED");
+    }
+    let task = resolveGradingTask(instance.taskSnapshot, instance.task);
+    let quizAnswers = input.taskType === "quiz" ? input.answers : [];
+    let quizAttemptId: string | undefined;
+    let masteryReport: Prisma.InputJsonValue | undefined;
+    if (input.taskType === "quiz" && (input.attemptId || task.quizConfig?.mode === "adaptive")) {
+      if (!input.attemptId) throw new Error("QUIZ_ATTEMPT_REQUIRED");
+      const attempt = await tx.quizAttempt.findUnique({ where: { id: input.attemptId }, include: { submission: true } });
+      if (!attempt || attempt.studentId !== studentId || attempt.taskInstanceId !== instance.id) throw new Error("FORBIDDEN");
+      if (attempt.submission) {
+        const gradingJob = await tx.asyncJob.findFirst({ where: { type: "submission_grade", entityId: attempt.submission.id }, orderBy: { createdAt: "desc" } });
+        return { ...attempt.submission, gradingJob };
+      }
+      if (!attempt.completedAt) throw new Error("QUIZ_ATTEMPT_INCOMPLETE");
+      task = resolveGradingTask(attempt.taskSnapshot, task);
+      const checkedHistory = attempt.answers as unknown as Array<{ questionId: string; correct: boolean }>;
+      const adaptiveConfig = { maxQuestions: task.quizConfig?.maxQuestions ?? 8, startDifficulty: task.quizConfig?.startDifficulty ?? 5, difficultyStep: task.quizConfig?.difficultyStep ?? 1 };
+      masteryReport = buildMasteryReport(buildAdaptiveState(checkedHistory, task.quizQuestions, adaptiveConfig), checkedHistory) as unknown as Prisma.InputJsonValue;
+      // Only issued, server-recorded answers can contribute to this sitting.
+      task = { ...task, quizQuestions: task.quizQuestions.filter(q => attempt.issuedQuestionIds.includes(q.id)) };
+      quizAnswers = (attempt.answers as unknown as typeof quizAnswers);
+      quizAttemptId = attempt.id;
+    }
+    if (input.taskType === "quiz") {
+      const ids = new Set(task.quizQuestions.map(q => q.id));
+      if (quizAnswers.some(a => !ids.has(a.questionId)) || new Set(quizAnswers.map(a => a.questionId)).size !== quizAnswers.length) throw new Error("QUIZ_ANSWERS_INVALID");
+    }
+    const uploads = [];
+    if (input.taskType === "subjective") {
+      for (const attachment of input.attachments ?? []) {
+        const upload = attachment.uploadId
+          ? await tx.fileUpload.findUnique({ where: { id: attachment.uploadId } })
+          : await tx.fileUpload.findUnique({ where: { filePath: attachment.filePath } });
+        if (!upload || upload.ownerId !== studentId) throw new Error("ATTACHMENT_FORBIDDEN");
+        const allowed = task.subjectiveConfig?.allowedAttachmentTypes ?? [];
+        const ext = upload.fileName.split(".").pop()?.toLowerCase();
+        if (!ext || !allowed.map(t => t.replace(/^\./, "").toLowerCase()).includes(ext)) throw new Error("ATTACHMENT_TYPE_NOT_ALLOWED");
+        uploads.push(upload);
+      }
+      if (!input.textAnswer?.trim() && uploads.length === 0) throw new Error("SUBMISSION_CONTENT_REQUIRED");
+    }
+    const submission = await tx.submission.create({ data: {
+      studentId, taskId: input.taskId, taskType: input.taskType, taskInstanceId: instance.id,
+      requestId: input.requestId, quizAttemptId, taskSnapshot: freezeTask(task), status: "submitted",
+    } });
+    if (input.taskType === "simulation") {
+      await tx.simulationSubmission.create({ data: { submissionId: submission.id, transcript: input.transcript, assets: input.assets ?? undefined } });
+    } else if (input.taskType === "quiz") {
+      await tx.quizSubmission.create({ data: { submissionId: submission.id, answers: quizAnswers,
+        startedAt: input.startedAt ? new Date(input.startedAt) : undefined,
+        finishedAt: input.finishedAt ? new Date(input.finishedAt) : undefined, durationSeconds: input.durationSeconds, evaluation: masteryReport ? { adaptiveMasteryReport: masteryReport } : undefined } });
+    } else {
+      await tx.subjectiveSubmission.create({ data: { submissionId: submission.id, textAnswer: input.textAnswer,
+        attachments: { create: uploads.map(u => ({ fileName: u.fileName, filePath: u.filePath, fileSize: u.fileSize, contentType: u.contentType })) } } });
+    }
+    const gradingJob = await tx.asyncJob.create({ data: { type: "submission_grade", entityType: "Submission", entityId: submission.id,
+      input: { submissionId: submission.id }, createdBy: studentId } });
+    return { ...submission, gradingJob };
+  }, { timeout: 15000, maxWait: 10000 });
+  if (result.gradingJob?.status === "queued") scheduleAsyncJob(result.gradingJob.id);
+  return result;
 }
 
 export async function getSubmissions(filters: {
@@ -179,12 +189,21 @@ export async function getSubmissions(filters: {
   status?: string;
   page?: number;
   pageSize?: number;
+  actor?: UserLike;
+  includeDeleted?: boolean;
 }) {
   const page = clampPage(filters.page);
   const pageSize = clampTake(filters.pageSize, 20, 100);
   const skip = (page - 1) * pageSize;
 
-  const where = {
+  const actorScope: Prisma.SubmissionWhereInput = filters.actor?.role === "teacher" ? { OR: [
+    { task: { creatorId: filters.actor.id } },
+    { taskInstance: { createdBy: filters.actor.id } },
+    { taskInstance: { course: { OR: [{ createdBy: filters.actor.id }, { teachers: { some: { teacherId: filters.actor.id } } }] } } },
+  ] } : {};
+  const where: Prisma.SubmissionWhereInput = {
+    AND: [actorScope],
+    deletedAt: filters.includeDeleted ? { not: null } : null,
     ...(filters.taskInstanceId && { taskInstanceId: filters.taskInstanceId }),
     ...(filters.studentId && { studentId: filters.studentId }),
     ...(filters.taskId && { taskId: filters.taskId }),
@@ -195,6 +214,7 @@ export async function getSubmissions(filters: {
     ...(!filters.taskInstanceId && {
       OR: [
         { taskInstanceId: null },
+        { taskInstance: { courseId: null } },
         { taskInstance: { course: { deletedAt: null } } },
       ],
     }),
@@ -230,7 +250,7 @@ export async function getSubmissions(filters: {
   ]);
 
   return {
-    items,
+    items: items.map(item => ({ ...item, task: resolveGradingTask(item.taskSnapshot, item.task) })),
     total,
     page,
     pageSize,
@@ -239,7 +259,7 @@ export async function getSubmissions(filters: {
 }
 
 export async function getSubmissionById(submissionId: string) {
-  return prisma.submission.findUnique({
+  const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
     include: {
       student: { select: { id: true, name: true, email: true } },
@@ -256,6 +276,7 @@ export async function getSubmissionById(submissionId: string) {
       subjectiveSubmission: { include: { attachments: true } },
     },
   });
+  return submission ? { ...submission, task: resolveGradingTask(submission.taskSnapshot, submission.task) } : null;
 }
 
 export async function updateSubmissionGrade(
@@ -276,6 +297,15 @@ export async function updateSubmissionGrade(
   }
 ) {
   return prisma.$transaction(async (tx) => {
+    const lease = getCurrentJobLease();
+    if (lease) {
+      const jobs = await tx.$queryRaw<Array<{ status: string; attempts: number }>>`SELECT status, attempts FROM "AsyncJob" WHERE id = ${lease.jobId} FOR UPDATE`;
+      if (jobs[0]?.status !== "running" || jobs[0]?.attempts !== lease.attempt) throw new Error("ASYNC_JOB_LEASE_LOST");
+    }
+    await tx.$queryRaw`SELECT id FROM "Submission" WHERE id = ${submissionId} FOR UPDATE`;
+    const current = await tx.submission.findUnique({ where: { id: submissionId } });
+    if (!current || current.deletedAt) throw new Error("SUBMISSION_NOT_FOUND");
+    if (lease && current.status === "graded") throw new Error("ASYNC_JOB_LEASE_LOST");
     const submission = await tx.submission.update({
       where: { id: submissionId },
       data: {
@@ -283,7 +313,7 @@ export async function updateSubmissionGrade(
         score: data.score,
         maxScore: data.maxScore,
         gradedAt: data.status === "graded" ? new Date() : undefined,
-        ...(data.releasedAt !== undefined && { releasedAt: data.releasedAt }),
+        ...(data.releasedAt !== undefined && { releasedAt: current.releaseSuppressedAt ? null : data.releasedAt }),
       },
     });
 
@@ -319,6 +349,7 @@ export async function updateSubmissionGrade(
       }
     }
 
+    if (data.status !== "grading") await invalidateSubmissionInsights(tx, { taskId: submission.taskId, taskInstanceId: submission.taskInstanceId });
     return submission;
   });
 }
@@ -367,22 +398,17 @@ export async function resetSubmissionForRetry(submissionId: string) {
 export async function ungradeSubmission(submissionId: string, actorId: string) {
   const existing = await prisma.submission.findUnique({
     where: { id: submissionId },
-    select: { id: true, status: true, taskId: true, taskInstanceId: true, studentId: true },
+    select: { id: true, status: true, taskId: true, taskInstanceId: true, studentId: true, deletedAt: true },
   });
-  if (!existing) throw new Error("SUBMISSION_NOT_FOUND");
+  if (!existing || existing.deletedAt) throw new Error("SUBMISSION_NOT_FOUND");
   if (existing.status !== "graded") {
     throw new Error("SUBMISSION_NOT_GRADED_YET");
   }
 
-  await prisma.submission.update({
-    where: { id: submissionId },
-    data: {
-      status: "submitted",
-      score: null,
-      maxScore: null,
-      gradedAt: null,
-      releasedAt: null,
-    },
+  await prisma.$transaction(async tx => {
+    await tx.asyncJob.updateMany({ where: { type: "submission_grade", entityId: submissionId, status: { in: ["queued", "running"] } }, data: { status: "canceled", completedAt: new Date() } });
+    await tx.submission.update({ where: { id: submissionId, status: "graded", deletedAt: null }, data: { status: "submitted", score: null, maxScore: null, gradedAt: null, releasedAt: null, releaseSuppressedAt: new Date() } });
+    await invalidateSubmissionInsights(tx, existing);
   });
 
   await logAuditEvent({
@@ -399,28 +425,51 @@ export async function ungradeSubmission(submissionId: string, actorId: string) {
   });
 }
 
-export async function deleteSubmission(submissionId: string) {
-  return prisma.submission.delete({ where: { id: submissionId } });
+export async function deleteSubmission(submissionId: string, user: UserLike) {
+  await batchDeleteSubmissions([submissionId], user);
 }
 
 export async function batchDeleteSubmissions(ids: string[], user: UserLike | string) {
-  const actor =
-    typeof user === "string"
-      ? { id: user, role: "teacher" }
-      : user;
-  const uniqueIds = Array.from(new Set(ids));
-
-  const submissions = await prisma.submission.findMany({
-    where: { id: { in: uniqueIds } },
-    select: { id: true },
+  const actor = typeof user === "string" ? { id: user, role: "teacher" } : user;
+  const uniqueIds = [...new Set(ids)];
+  for (const id of uniqueIds) await assertSubmissionReadable(id, actor);
+  return prisma.$transaction(async tx => {
+    const existing = await tx.submission.findMany({ where: { id: { in: uniqueIds } }, select: { id: true, taskId: true, taskInstanceId: true, status: true, score: true, maxScore: true } });
+    if (existing.length !== uniqueIds.length) throw new Error("SUBMISSION_NOT_FOUND");
+    // Match worker lock order (job, then submission) to avoid a delete/grade deadlock.
+    await tx.asyncJob.updateMany({ where: { type: "submission_grade", entityId: { in: uniqueIds }, status: { in: ["queued", "running"] } }, data: { status: "canceled", completedAt: new Date() } });
+    const result = await tx.submission.updateMany({ where: { id: { in: uniqueIds }, deletedAt: null }, data: { deletedAt: new Date(), deletedBy: actor.id } });
+    await tx.auditLog.create({ data: { action: "submission.delete", actorId: actor.id, targetType: "Submission", metadata: { actorRole: actor.role, submissions: existing.map(s => ({ ...s, score: s.score?.toString() ?? null, maxScore: s.maxScore?.toString() ?? null })) } } });
+    for (const row of existing) await invalidateSubmissionInsights(tx, row);
+    return result;
   });
-  if (submissions.length !== uniqueIds.length) {
-    throw new Error("SUBMISSION_NOT_FOUND");
-  }
+}
 
-  for (const id of uniqueIds) {
-    await assertSubmissionReadable(id, actor);
-  }
+export async function restoreSubmission(submissionId: string, user: UserLike) {
+  await assertSubmissionReadable(submissionId, user);
+  return prisma.$transaction(async tx => {
+    const existing = await tx.submission.findUnique({ where: { id: submissionId } });
+    if (!existing) throw new Error("SUBMISSION_NOT_FOUND");
+    const restored = await tx.submission.update({ where: { id: submissionId }, data: { deletedAt: null, deletedBy: null, ...(existing.status === "grading" || existing.status === "submitted" ? { status: "failed" } : {}) } });
+    await tx.auditLog.create({ data: { action: "submission.restore", actorId: user.id, targetType: "Submission", targetId: submissionId, metadata: { actorRole: user.role } } });
+    await invalidateSubmissionInsights(tx, restored);
+    return restored;
+  });
+}
 
-  return prisma.submission.deleteMany({ where: { id: { in: uniqueIds } } });
+
+export async function retrySubmissionGrading(submissionId: string, user: UserLike) {
+  await assertSubmissionReadable(submissionId, user);
+  const job = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "Submission" WHERE id = ${submissionId} FOR UPDATE`;
+    const submission = await tx.submission.findUnique({ where: { id: submissionId } });
+    if (!submission || submission.deletedAt) throw new Error("SUBMISSION_NOT_FOUND");
+    if (submission.status === "graded") throw new Error("SUBMISSION_RETRY_NOT_ALLOWED");
+    const active = await tx.asyncJob.findFirst({ where: { type: "submission_grade", entityId: submissionId, status: { in: ["queued", "running"] } } });
+    if (active) return active;
+    await tx.submission.update({ where: { id: submissionId }, data: { status: "submitted", score: null, maxScore: null, gradedAt: null, releasedAt: null } });
+    return tx.asyncJob.create({ data: { type: "submission_grade", entityType: "Submission", entityId: submissionId, input: { submissionId, retriedBy: user.id }, createdBy: user.id } });
+  });
+  if (job.status === "queued") scheduleAsyncJob(job.id);
+  return job;
 }
