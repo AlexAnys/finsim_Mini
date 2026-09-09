@@ -66,7 +66,7 @@ jobs:
         run: |
           # git archive 自动排除 .git 和 untracked 文件
           # docker build 阶段 .dockerignore 还会再次过滤
-          git archive --format=tar.gz -o finsim-src.tar.gz HEAD
+          python3 scripts/ops/archive-source.py --ref HEAD --output finsim-src.tar.gz
           ls -lh finsim-src.tar.gz
 
       - name: Copy source tarball to server

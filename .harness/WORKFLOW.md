@@ -30,3 +30,14 @@ Coordinator 运行 `complete` 后才声明完成。Stop 是轻量的证据有效
 `prune.sh` 默认预览；`prune.sh --apply` 只复制当前已完成任务的已绑定报告到 `archive/tasks/<id>/`，不覆盖冲突文件、不删除原件、不改历史 TSV。写入由同一 worktree 文件锁串行化。没有自动删除备份或历史记录。
 
 跨工具接手：Codex 使用同一脚本和任务格式，Claude Code 的 Hook 不是 Codex 的隐式保障。Claude 工具白名单含 Skill；gstack 不可用时报告工具缺失，使用 Playwright 等实际可用方法完成等效验收，不能把跳过记 PASS。
+
+## FAIL后的r2候选
+
+QA先用qa-finish记录FAIL，任务回到active。Builder修复并提交、coordinator以新SHA重启对应服务后，显式更新同一任务的候选（不改spec/授权范围）：
+
+```bash
+python3 .harness/scripts/task_state.py retarget --sha <新的完整HEAD-SHA> --url http://localhost:3107
+python3 .harness/scripts/task_state.py qa-start
+```
+
+retarget只接受active/awaiting_user、当前完整HEAD和明确HTTP(S)URL；源文件仍dirty时拒绝。会清除当前qa/qa_start并追加旧新target历史，旧报告/ledger记录不删除。ready/complete不能直接重绑PASS；需要新工作时先明确置active，重新验收。不要手改JSON、伪造complete或把旧PASS挂到新版本。

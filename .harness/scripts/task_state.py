@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 from urllib.request import urlopen
+from urllib.parse import urlparse
 
 
 def git(root, *args):
@@ -120,6 +121,26 @@ class Ledger:
                 'base_url': args.url, 'expected_sha': args.sha or git(self.root, 'rev-parse', 'HEAD')}
         atomic_json(self.state, task); self.append({'type': 'task-start', **task})
 
+    def retarget(self, task, sha, url):
+        if task['status'] not in {'active', 'awaiting_user'}:
+            raise ValueError('retarget requires active or awaiting_user; never rebind a PASS')
+        if not re.fullmatch(r'[a-f0-9]{40}', sha) or git(self.root, 'rev-parse', 'HEAD') != sha:
+            raise ValueError('retarget SHA must be the current full HEAD commit')
+        if task['worktree'] != str(self.root) or task['branch'] != git(self.root, 'branch', '--show-current'):
+            raise ValueError('task belongs to another worktree/branch')
+        parsed = urlparse(url)
+        if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError('retarget requires an explicit HTTP(S) base URL without credentials')
+        dirty = self.names('diff', '--name-only', 'HEAD') + self.names('ls-files', '--others', '--exclude-standard')
+        if any(name and not self.evidence_path(name) for name in dirty):
+            raise ValueError('commit source changes before retarget')
+        previous = {'sha': task['expected_sha'], 'base_url': task.get('base_url')}
+        task.update(expected_sha=sha, base_url=url.rstrip('/'), status='active')
+        task.pop('qa', None); task.pop('qa_start', None)
+        atomic_json(self.state, task)
+        self.append({'type': 'retarget', 'task_id': task['task_id'], 'previous': previous,
+                     'candidate': {'sha': sha, 'base_url': task['base_url']}, 'previous_qa_invalidated': True})
+
     def start_qa(self, task):
         task['qa_start'] = {**self.binding(task), 'identity': self.identity(task)}
         task['status'] = 'reviewing'; task.pop('qa', None)
@@ -167,6 +188,7 @@ def main():
     init.add_argument('--base', default='origin/main'); init.add_argument('--validation', choices=['docs', 'full'], default='full')
     init.add_argument('--url'); init.add_argument('--sha')
     for name in ['show', 'fingerprint', 'qa-start', 'complete', 'stop']: sub.add_parser(name)
+    target = sub.add_parser('retarget'); target.add_argument('--sha', required=True); target.add_argument('--url', required=True)
     qa = sub.add_parser('qa-finish'); qa.add_argument('--verdict', choices=['PASS', 'FAIL', 'BLOCKED'], required=True)
     qa.add_argument('--report', required=True); qa.add_argument('--check', action='append', required=True)
     status = sub.add_parser('status'); status.add_argument('value', choices=['active', 'awaiting_user'])
@@ -182,6 +204,7 @@ def main():
             elif args.command == 'stop':
                 if task and task['status'] in {'ready', 'complete'}: ledger.validate(task)
             elif not task: raise ValueError('no active task; run init first')
+            elif args.command == 'retarget': ledger.retarget(task, args.sha, args.url)
             elif args.command == 'qa-start': ledger.start_qa(task)
             elif args.command == 'qa-finish': ledger.finish_qa(task, args.verdict, args.report, args.check)
             elif args.command == 'status': task['status'] = args.value; atomic_json(ledger.state, task)

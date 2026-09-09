@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { toast } from "sonner";
 
 export function LoginForm() {
   const router = useRouter();
+  const { status } = useSession();
+  const submitting = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -15,6 +17,7 @@ export function LoginForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (status === "loading" || submitting.current) return;
     setInlineError(null);
 
     if (!email.trim()) {
@@ -26,6 +29,7 @@ export function LoginForm() {
       return;
     }
 
+    submitting.current = true;
     setIsLoading(true);
 
     try {
@@ -36,14 +40,19 @@ export function LoginForm() {
       });
 
       if (result?.error) {
-        setInlineError("邮箱或密码错误");
+        setInlineError(result.error === "CredentialsSignin" ? "邮箱或密码错误"
+          : result.error === "MissingCSRF" ? "登录会话尚未就绪或已失效，请刷新页面后重新登录"
+          : "登录服务暂时不可用，请稍后重试");
         return;
       }
 
-      toast.success("登录成功");
-
       const sessionRes = await fetch("/api/auth/session");
       const session = await sessionRes.json();
+      if (!result?.ok || !sessionRes.ok || !session?.user?.id) {
+        setInlineError("登录状态未确认，请刷新页面后重试");
+        return;
+      }
+      toast.success("登录成功");
 
       const role = session?.user?.role;
       if (role === "teacher" || role === "admin") {
@@ -54,6 +63,7 @@ export function LoginForm() {
     } catch {
       setInlineError("登录失败，请稍后重试");
     } finally {
+      submitting.current = false;
       setIsLoading(false);
     }
   }
@@ -78,7 +88,7 @@ export function LoginForm() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            disabled={isLoading}
+            disabled={isLoading || status === "loading"}
             autoComplete="email"
             placeholder="your@school.edu.cn"
             className="h-11 w-full rounded-[8px] border border-[rgba(23,39,95,0.16)] bg-[rgba(250,248,242,0.72)] px-3.5 text-[13px] text-[var(--text-main)] shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] outline-none transition duration-200 placeholder:text-[rgba(107,114,128,0.68)] focus:border-[var(--brand-indigo)] focus:bg-white focus:ring-[3px] focus:ring-[rgba(18,214,214,0.16)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -98,7 +108,7 @@ export function LoginForm() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            disabled={isLoading}
+            disabled={isLoading || status === "loading"}
             autoComplete="current-password"
             placeholder="••••••••"
             className="h-11 w-full rounded-[8px] border border-[rgba(23,39,95,0.16)] bg-[rgba(250,248,242,0.72)] px-3.5 text-[13px] text-[var(--text-main)] shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] outline-none transition duration-200 placeholder:text-[rgba(107,114,128,0.68)] focus:border-[var(--brand-indigo)] focus:bg-white focus:ring-[3px] focus:ring-[rgba(18,214,214,0.16)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -121,14 +131,14 @@ export function LoginForm() {
 
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || status === "loading"}
           className="mt-2 h-11 w-full rounded-[8px] text-[13px] font-semibold text-white shadow-[0_12px_26px_rgba(23,39,95,0.16)] transition duration-200 hover:-translate-y-px hover:shadow-[0_16px_34px_rgba(18,214,214,0.14),0_10px_28px_rgba(123,97,255,0.13)] disabled:translate-y-0 disabled:opacity-60"
           style={{
             background:
               "linear-gradient(135deg, #24357D 0%, #17275F 50%, #1D3B8F 100%)",
           }}
         >
-          {isLoading ? "登录中..." : "登录"}
+          {status === "loading" ? "正在确认登录状态..." : isLoading ? "登录中..." : "登录"}
         </button>
       </form>
 

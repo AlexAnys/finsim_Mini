@@ -49,7 +49,7 @@ jobs:
       - name: Create source tarball
         if: needs.changes.outputs.docs_only != 'true'
         run: |
-          git archive --format=tar.gz -o finsim-staging-src.tar.gz HEAD
+          python3 scripts/ops/archive-source.py --ref HEAD --output finsim-staging-src.tar.gz
           ls -lh finsim-staging-src.tar.gz
 
       - name: Copy source tarball to server

@@ -79,6 +79,27 @@ class TaskEvidenceTests(unittest.TestCase):
     def test_spec_and_report_changes_invalidate_pass(self):
         self.qa();(self.root/'.harness/reports/qa.md').write_text('rewritten verdict')
         with self.assertRaisesRegex(ValueError,'report changed'):self.ledger.validate(self.ledger.read())
+    def test_retarget_preserves_history_and_invalidates_previous_qa(self):
+        self.qa();old=self.ledger.read();old_sha=old['expected_sha']
+        with self.assertRaisesRegex(ValueError,'never rebind a PASS'):
+            self.ledger.retarget(old,old_sha,'http://localhost:3107')
+        old['status']='active';state.atomic_json(self.ledger.state,old)
+        (self.root/'app.ts').write_text('r2');self.git('add','app.ts');self.git('commit','-qm','r2')
+        new_sha=self.git('rev-parse','HEAD')
+        self.ledger.retarget(self.ledger.read(),new_sha,'http://localhost:3107')
+        current=self.ledger.read();self.assertEqual(current['expected_sha'],new_sha)
+        self.assertNotIn('qa',current);self.assertNotIn('qa_start',current)
+        with self.assertRaisesRegex(ValueError,'no independent PASS'):self.ledger.validate(current)
+        rows=[json.loads(line) for line in self.ledger.records.read_text().splitlines()]
+        self.assertTrue(any(row.get('type')=='qa' for row in rows))
+        self.assertEqual(rows[-1]['previous']['sha'],old_sha);self.assertEqual(rows[-1]['candidate']['sha'],new_sha)
+    def test_retarget_rejects_dirty_source_or_noncurrent_sha(self):
+        task=self.ledger.read();sha=self.git('rev-parse','HEAD')
+        with self.assertRaisesRegex(ValueError,'current full HEAD'):
+            self.ledger.retarget(task,'b'*40,'http://localhost:3107')
+        (self.root/'new.ts').write_text('not committed')
+        with self.assertRaisesRegex(ValueError,'commit source'):
+            self.ledger.retarget(task,sha,'http://localhost:3107')
     def test_wrong_environment_identity_is_rejected(self):
         task=self.ledger.read();task.update(base_url='http://test.invalid',expected_sha='a'*40)
         with patch.object(state,'urlopen',return_value=io.StringIO(json.dumps({'data':{'app':'other','gitSha':'a'*40}}))):
