@@ -37,7 +37,7 @@ async function handleCron(request: NextRequest) {
       try {
         const insight = await generateWeeklyInsight(teacher.id, { force: true });
         const skipped = insight.submissionCount === 0;
-        const failed = !skipped && insight.payload.emptyState === true;
+        const failed = !skipped && (insight.payload.aiUnavailable === true || insight.payload.emptyState === true);
         results.push({ teacherId: teacher.id, email: teacher.email, ok: !failed, skipped,
           ...(failed ? { error: "AI_INSIGHT_GENERATION_FAILED" } : {}),
         });
