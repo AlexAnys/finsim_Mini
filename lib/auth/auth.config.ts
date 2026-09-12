@@ -64,7 +64,8 @@ const authConfig: NextAuthConfig = {
         token.credentialVersion = (user as Record<string, unknown>).credentialVersion as string;
       }
       // 旧版本会话及改密前会话需重新登录；客户端 update() 不能提供权限或凭据版本。
-      if (!token.userId || !token.credentialVersion) return null;
+      if (typeof token.userId !== "string" || !token.userId ||
+          typeof token.credentialVersion !== "string" || !token.credentialVersion) return null;
       const current = await prisma.user.findUnique({
         where: { id: token.userId },
         select: { role: true, classId: true, name: true, email: true, passwordHash: true },

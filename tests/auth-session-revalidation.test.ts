@@ -47,6 +47,14 @@ describe("session revalidation against current account", () => {
     expect(await refresh(legacy)).toBeNull();
   });
 
+  it.each(["userId", "credentialVersion"] as const)("rejects malformed %s claims before querying the account", async field => {
+    for (const invalid of [{}, [], 7, true, ""]) {
+      const token = { ...oldToken(), [field]: invalid } as unknown as JWT;
+      expect(await refresh(token)).toBeNull();
+    }
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
   it("does not accept role, class or password-version claims from client session update", async () => {
     const next = await refresh(oldToken(), { trigger: "update", session: { role: "admin", classId: "foreign", credentialVersion: "forged" } });
     expect(next).toMatchObject({ role: "student", classId: "new-class", credentialVersion: credentialVersion(account.passwordHash) });
