@@ -44,6 +44,7 @@ export interface WeeklyInsightUiPayload {
   highlightSummary: string;
   // Unit 15: 服务端标记本次结果为空数据/AI 失败兜底
   emptyState?: boolean;
+  aiUnavailable?: boolean;
 }
 
 export interface WeeklyInsightUiResult {
@@ -174,7 +175,7 @@ export function WeeklyInsightModal({
               <span>本周每人每任务取最新，共 {data.submissionCount} 份；AI 文本样本 {data.sampledSubmissionCount ?? "未记录"} 份</span>
               {data.cached && (
                 <Badge variant="secondary" className="text-[11px]">
-                  缓存（7天）
+                  缓存
                 </Badge>
               )}
             </div>
@@ -207,7 +208,7 @@ export function WeeklyInsightModal({
             </div>
 
             {/* Unit 15: emptyState / 4 数组全空 → 显示 CTA 卡引导老师去发布 */}
-            {(data.payload.emptyState === true ||
+            {data.submissionCount === 0 && (data.payload.emptyState === true ||
               (data.payload.weakConceptsByCourse.length === 0 &&
                 data.payload.classDifferences.length === 0 &&
                 data.payload.studentClusters.length === 0 &&
@@ -231,6 +232,12 @@ export function WeeklyInsightModal({
                   去管理任务实例
                   <ArrowRight className="size-3.5" aria-hidden />
                 </Link>
+              </section>
+            )}
+
+            {data.payload.aiUnavailable && (
+              <section role="status" className="rounded-lg border border-line bg-paper-alt p-4 text-sm text-ink-3">
+                AI 文字建议暂不可用，已保留程序计算的成绩统计。可稍后点击“重新生成”。
               </section>
             )}
 

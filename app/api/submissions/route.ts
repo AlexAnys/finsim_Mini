@@ -83,13 +83,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // 教师/管理员若按 taskInstanceId 拉列表，必须验证对该实例有访问权
-    if (taskInstanceId && user.role !== "student") {
+    // 显式实例查询也需遵守当前班级及课程归档边界；已关闭的本人作业允许回看。
+    if (taskInstanceId) {
       await assertTaskInstanceReadable(taskInstanceId, {
         id: user.id,
         role: user.role,
         classId: user.classId,
-      });
+      }, { allowClosedWithOwnSubmission: true });
     }
     // 教师/管理员若按 taskId 拉列表，必须验证对该 task 有访问权
     if (taskId && user.role !== "student") {

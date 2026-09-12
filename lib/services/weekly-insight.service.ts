@@ -3,6 +3,7 @@ import { z } from "zod";
 import { aiGenerateJSON } from "./ai.service";
 import { assertAiFeatureCooldown } from "./ai-throttle.service";
 import { weeklyStatistics } from "./insight-statistics";
+import { captureAiRuns, summarizeAiRuns } from "./ai-run-context";
 import { teacherCourseFilter } from "@/lib/services/course.service";
 import {
   buildWeeklyInsightPrompt as buildWeeklyInsightPromptRegistry,
@@ -15,14 +16,14 @@ import {
  * 拉过去 7 天该教师 courses 下所有 graded + released submissions（含 evaluation/conceptTags/score），
  * 关联的 task instances + tasks + chapters + sections，
  * 以及接下来 7 天有哪些课。
- * 调 MiMo（via AI_WEEKLY_INSIGHT_MODEL，长 context）输出结构化 JSON：
+ * 模型只生成文字建议，成绩统计由程序计算：
  *  - weakConceptsByCourse — 各课弱点概念聚合
  *  - classDifferences — 班级差异
  *  - studentClusters — 学生聚类
  *  - upcomingClassRecommendations — 接下来 N 节课的教学建议
  *  - highlightSummary — 本周教学需关注摘要
  *
- * Cache 7d（in-memory Map by teacherId + 时间戳）。?force=true 跳缓存重新生成。
+ * Cache 15min（in-memory Map by teacherId + 时间戳）。?force=true 跳缓存重新生成。
  */
 
 // ============================================
@@ -65,8 +66,9 @@ export interface WeeklyInsightPayload {
   studentClusters: StudentCluster[];
   upcomingClassRecommendations: UpcomingClassRecommendation[];
   highlightSummary: string;
-  /** Unit 15: 0 submission 或 AI 失败时 UI 切 CTA 卡 */
+  /** Only genuinely empty data should ask the teacher to publish results. */
   emptyState?: boolean;
+  aiUnavailable?: boolean;
 }
 
 export interface WeeklyInsightResult {
@@ -325,7 +327,7 @@ export async function generateWeeklyInsight(
     return true;
   });
 
-  // 2) 拉教师未来 7 天课表（按课程过滤；下游依旧需要按 dayOfWeek/slotIndex/startWeek/endWeek 真正算"接下来 N 次发生时间"，本 PR 简化为列出全部相关 slot 给 AI 参考）
+  // 2) 拉教师课表，再按星期/节次/教学周范围算未来 7 天实际发生的课。
   const slots = await prisma.scheduleSlot.findMany({
     where: { course: teacherCourseFilter(teacherId) },
     include: {
@@ -428,7 +430,7 @@ export async function generateWeeklyInsight(
   const aiStartedAt = Date.now();
   try {
     let effectiveModel: string | null = null;
-    const ai = await aiGenerateJSON(
+    const captured = await captureAiRuns({ weeklyInsightTeacherId: teacherId, windowStart: windowStart.toISOString(), windowEnd: windowEnd.toISOString() }, () => aiGenerateJSON(
       "weeklyInsight",
       teacherId,
       systemPrompt,
@@ -436,29 +438,14 @@ export async function generateWeeklyInsight(
       aiSchema,
       2,
       { promptVersion: WEEKLY_INSIGHT_PROMPT_VERSION, onResolved: (resolved) => { effectiveModel = `${resolved.provider}:${resolved.model}`; } },
-    );
+    ));
+    const ai = captured.result;
     modelUsed = effectiveModel;
     durationMs = Date.now() - aiStartedAt;
-    // 查最新成功的 AiRun（同 feature + userId，30s 内）拿 token 数据写入 result。
-    try {
-      const latestRun = await prisma.aiRun.findFirst({
-        where: {
-          userId: teacherId,
-          feature: "weeklyInsight",
-          status: "succeeded",
-          createdAt: { gte: new Date(aiStartedAt - 5000) },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { inputTokens: true, outputTokens: true, costEstUSD: true },
-      });
-      if (latestRun) {
-        inputTokens = latestRun.inputTokens ?? null;
-        outputTokens = latestRun.outputTokens ?? null;
-        costEstUSD = latestRun.costEstUSD != null ? Number(latestRun.costEstUSD) : null;
-      }
-    } catch {
-      // AiRun 查询失败不阻塞主流程。
-    }
+    const usage = summarizeAiRuns(captured.runs);
+    inputTokens = usage?.inputTokens ?? null;
+    outputTokens = usage?.outputTokens ?? null;
+    costEstUSD = usage?.costEstUSD ?? null;
     payload = {
       ...weeklyStatistics(promptInput.submissions),
       upcomingClassRecommendations: ai.upcomingClassRecommendations.filter((recommendation) =>
@@ -469,14 +456,12 @@ export async function generateWeeklyInsight(
   } catch (err) {
     aiSucceeded = false;
     durationMs = Date.now() - aiStartedAt;
-    console.error("[weekly-insight] AI 聚合失败，降级返回空 payload：", err);
+    console.error("[weekly-insight] AI 聚合失败，保留程序统计：", err);
     payload = {
-      weakConceptsByCourse: [],
-      classDifferences: [],
-      studentClusters: [],
+      ...weeklyStatistics(promptInput.submissions),
       upcomingClassRecommendations: [],
       highlightSummary: classifyAiErrorSummary(err),
-      emptyState: true,
+      aiUnavailable: true,
     };
   }
 
@@ -495,7 +480,7 @@ export async function generateWeeklyInsight(
     costEstUSD,
   };
 
-  // 仅成功结果或"无可聚合数据"才写长缓存；AI 失败用短缓存避免锁死 7 天。
+  // 成功结果缓存 15 分钟；AI 失败只缓存 5 分钟，force 始终可重新生成。
   const noData = aiSucceeded === false && promptInput.submissions.length === 0;
   if (aiSucceeded || noData) {
     cache.set(teacherId, {

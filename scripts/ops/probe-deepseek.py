@@ -18,6 +18,18 @@ class NoRedirect(HTTPRedirectHandler):
         raise HTTPError(req.full_url, code, 'redirect blocked', headers, None)
 
 
+# Verified official API aliases: https://api-docs.deepseek.com/quick_start/pricing/
+# Keep the configured request and actual response distinct; never accept arbitrary prefixes.
+MODEL_RESPONSES = {
+    'deepseek-v4-flash': {'deepseek-v4-flash', 'deepseek-flash'},
+    'deepseek-v4-pro': {'deepseek-v4-pro'},
+}
+
+
+def matches_model(requested, actual):
+    return isinstance(actual, str) and actual in MODEL_RESPONSES.get(requested, set())
+
+
 def read_env(path):
     values={}
     for line in Path(path).read_text().splitlines():
@@ -48,7 +60,7 @@ def probe(values, opener=None):
                 result=json.load(response);actual=str(result.get('model',''))
                 content=result.get('choices',[{}])[0].get('message',{}).get('content')
                 row.update(httpStatus=response.getcode(),actualModel=actual,
-                    ok=response.getcode()==200 and actual.lower().startswith(model) and isinstance(content,str) and bool(content.strip()),
+                    ok=response.getcode()==200 and matches_model(model, actual) and isinstance(content,str) and bool(content.strip()),
                     outputTokens=result.get('usage',{}).get('completion_tokens'))
         except HTTPError as error:
             row['httpStatus']=error.code;error.close()
@@ -64,8 +76,11 @@ def probe(values, opener=None):
 def fresh(result, values, seconds):
     try:
         age=(datetime.now(timezone.utc)-datetime.strptime(result['at'],'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)).total_seconds()
-        return seconds>0 and 0<=age<=seconds and result.get('ok') is True and set(result.get('models',[]))=={'deepseek-v4-flash','deepseek-v4-pro'} and result.get('keySha256')==hashlib.sha256(values.get('DEEPSEEK_API_KEY','').encode()).hexdigest() and result.get('baseURL')==(values.get('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com/v1').rstrip('/') and result.get('gitSha')==values.get('APP_GIT_SHA')
-    except (ValueError,KeyError,TypeError):return False
+        rows=result.get('probes', [])
+        responses_valid=len(rows)==2 and {row.get('requestedModel') for row in rows}==set(MODEL_RESPONSES) and all(
+            row.get('ok') is True and row.get('httpStatus')==200 and matches_model(row.get('requestedModel'), row.get('actualModel')) for row in rows)
+        return responses_valid and seconds>0 and 0<=age<=seconds and result.get('ok') is True and set(result.get('models',[]))==set(MODEL_RESPONSES) and result.get('keySha256')==hashlib.sha256(values.get('DEEPSEEK_API_KEY','').encode()).hexdigest() and result.get('baseURL')==(values.get('DEEPSEEK_BASE_URL') or 'https://api.deepseek.com/v1').rstrip('/') and result.get('gitSha')==values.get('APP_GIT_SHA')
+    except (ValueError,KeyError,TypeError,AttributeError):return False
 
 
 def save_private(path, result):

@@ -58,7 +58,11 @@ jobs:
             fi
 
             echo "Staging owned by PR $PR_NUMBER → tearing down."
-            docker compose -f docker-compose.staging.yml -p finsim-staging down || true
+            # Stop future runs first; wait for any already-running compensation before teardown.
+            rm -f /etc/cron.d/finsim-staging /etc/logrotate.d/finsim-staging
+            exec 9>.cron-frequent.lock
+            flock -w 240 9
+            docker compose -f docker-compose.staging.yml -p finsim-staging down
             echo "Staging stopped at $(date -u +%Y-%m-%dT%H:%M:%SZ) by PR $PR_NUMBER" > last-stopped-at
             rm -f last-deployed-pr
             docker ps --filter "name=finsim-staging" --format '{{.Names}}\t{{.Status}}' || true

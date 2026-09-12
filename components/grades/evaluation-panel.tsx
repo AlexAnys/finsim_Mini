@@ -306,10 +306,10 @@ export function EvaluationPanel({ row }: EvaluationPanelProps) {
                       </div>
                     )}
                     {/* Unit 9: 学生侧 evidence — 仅显示通过校验的引文（unverified !== true）；
-                        老评分 evidence===undefined 时显示"无引用依据（历史评分）"。 */}
+                        evidence===undefined 时说明未提供引用，不推断评分时间。 */}
                     {r.evidence === undefined ? (
                       <div className="mt-1.5 text-[10.5px] italic text-ink-5">
-                        无引用依据（历史评分）
+                        此评分未提供引用依据
                       </div>
                     ) : (
                       r.evidence.filter((ev) => !ev.unverified).length > 0 && (

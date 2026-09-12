@@ -35,12 +35,15 @@
 
 - 两个环境部署都要求CRON_TOKEN。GitHub Secrets注入CRON_TOKEN及已配置的provider密钥；GitHub Variables可显式配置AI_PROVIDER/AI_FALLBACK_PROVIDER及各AI_*_PROVIDER/MODEL。空值保留服务器现值，部署不再强改mimo或擅自切deepseek。Compose显式传入全部已声明feature配置。
 - Host `/etc/cron.d/finsim-production` 每2分钟运行公布扫描、job/AI-run补偿；每周一03:30生成周报。staging只跑补偿，不自动消耗周报模型。时点采用服务器本地时区。Python ops兼容当前服务器3.6，依赖现有cron、flock、Docker Compose；没有新增云防火墙规则。
+- PR 关闭时，只有归属匹配的 staging 才移除自己的 cron/logrotate，等待在途补偿退出后停栈；停栈失败保留归属记录并报错。生产调度不受影响。
 - 每次迁移前及每天03:15，`backup.sh`保存DB custom dump、uploads压缩包、runtime.env、SHA256校验到`ROOT/backups/<UTC时间>/`；目录700/文件600，不在public/uploads或Web目录。先验证pg_restore目录和gzip结构再标成功。DB和文件分步快照不等价于跨存储事务快照，需实际恢复演练。
 - `ROOT/deployment-history/<时间>/`留前一env/compose与本次backup路径。部署失败恢复旧应用配置，保留已做的迁移和所有数据；不执行破坏性数据库回滚。新schema变更应保持旧版本至少可读，不能用应用回滚代替schema恢复计划。
 - 不自动删除备份/旧release；达到容量阈值时应转移和核验后再明确清理。**服务器本地备份不等于异地灾备**：把已校验备份另存到独立受限存储；凭据、目标和保留时长由部署负责人配置。本流程不会擅自上传学生资料。
 - 正式投用前，在隔离PostgreSQL库恢复database.dump（pg_restore --exit-on-error），解压uploads到隔离目录，校验记录数/附件读回/代表性成绩。只检查dump目录不能声称恢复成功。生产或共享staging重置需要单独明确意图。
 
 检查最近调度可读ROOT/last-cron-frequent.json及last-cron-weekly.json；失败细节写私有cron.log/backup.log，按周轮转，不输出token或学生答案。生产/主机故障通知不由这些脚本自动发送，仍使用现有运维通知渠道。
+
+生产发布会备份并更新现有宿主 health-guard：探测 `/api/health/ready`，保留连续失败阈值、冷却和磁盘观察；恢复命令显式绑定 production 的目录、env 和 compose project，并以 `--no-recreate` 拉起缺失服务。不会把数据库故障时仍可用的登录页当作健康，也不会主动重建正在运行的容器。自定义未知探测 URL 会报错，保留原脚本。
 
 ## 生产服务器（finsim.anlanai.cn）
 
@@ -71,6 +74,7 @@ Reload 命令：`docker exec finsim-caddy caddy reload --config /etc/caddy/Caddy
 - Compose project：默认 `finsim`
 - 容器：`finsim-app:3000` + `finsim-postgres:5432`
 - Volumes：`pgdata` + `uploads`
+- PostgreSQL 宿主端口仅绑定 `127.0.0.1:5432`（staging 为 `127.0.0.1:5433`）；容器内继续使用服务名连接，远程维护使用 SSH 隧道或 `docker exec`。
 
 ## Staging stack（本轮新增）
 
@@ -183,5 +187,7 @@ CI不再同时监听push与pull_request，避免同一候选重复跑完整E2E�
 文字交互与常规任务默认V4 Flash，复杂评价/主观批改/生成/洞察用V4 Pro，单源为lib/ai/text-model-policy.json。本次迁移MiMo/空文本默认，不改语音/OCR端点或媒体密钥，其他明确自定义provider/model保留。DEEPSEEK_MODEL默认留空，避免遮盖feature策略。
 
 部署先对官方HTTPS api.deepseek.com的Flash/Pro各做一次真实generation，不能用mock、/models、标签或过期记录通过。私有证明绑定key摘要、端点、两模型与时间；构建/备份过久会有界刷新。有效证明后才迁移DB设置和切配置。settings迁移由新镜像的一次性root进程运行，挂载700权限的deployment-history，不要求宿主Node。迁移前备份映射，事务内落盘固定receipt；后续发布失败先CAS恢复仅本次未被用户改过的provider/model，再恢复旧应用env/image，不逆schema/学生数据。
+
+2026-09-12 [官方模型说明](https://api-docs.deepseek.com/quick_start/pricing/)确认旧请求名 `deepseek-v4-flash` 仍接受，实际由 V4.1-Flash 提供并返回 `deepseek-flash`。部署验证对该请求只接受旧名或这个已公布的新名；Pro只接受 `deepseek-v4-pro`。凭证保留 requestedModel/actualModel，复用时也逐条验证；跨模型、未知后缀仍拒绝。应用配置保留用户原策略，不把请求别名当作底层版本。
 
 CI使用同DeepSeek调用路径、loopback协议fixture，正式业务的真实模型验证单独记录。协议E2E不能替代官方模型/密钥成功及教学效果评估。

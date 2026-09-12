@@ -163,6 +163,27 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(target.exists());self.assertEqual(source.read_text(),'AUTH_SECRET=existing\n')
 
 class DeepSeekProbeTests(unittest.TestCase):
+    def test_documented_flash_alias_and_cached_proof_are_accepted(self):
+        class Response(io.StringIO):
+            def getcode(self):return 200
+        class Client:
+            def open(self,request,timeout):
+                requested=json.loads(request.data)['model']
+                actual='deepseek-flash' if requested=='deepseek-v4-flash' else requested
+                return Response(json.dumps({'model':actual,'choices':[{'message':{'content':'123'}}]}))
+        values={'DEEPSEEK_API_KEY':'fixture','APP_GIT_SHA':'a'*40}
+        result=probe.probe(values,Client())
+        self.assertTrue(result['ok']);self.assertTrue(probe.fresh(result,values,300))
+        self.assertEqual(result['probes'][0]['actualModel'],'deepseek-flash')
+        result['probes'][0]['actualModel']='deepseek-v4-flash-unknown'
+        self.assertFalse(probe.fresh(result,values,300))
+        result['probes']=[None, {}]
+        self.assertFalse(probe.fresh(result,values,300))
+    def test_cross_model_empty_and_unpublished_suffixes_are_rejected(self):
+        for requested,actual in [('deepseek-v4-flash','deepseek-v4-pro'),('deepseek-v4-pro','deepseek-flash'),
+                                 ('deepseek-v4-flash','deepseek-v4-flash-unknown'),('deepseek-v4-pro','deepseek-v4-pro-unknown'),
+                                 ('deepseek-v4-flash',''),('deepseek-v4-flash',None)]:
+            with self.subTest(requested=requested,actual=actual):self.assertFalse(probe.matches_model(requested,actual))
     def test_real_generation_contract_requires_both_models_and_binds_key(self):
         class Response(io.StringIO):
             def getcode(self):return 200
