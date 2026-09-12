@@ -188,4 +188,6 @@ CI不再同时监听push与pull_request，避免同一候选重复跑完整E2E�
 
 部署先对官方HTTPS api.deepseek.com的Flash/Pro各做一次真实generation，不能用mock、/models、标签或过期记录通过。私有证明绑定key摘要、端点、两模型与时间；构建/备份过久会有界刷新。有效证明后才迁移DB设置和切配置。settings迁移由新镜像的一次性root进程运行，挂载700权限的deployment-history，不要求宿主Node。迁移前备份映射，事务内落盘固定receipt；后续发布失败先CAS恢复仅本次未被用户改过的provider/model，再恢复旧应用env/image，不逆schema/学生数据。
 
+2026-09-12 [官方模型说明](https://api-docs.deepseek.com/quick_start/pricing/)确认旧请求名 `deepseek-v4-flash` 仍接受，实际由 V4.1-Flash 提供并返回 `deepseek-flash`。部署验证对该请求只接受旧名或这个已公布的新名；Pro只接受 `deepseek-v4-pro`。凭证保留 requestedModel/actualModel，复用时也逐条验证；跨模型、未知后缀仍拒绝。应用配置保留用户原策略，不把请求别名当作底层版本。
+
 CI使用同DeepSeek调用路径、loopback协议fixture，正式业务的真实模型验证单独记录。协议E2E不能替代官方模型/密钥成功及教学效果评估。

@@ -20,35 +20,21 @@ export type AccountKey = keyof typeof SMOKE_ACCOUNTS;
 export async function loginAs(browser: Browser, account: AccountKey): Promise<Page> {
   const { email, password } = SMOKE_ACCOUNTS[account];
 
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const context = await browser.newContext();
-      const page = await context.newPage();
-      await page.goto("/login");
-      await page.waitForLoadState("domcontentloaded");
-      await page.fill('input[type="email"]', email);
-      await page.fill('input[type="password"]', password);
-      await Promise.all([
-        page
-          .waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 })
-          .catch(() => {}),
-        page.click('button[type="submit"]'),
-      ]);
-      await page.waitForLoadState("networkidle").catch(() => {});
-
-      const currentPath = new URL(page.url()).pathname;
-      if (currentPath.startsWith("/login")) {
-        throw new Error(`login failed for ${email}: still at ${currentPath}`);
-      }
-      return page;
-    } catch (err) {
-      lastErr = err;
-      console.log(`  login attempt ${attempt} failed for ${email}, retrying after 3s...`);
-      await new Promise((r) => setTimeout(r, 3000));
-    }
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto("/login");
+    await page.fill('input[type="email"]', email);
+    await page.fill('input[type="password"]', password);
+    await Promise.all([
+      page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 30_000 }),
+      page.click('button[type="submit"]'),
+    ]);
+    return page;
+  } catch (error) {
+    await context.close();
+    throw error;
   }
-  throw lastErr instanceof Error ? lastErr : new Error("login failed");
 }
 
 /**
