@@ -56,13 +56,13 @@ exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empt
 exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empty submissions / slots) 2`] = `
 "时间窗口: 2026-05-10 ~ 2026-05-16
 
-【过去 7 天已批改并公布的数据样本 (0 / 0 条；每名学生每个任务取最新)】
+【过去 7 天已批改并公布的数据样本 (0 / 0 条；每名学生每个任务取最新；按课程和班级轮流取样，覆盖 0 / 0 组)】
 （无）
 
 【程序计算的全量统计，数值不得改写】
 {}
 
-【接下来 7 天课表 (0 节)】
+【接下来 7 天课表 (展示 0 / 0 节)】
 （无）
 
 请按以下 JSON 格式输出（务必仅输出 JSON，不要 Markdown 代码块、不要其他文字）:
@@ -89,8 +89,9 @@ exports[`insight prompt builders (PR-1 E) > weekly-insight system snapshot (empt
 }
 
 要求:
-- weakConceptsByCourse: 仅当某课程内同一概念被 ≥2 名学生明显答错（feedback 反馈中出现弱点）时纳入。errorRate 用 (该概念出错学生数 / 课程下答过该概念的学生数)。
 - classDifferences / studentClusters / weakConceptsByCourse 由程序计算，请返回空数组；不要自行推测人数、错误率或均分。
+- 全量统计中的相关任务低分比例不等于该概念的答错比例；不能据此认定学生不懂该概念。
+- 反馈样本仅支持样本内的文字归纳；未覆盖的课程或班级不得推测具体弱点。全班数字只能引用程序统计。
 - 所有实体 ID 只使用提供的真实 ID；同名实体不合并。
 - upcomingClassRecommendations: 仅针对接下来 7 天课表中真实存在的 slot；建议要把"过去 7 天该课程的弱点"映射到"下次课要讲什么"。
 - highlightSummary: 一段总览，开头"本周教学需关注"。

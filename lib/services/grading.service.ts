@@ -1,4 +1,5 @@
 import { withAiDeadline } from "./ai-deadline-context";
+import { captureAiRuns, summarizeAiRuns } from "./ai-run-context";
 import { resolveGradingTask } from "./task-version";
 import { createRubricEvaluationSchema } from "./ai-grade-validation";
 import { readStoredFile } from "./storage.service";
@@ -221,7 +222,7 @@ async function performGrading(submissionId: string) {
   // 更新状态为批改中
   await updateSubmissionGrade(submissionId, { status: "grading" });
 
-  // PR-1 D: 记录 AI 调用起点 — 批改结束后查 AiRun 拿 model/tokens 写入 audit metadata
+  // Each grading operation owns its AI receipts; concurrent submissions cannot borrow another run.
   const gradingStartedAt = new Date();
   const aiFeatureForTaskType: Record<string, "evaluation" | "quizGrade" | "subjectiveGrade"> = {
     simulation: "evaluation",
@@ -230,24 +231,22 @@ async function performGrading(submissionId: string) {
   };
 
   try {
-    switch (submission.taskType) {
-      case "simulation":
-        await gradeSimulation(submission, releasedAt);
-        break;
-      case "quiz":
-        await gradeQuiz(submission, releasedAt);
-        break;
-      case "subjective":
-        await gradeSubjective(submission, releasedAt);
-        break;
-    }
+    const captured = await captureAiRuns({ submissionId }, async () => {
+      switch (submission.taskType) {
+        case "simulation":
+          await gradeSimulation(submission, releasedAt);
+          break;
+        case "quiz":
+          await gradeQuiz(submission, releasedAt);
+          break;
+        case "subjective":
+          await gradeSubjective(submission, releasedAt);
+          break;
+      }
+    });
 
     // PR-1 D: ai_grading.complete audit (含 model + tokens) — 区别于教师手批 submission.grade
-    const aiMeta = await aiService.getLastAiRunMetadata(
-      submission.studentId,
-      aiFeatureForTaskType[submission.taskType],
-      gradingStartedAt,
-    );
+    const aiMeta = summarizeAiRuns(captured.runs);
     await logAuditEvent({
       action: "ai_grading.complete",
       actorRole: "system",
@@ -265,6 +264,7 @@ async function performGrading(submissionId: string) {
           inputTokens: aiMeta.inputTokens,
           outputTokens: aiMeta.outputTokens,
           aiRunId: aiMeta.runId,
+          aiRunIds: aiMeta.runIds,
         }),
       },
     });

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createHash } from "crypto";
 import { createRubricEvaluationSchema } from "./ai-grade-validation";
 import { getAiDeadline } from "./ai-deadline-context";
+import { aiRunBusinessMetadata, captureAiRunStarted, captureAiRunFinished } from "./ai-run-context";
 import textModelPolicy from "@/lib/ai/text-model-policy.json";
 import {
   buildSimulationChatPrompt,
@@ -462,7 +463,7 @@ async function createAiRun(input: {
     const promptHash = createHash("sha256")
       .update(`${input.systemPrompt}\n---\n${input.userPrompt}`)
       .digest("hex");
-    return await prisma.aiRun.create({
+    const run = await prisma.aiRun.create({
       data: {
         userId: input.userId,
         toolKey: FEATURE_TOOL_KEYS[input.feature],
@@ -477,13 +478,17 @@ async function createAiRun(input: {
         summary: input.userPrompt.slice(0, 200),
         metadata: {
           ...(input.metadata ?? {}),
+          ...aiRunBusinessMetadata(),
           effectiveProvider: input.provider.name,
           effectiveModel: input.model,
           settingsUserId: input.settingsUserId ?? input.userId,
         },
       },
     });
+    captureAiRunStarted({ runId: run.id, feature: input.feature, provider: input.provider.name, model: input.model });
+    return run;
   } catch {
+    captureAiRunStarted({ runId: null, feature: input.feature, provider: input.provider.name, model: input.model });
     return null;
   }
 }
@@ -539,12 +544,13 @@ async function finishAiRun(
     const inputTokens = data.usage?.inputTokens ?? null;
     const outputTokens = data.usage?.outputTokens ?? null;
     const costEstUSD =
-      data.model != null && (inputTokens != null || outputTokens != null)
-        ? estimateCostUSD(data.model, inputTokens ?? 0, outputTokens ?? 0)
+      data.model != null && inputTokens != null && outputTokens != null
+        ? estimateCostUSD(data.model, inputTokens, outputTokens)
         : null;
     const summary = data.userPromptForSummary
       ? data.userPromptForSummary.slice(0, 200)
       : undefined;
+    captureAiRunFinished(runId, { status: data.status, inputTokens, outputTokens, costEstUSD });
     await prisma.aiRun.update({
       where: { id: runId },
       data: {
@@ -564,18 +570,8 @@ async function finishAiRun(
 }
 
 /**
- * PR-1 D: 拿最近一次 AI run 的 model + tokens metadata，供 audit log 使用。
- *
- * 用法：grading.service 在调用 AI 评估前记录 `startedAt = new Date()`，调完后调本函数
- * 拿到 `{ model, inputTokens, outputTokens, runId }` 写入 audit metadata。
- *
- * 设计约束（PR-1 D 决策 Q2 方案 3）：
- * - `since` 必传：限定时间窗 ≤ 5 sec，防止误抓更早的 run
- * - `feature` + `userId` 双重 filter，缩小竞争面
- * - 仍有 race 窗口（同 teacher 同 feature 并发跑两个 AI 调用时）— 见 vitest race test
- *
- * TODO（PR-2 候选 F）：等 aiGenerateText / aiGenerateJSON 重构返回 `{ data, runId, ... }` 后，
- *   本 helper 可删除，audit 直接拿调用返回值更精准。
+ * @deprecated Legacy query only. Business receipts use captureAiRuns so concurrent calls cannot cross-link.
+ * The time-window result can belong to another operation; never use it as a billing or grading receipt.
  */
 export async function getLastAiRunMetadata(
   userId: string,
@@ -926,8 +922,10 @@ async function executeAi<T>(
       metadata: { ...options.metadata, fallback: candidateIndex > 0 },
     });
     const totals: { inputTokens?: number; outputTokens?: number } = {};
+    const missingUsage = { inputTokens: false, outputTokens: false };
     let lastOutput: string | undefined;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      let receivedResponse = false;
       try {
         const repair = attempt > 0 ? "\n上次输出未通过校验，请完整返回所有要求的字段和评分项，不要省略或重复。" : "";
         // Leave time for an explicitly configured fallback when the primary stalls.
@@ -938,8 +936,11 @@ async function executeAi<T>(
           maxOutputTokens: options.maxOutputTokens ?? 8192,
           providerOptions: getProviderOptions(provider, setting, feature),
         }, attemptDeadline);
+        receivedResponse = true;
         for (const key of ["inputTokens", "outputTokens"] as const) {
-          if (response.usage?.[key] != null) totals[key] = (totals[key] ?? 0) + response.usage[key]!;
+          if (response.usage?.[key] == null) missingUsage[key] = true;
+          if (missingUsage[key]) delete totals[key];
+          else totals[key] = (totals[key] ?? 0) + response.usage[key]!;
         }
         lastOutput = response.text;
         const data = parse(response.text);
@@ -947,6 +948,11 @@ async function executeAi<T>(
         options.onResolved?.({ provider: provider.name, model, runId: run?.id ?? null });
         return data;
       } catch (error) {
+        if (!receivedResponse) {
+          // An interrupted request may have been billed without returning usage.
+          delete totals.inputTokens;
+          delete totals.outputTokens;
+        }
         lastError = error;
         // JSON/contract repairs stay with the selected model. Network failures use the next provider once.
         if (!isJsonShapeError(error instanceof Error ? error : new Error(String(error))) || Date.now() >= deadlineAt) break;

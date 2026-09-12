@@ -35,12 +35,15 @@
 
 - 两个环境部署都要求CRON_TOKEN。GitHub Secrets注入CRON_TOKEN及已配置的provider密钥；GitHub Variables可显式配置AI_PROVIDER/AI_FALLBACK_PROVIDER及各AI_*_PROVIDER/MODEL。空值保留服务器现值，部署不再强改mimo或擅自切deepseek。Compose显式传入全部已声明feature配置。
 - Host `/etc/cron.d/finsim-production` 每2分钟运行公布扫描、job/AI-run补偿；每周一03:30生成周报。staging只跑补偿，不自动消耗周报模型。时点采用服务器本地时区。Python ops兼容当前服务器3.6，依赖现有cron、flock、Docker Compose；没有新增云防火墙规则。
+- PR 关闭时，只有归属匹配的 staging 才移除自己的 cron/logrotate，等待在途补偿退出后停栈；停栈失败保留归属记录并报错。生产调度不受影响。
 - 每次迁移前及每天03:15，`backup.sh`保存DB custom dump、uploads压缩包、runtime.env、SHA256校验到`ROOT/backups/<UTC时间>/`；目录700/文件600，不在public/uploads或Web目录。先验证pg_restore目录和gzip结构再标成功。DB和文件分步快照不等价于跨存储事务快照，需实际恢复演练。
 - `ROOT/deployment-history/<时间>/`留前一env/compose与本次backup路径。部署失败恢复旧应用配置，保留已做的迁移和所有数据；不执行破坏性数据库回滚。新schema变更应保持旧版本至少可读，不能用应用回滚代替schema恢复计划。
 - 不自动删除备份/旧release；达到容量阈值时应转移和核验后再明确清理。**服务器本地备份不等于异地灾备**：把已校验备份另存到独立受限存储；凭据、目标和保留时长由部署负责人配置。本流程不会擅自上传学生资料。
 - 正式投用前，在隔离PostgreSQL库恢复database.dump（pg_restore --exit-on-error），解压uploads到隔离目录，校验记录数/附件读回/代表性成绩。只检查dump目录不能声称恢复成功。生产或共享staging重置需要单独明确意图。
 
 检查最近调度可读ROOT/last-cron-frequent.json及last-cron-weekly.json；失败细节写私有cron.log/backup.log，按周轮转，不输出token或学生答案。生产/主机故障通知不由这些脚本自动发送，仍使用现有运维通知渠道。
+
+生产发布会备份并更新现有宿主 health-guard：探测 `/api/health/ready`，保留连续失败阈值、冷却和磁盘观察；恢复命令显式绑定 production 的目录、env 和 compose project，并以 `--no-recreate` 拉起缺失服务。不会把数据库故障时仍可用的登录页当作健康，也不会主动重建正在运行的容器。自定义未知探测 URL 会报错，保留原脚本。
 
 ## 生产服务器（finsim.anlanai.cn）
 
@@ -71,6 +74,7 @@ Reload 命令：`docker exec finsim-caddy caddy reload --config /etc/caddy/Caddy
 - Compose project：默认 `finsim`
 - 容器：`finsim-app:3000` + `finsim-postgres:5432`
 - Volumes：`pgdata` + `uploads`
+- PostgreSQL 宿主端口仅绑定 `127.0.0.1:5432`（staging 为 `127.0.0.1:5433`）；容器内继续使用服务名连接，远程维护使用 SSH 隧道或 `docker exec`。
 
 ## Staging stack（本轮新增）
 

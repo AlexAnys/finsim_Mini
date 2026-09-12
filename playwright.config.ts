@@ -20,7 +20,7 @@ export default defineConfig({
   timeout: 5 * 60 * 1000, // 5 min/test (AI 真调外部 provider 慢)
   fullyParallel: false,
   workers: 1, // staging 共享栈, 严格串行
-  retries: process.env.CI ? 2 : 0, // CI flaky 容忍 2 retry
+  retries: 0, // 首次失败必须调查，不能靠重试变绿。
   reporter: process.env.CI
     ? [["github"], ["list"], ["html", { outputFolder: "playwright-report", open: "never" }]]
     : [["list"]],

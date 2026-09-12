@@ -33,7 +33,26 @@ export interface WeeklyInsightOpts {
   }>;
 }
 
-export const WEEKLY_INSIGHT_PROMPT_VERSION = "v2";
+export const WEEKLY_INSIGHT_PROMPT_VERSION = "v3";
+
+/** Round-robin across course/class groups so a late-grading large class cannot hide earlier classes. */
+export function selectWeeklyInsightSample<T extends { courseId?: string | null; classId?: string | null }>(submissions: T[], limit = 80): T[] {
+  const groups = new Map<string, T[]>();
+  for (const submission of submissions) {
+    const key = JSON.stringify([submission.courseId ?? null, submission.classId ?? null]);
+    const group = groups.get(key) ?? [];
+    group.push(submission);
+    groups.set(key, group);
+  }
+  const sample: T[] = [];
+  for (let index = 0; sample.length < Math.min(limit, submissions.length); index++) {
+    for (const group of groups.values()) {
+      if (group[index]) sample.push(group[index]);
+      if (sample.length >= limit) break;
+    }
+  }
+  return sample;
+}
 
 export const buildWeeklyInsightPrompt: PromptBuilder<WeeklyInsightOpts> = (opts) => {
   const systemPrompt = `你是一位资深的金融教育课程顾问。基于教师过去 7 天班级提交数据 + 接下来 7 天课表，请生成结构化"一周洞察"，帮助教师在课前做有针对性的备课。
@@ -43,8 +62,9 @@ export const buildWeeklyInsightPrompt: PromptBuilder<WeeklyInsightOpts> = (opts)
 若数据不足以归纳某一字段，请返回空数组或简短说明。`;
 
   // 限制 corpus 体积（防 token 爆）
-  const submissionLines = opts.submissions
-    .slice(0, 80)
+  const sample = selectWeeklyInsightSample(opts.submissions);
+  const groupCount = (rows: typeof sample) => new Set(rows.map((row) => JSON.stringify([row.courseId ?? null, row.classId ?? null]))).size;
+  const submissionLines = sample
     .map(
       (s, i) =>
         `[${i + 1}] sub=${s.submissionId} 学生ID=${s.studentId ?? "-"} 学生=${s.studentName} 班级ID=${s.classId ?? "-"} 课程ID=${s.courseId ?? "-"} 班级=${s.className ?? "（未关联）"} 课程=${s.courseTitle ?? "（未关联）"} 章节=${s.chapterTitle ?? "-"} 小节=${s.sectionTitle ?? "-"} 任务=${s.taskName}（${s.taskType}） 分=${s.score ?? "-"}/${s.maxScore ?? "-"} 概念=${s.conceptTags.join("|") || "-"} 反馈=${s.feedback.slice(0, 200)}`,
@@ -55,19 +75,19 @@ export const buildWeeklyInsightPrompt: PromptBuilder<WeeklyInsightOpts> = (opts)
     .slice(0, 12)
     .map(
       (u, i) =>
-        `[${i + 1}] slotId=${u.scheduleSlotId} ${u.date} (${u.weekday}) ${u.time} 课程=${u.courseTitle} 班级=${u.className ?? "-"} 教室=${u.classroom ?? "-"}`,
+        `[${i + 1}] slotId=${u.scheduleSlotId} ${u.date} (${u.weekday}) ${u.time} 课程ID=${u.courseId} 课程=${u.courseTitle} 班级=${u.className ?? "-"} 教室=${u.classroom ?? "-"}`,
     )
     .join("\n");
 
   const userPrompt = `时间窗口: ${opts.windowStart.toISOString().slice(0, 10)} ~ ${opts.windowEnd.toISOString().slice(0, 10)}
 
-【过去 7 天已批改并公布的数据样本 (${Math.min(80, opts.submissions.length)} / ${opts.submissions.length} 条；每名学生每个任务取最新)】
+【过去 7 天已批改并公布的数据样本 (${sample.length} / ${opts.submissions.length} 条；每名学生每个任务取最新；按课程和班级轮流取样，覆盖 ${groupCount(sample)} / ${groupCount(opts.submissions)} 组)】
 ${submissionLines || "（无）"}
 
 【程序计算的全量统计，数值不得改写】
 ${JSON.stringify(opts.statistics ?? {})}
 
-【接下来 7 天课表 (${opts.upcomingSlots.length} 节)】
+【接下来 7 天课表 (展示 ${Math.min(12, opts.upcomingSlots.length)} / ${opts.upcomingSlots.length} 节)】
 ${upcomingLines || "（无）"}
 
 请按以下 JSON 格式输出（务必仅输出 JSON，不要 Markdown 代码块、不要其他文字）:
@@ -94,8 +114,9 @@ ${upcomingLines || "（无）"}
 }
 
 要求:
-- weakConceptsByCourse: 仅当某课程内同一概念被 ≥2 名学生明显答错（feedback 反馈中出现弱点）时纳入。errorRate 用 (该概念出错学生数 / 课程下答过该概念的学生数)。
 - classDifferences / studentClusters / weakConceptsByCourse 由程序计算，请返回空数组；不要自行推测人数、错误率或均分。
+- 全量统计中的相关任务低分比例不等于该概念的答错比例；不能据此认定学生不懂该概念。
+- 反馈样本仅支持样本内的文字归纳；未覆盖的课程或班级不得推测具体弱点。全班数字只能引用程序统计。
 - 所有实体 ID 只使用提供的真实 ID；同名实体不合并。
 - upcomingClassRecommendations: 仅针对接下来 7 天课表中真实存在的 slot；建议要把"过去 7 天该课程的弱点"映射到"下次课要讲什么"。
 - highlightSummary: 一段总览，开头"本周教学需关注"。

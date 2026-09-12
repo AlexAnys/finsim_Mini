@@ -153,8 +153,7 @@ jobs:
       # PR-1 A: Playwright 主线 smoke (5 specs) 真浏览器跑 staging.
       # 用 seeded baseline 账号 (teacher1/student1 @finsim.edu.cn / password123) —
       # 不依赖 molly 演示数据；smoke 内自造 task/instance 并自清理.
-      # fail-on-error 硬阻塞 PR merge；retries: 2 (playwright.config.ts) 容忍 staging 共享栈短暂不稳.
-      # 监测点: 若 ≥3 个 PR 因 flaky 红, 考虑降级 retries 或拆 critical-only.
+      # fail-on-error 硬阻塞 PR merge；零重试，首次失败保留证据并排查。
       - name: Install Node for Playwright
         if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v4

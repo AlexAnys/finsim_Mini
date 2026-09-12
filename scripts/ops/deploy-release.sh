@@ -94,6 +94,9 @@ ln -s "current/$COMPOSE" "$ROOT/.compose-next"; mv -Tf "$ROOT/.compose-next" "$R
 compose up -d "$APP"
 compose exec -T -u root "$APP" sh -lc 'mkdir -p /data/uploads && chown -R 1001:1001 /data/uploads && chmod -R u+rwX /data/uploads'
 python3 "$SCRIPT_DIR/verify-ready.py" "$URL" "$SHA"
+if [[ "$ENVIRONMENT" == production ]]; then
+  python3 "$SCRIPT_DIR/update-health-guard.py"
+fi
 bash "$SCRIPT_DIR/install-schedule.sh" "$ROOT" "$ENVIRONMENT"
 printf '%s\n' "$SHA" > "$ROOT/last-deployed-sha"
 if [[ -n "$PR_NUMBER" ]]; then printf '%s\n' "$PR_NUMBER" > "$ROOT/last-deployed-pr"; fi

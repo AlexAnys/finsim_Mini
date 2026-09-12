@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { signOut } from "next-auth/react";
 import { Loader2, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -102,7 +103,8 @@ export default function SettingsPage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      toast.success("密码已更新");
+      toast.success("密码已更新，请使用新密码重新登录");
+      await signOut({ callbackUrl: "/login" });
     } finally {
       setSavingPassword(false);
     }
