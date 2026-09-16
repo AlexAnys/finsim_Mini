@@ -12,7 +12,8 @@
  * audit 行追加是 append-only design (D 要点), 不需要回滚 - QA brief 提到 hard-delete 还原, 但
  * D builder 的 acceptance 是「audit 表 append-only」, 删 audit row 反而违背设计 — 保留.
  */
-import { test, expect, type Browser, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { test, expect, type Browser, type Page, type APIRequestContext } from "@playwright/test";
 import { loginAs } from "./_setup";
 
 test.describe.configure({ mode: "serial" });
@@ -231,77 +232,95 @@ test.describe("PR-1 QA regression · 4 candidate sampling", () => {
     browser,
   }) => {
     test.setTimeout(180_000);
-
-    const page = await loginMolly(browser);
-
-    // 1. 拿 teacher 的 courses
-    const cRes = await page.request.get("/api/lms/courses?take=20");
-    expect(cRes.ok()).toBe(true);
-    const cJson = await cRes.json();
-    expect(cJson.success).toBe(true);
-    type CourseItem = { id: string; name?: string; courseTitle?: string };
-    const courses: CourseItem[] = cJson.data?.items ?? cJson.data ?? [];
-    test.skip(courses.length === 0, "no course available for molly");
-
-    let testedReject = false;
-    let testedAllow = false;
-
-    for (const c of courses) {
-      const classesRes = await page.request.get(`/api/lms/courses/${c.id}/classes`);
-      if (!classesRes.ok()) continue;
-      const classesJson = await classesRes.json();
-      type CourseClass = { classId: string };
-      const ccs: CourseClass[] = classesJson.data ?? [];
-
-      if (!testedReject && ccs.length === 1) {
-        // 单班 → 删唯一一个应拒
-        const del = await page.request.delete(
-          `/api/lms/courses/${c.id}/classes`,
-          { data: { classId: ccs[0].classId } },
-        );
-        const delJson = await del.json();
-        expect(del.status(), `single-class delete: ${JSON.stringify(delJson)}`).toBe(400);
-        expect(delJson.success).toBe(false);
-        expect(delJson.error?.code).toBe("MUST_KEEP_AT_LEAST_ONE_CLASS");
-        expect(delJson.error?.message).toContain("至少保留");
-        testedReject = true;
+    const page = await loginAs(browser, "teacher1");
+    let admin: Page | undefined;
+    let courseId: string | undefined;
+    let teacherId: string | undefined;
+    const courseTitle = `[QA-REG-CLASS-GUARD] ${randomUUID()}`;
+    async function classIds(request: APIRequestContext) {
+      const ids: string[] = [];
+      for (let current = 1; ; current++) {
+        const response = await request.get(`/api/lms/classes?take=200&page=${current}`);
+        expect(response.ok()).toBe(true);
+        const json = await response.json();
+        expect(json.success).toBe(true);
+        const rows: Array<{ id: string }> = json.data;
+        ids.push(...rows.map(row => row.id));
+        if (rows.length < 200) return ids;
       }
-
-      if (!testedAllow && ccs.length >= 2) {
-        // 多班 → 删主班应 200, 然后还原
-        const victim = ccs[0];
-        const del = await page.request.delete(
-          `/api/lms/courses/${c.id}/classes`,
-          { data: { classId: victim.classId } },
-        );
-        const delJson = await del.json();
-        expect(del.ok(), `multi-class delete: ${JSON.stringify(delJson)}`).toBe(true);
-        expect(delJson.success).toBe(true);
-
-        // 还原 baseline — 重建 CourseClass
-        const restore = await page.request.post(`/api/lms/courses/${c.id}/classes`, {
-          data: { classId: victim.classId },
-        });
-        const restoreJson = await restore.json();
-        expect(
-          restore.ok(),
-          `restore failed (baseline drift!): ${JSON.stringify(restoreJson)}`,
-        ).toBe(true);
-        testedAllow = true;
-      }
-
-      if (testedReject && testedAllow) break;
     }
+    async function linkedIds() {
+      const response = await page.request.get(`/api/lms/courses/${courseId}/classes`);
+      expect(response.ok()).toBe(true);
+      const json = await response.json();
+      expect(json.success).toBe(true);
+      return (json.data as Array<{ classId: string }>).map(row => row.classId).sort();
+    }
+    try {
+      admin = await loginAs(browser, "admin");
+      const me = await page.request.get("/api/users/me");
+      expect(me.ok()).toBe(true);
+      teacherId = (await me.json()).data.id;
+      const managedIds = await classIds(page.request);
+      expect(managedIds.length, "seed teacher1 must manage a class").toBeGreaterThan(0);
+      const ownClassId = managedIds[0];
+      const allClassIds = await classIds(admin.request);
+      const foreignClassId = allClassIds.find(id => !managedIds.includes(id));
+      const otherClassId = foreignClassId ?? allClassIds.find(id => id !== ownClassId);
+      expect(otherClassId, "two seeded classes are required to verify both guard paths").toBeTruthy();
+      if (foreignClassId) expect((await page.request.get(`/api/lms/classes/${otherClassId}/members`)).status()).toBe(403);
 
-    expect(
-      testedReject || testedAllow,
-      "needed ≥1 course with 1 班 or ≥2 班 to probe guard",
-    ).toBe(true);
+      // Every changed CourseClass belongs to this new empty course; no existing course is touched.
+      const created = await page.request.post("/api/lms/courses", { data: { courseTitle, classId: ownClassId } });
+      const createdJson = await created.json();
+      expect(created.ok(), JSON.stringify(createdJson)).toBe(true);
+      courseId = createdJson.data.id;
+      await test.info().attach("owned-course-fixture", {
+        body: JSON.stringify({ courseId, courseTitle, teacherId, ownClassId, otherClassId }), contentType: "application/json",
+      });
+      expect(await linkedIds()).toEqual([ownClassId]);
+      const only = await page.request.delete(`/api/lms/courses/${courseId}/classes`, { data: { classId: ownClassId } });
+      const onlyJson = await only.json();
+      expect(only.status(), JSON.stringify(onlyJson)).toBe(400);
+      expect(onlyJson.error?.code).toBe("MUST_KEEP_AT_LEAST_ONE_CLASS");
+      expect(onlyJson.error?.message).toContain("至少保留");
+      expect(await linkedIds()).toEqual([ownClassId]);
 
-    if (!testedReject) test.info().annotations.push({ type: "note", description: "未找到单班级课程, reject 路径未测" });
-    if (!testedAllow) test.info().annotations.push({ type: "note", description: "未找到 ≥2 班级课程, allow 路径未测" });
-
-    await page.context().close();
+      // Admin grants the fixture its second class; teacher access exists only while this link exists.
+      const added = await admin.request.post(`/api/lms/courses/${courseId}/classes`, { data: { classId: otherClassId } });
+      expect(added.ok(), await added.text()).toBe(true);
+      expect(await linkedIds()).toEqual([ownClassId, otherClassId!].sort());
+      const removed = await page.request.delete(`/api/lms/courses/${courseId}/classes`, { data: { classId: otherClassId } });
+      expect(removed.ok(), await removed.text()).toBe(true);
+      expect(await linkedIds()).toEqual([ownClassId]);
+      if (foreignClassId) {
+        const selfRestore = await page.request.post(`/api/lms/courses/${courseId}/classes`, { data: { classId: otherClassId } });
+        expect(selfRestore.status()).toBe(403);
+        expect((await selfRestore.json()).error?.code).toBe("FORBIDDEN");
+      } else {
+        test.info().annotations.push({ type: "note", description: "教师已管理所有班级；本case全测删除/管理员恢复，跨班403由teacher-roster pilot独立fixture覆盖" });
+      }
+      expect(await linkedIds()).toEqual([ownClassId]);
+      const restored = await admin.request.post(`/api/lms/courses/${courseId}/classes`, { data: { classId: otherClassId } });
+      expect(restored.ok(), await restored.text()).toBe(true);
+      expect(await linkedIds()).toEqual([ownClassId, otherClassId!].sort());
+    } finally {
+      try {
+        if (courseId) {
+          const detail = await page.request.get(`/api/lms/courses/${courseId}`);
+          expect(detail.ok(), "owned fixture must remain readable for cleanup").toBe(true);
+          const course = (await detail.json()).data;
+          expect(course.courseTitle).toBe(courseTitle);
+          expect(course.createdBy).toBe(teacherId);
+          const purged = await page.request.delete(`/api/lms/courses/${courseId}/purge`, { data: { confirmTitle: courseTitle } });
+          expect(purged.ok(), await purged.text()).toBe(true);
+          expect((await page.request.get(`/api/lms/courses/${courseId}`)).status()).toBe(404);
+        }
+      } finally {
+        await page.context().close();
+        await admin?.context().close();
+      }
+    }
   });
 
   // ─────────────────────────────────────────────────────────────────────────
