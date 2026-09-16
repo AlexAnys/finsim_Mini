@@ -1,0 +1,14 @@
+# Independent QA: FAIL
+
+Frozen candidate `dd1e479f744c7fe97455f6501807b3ea63555c1f`, visibility worktree, optimized production build + Next start at http://localhost:3084. Isolated synthetic-only PostgreSQL at 127.0.0.1:55441. qa-start succeeded with source/spec/environment identity.
+
+13-case browser run: **12 PASS / 1 FAIL**. Three independent student full change/logout/new-login/old-password-rejection/old-session-revocation/page-restore flows passed. Input validation, case and spaces, rapid double click, same-value update passed. Fixed concurrent updates passed **3 independent rounds**: exactly one HTTP 200 and one HTTP 409 with correct conflict message; only successful value matched saved hash, losing value rejected by actual login, initial value restored through pages. Cold login session gate and one-submit/no-CSRF passed. Post-change course/task/grade navigation and teacher API 403 / anonymous 401 passed.
+
+## Blocking findings
+
+1. **Focus can be stolen after a reveal toggle.** Mouse-hide followed promptly by Tab moves to its button, but pending requestAnimationFrame in `PasswordInput.toggleVisibility` unconditionally focuses the input again. Initial full browser run failed the focused-button assertion on the new-password field. A focused rerun also observed selection not yet restored at the post-toggle point, consistent with async restoration. Use commit-phase restoration of selection while the input remains focused; do not refocus after another user action.
+2. **Feedback screenshot pipeline includes revealed credential input.** On the real settings page, type a synthetic marker into new password, reveal it, click Feedback and submit. Actual screenshot generation serialized SVG containing the marker; generated JPEG was included in the intercepted request. POST was intercepted and fulfilled only in the test, never saved to DB. Structured context did not include the marker. Whole-image and cropped-image OCR did not reproduce the exact marker, so this report claims raw value inclusion in the screenshot rendering pipeline, not independent pixel transcription. The actual DOM-to-screenshot pipeline must redact password/current-password/new-password fields before serialization while preserving live fields.
+
+Evidence: `password_dd1e479_browser-results.json` and `password_dd1e479_feedback-privacy.json`. No screenshot pixels, SVG, or synthetic password text were persisted as evidence. Traces/videos disabled. QA scripts are external to the frozen candidate tree under `/Users/yangsenan/dev/Finsim-Mini-password-qa/.qa-password/`. Production baseline has a separate immutable report under `artifacts/baseline/report.md` (8/9; concurrent overwrite reproduced 2/2).
+
+No production data or accounts were accessed by these tests. No conclusion about the real historical secret characters is supported. Candidate remains unshipped.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ComponentProps } from "react";
+import { useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -12,19 +12,23 @@ type PasswordInputProps = Omit<ComponentProps<"input">, "type" | "ref"> & {
 export function PasswordInput({ visibilityLabel, className, disabled, ...props }: PasswordInputProps) {
   const [visible, setVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const selectionRef = useRef<[number, number] | null>(null);
+
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    const selection = selectionRef.current;
+    if (input && selection && document.activeElement === input) {
+      input.setSelectionRange(...selection);
+    }
+    selectionRef.current = null;
+  }, [visible]);
 
   function toggleVisibility() {
     const input = inputRef.current;
-    const focused = document.activeElement === input;
-    const start = input?.selectionStart ?? null;
-    const end = input?.selectionEnd ?? null;
+    selectionRef.current = input && document.activeElement === input
+      && input.selectionStart !== null && input.selectionEnd !== null
+      ? [input.selectionStart, input.selectionEnd] : null;
     setVisible((value) => !value);
-    if (focused) {
-      requestAnimationFrame(() => {
-        input?.focus({ preventScroll: true });
-        if (start !== null && end !== null) input?.setSelectionRange(start, end);
-      });
-    }
   }
 
   return (
