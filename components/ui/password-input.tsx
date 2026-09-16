@@ -9,25 +9,33 @@ type PasswordInputProps = Omit<ComponentProps<"input">, "type" | "ref"> & {
   visibilityLabel: string;
 };
 
-export function PasswordInput({ visibilityLabel, className, disabled, ...props }: PasswordInputProps) {
+export function PasswordInput({ visibilityLabel, className, disabled, onBlur, onKeyDown, onPointerDown, onChange, ...props }: PasswordInputProps) {
   const [visible, setVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const selectionRef = useRef<[number, number] | null>(null);
+  const selectionRef = useRef<{ range: [number, number]; value: string } | null>(null);
 
   useLayoutEffect(() => {
     const input = inputRef.current;
     const selection = selectionRef.current;
-    if (input && selection && document.activeElement === input) {
-      input.setSelectionRange(...selection);
-    }
-    selectionRef.current = null;
+    if (!input || !selection || document.activeElement !== input) return;
+    const frame = requestAnimationFrame(() => {
+      if (selectionRef.current === selection && document.activeElement === input && input.value === selection.value) {
+        input.setSelectionRange(...selection.range);
+      }
+      if (selectionRef.current === selection) selectionRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
   }, [visible]);
 
   function toggleVisibility() {
     const input = inputRef.current;
-    selectionRef.current = input && document.activeElement === input
-      && input.selectionStart !== null && input.selectionEnd !== null
-      ? [input.selectionStart, input.selectionEnd] : null;
+    if (input && document.activeElement === input && input.selectionStart !== null && input.selectionEnd !== null) {
+      const pending = selectionRef.current;
+      selectionRef.current = pending?.value === input.value ? pending
+        : { range: [input.selectionStart, input.selectionEnd], value: input.value };
+    } else {
+      selectionRef.current = null;
+    }
     setVisible((value) => !value);
   }
 
@@ -39,6 +47,10 @@ export function PasswordInput({ visibilityLabel, className, disabled, ...props }
         type={visible ? "text" : "password"}
         disabled={disabled}
         className={cn("pr-11", className)}
+        onBlur={(event) => { selectionRef.current = null; onBlur?.(event); }}
+        onKeyDown={(event) => { selectionRef.current = null; onKeyDown?.(event); }}
+        onPointerDown={(event) => { selectionRef.current = null; onPointerDown?.(event); }}
+        onChange={(event) => { selectionRef.current = null; onChange?.(event); }}
       />
       <button
         type="button"
