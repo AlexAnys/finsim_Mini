@@ -167,7 +167,11 @@ export async function manageClassRoster(sourceClassId: string, user: Actor, inpu
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20_000,
       });
     } catch (err) {
-      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2034") throw err;
+      // FOR UPDATE reports PostgreSQL serialization/deadlock failures through P2010.
+      const conflict = err instanceof Prisma.PrismaClientKnownRequestError && (
+        err.code === "P2034" || (err.code === "P2010" && (err.meta?.code === "40001" || err.meta?.code === "40P01"))
+      );
+      if (!conflict) throw err;
       if (attempt === 2) throw new Error("ROSTER_CONCURRENT_CHANGE");
     }
   }

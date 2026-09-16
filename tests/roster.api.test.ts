@@ -54,6 +54,14 @@ describe("POST class roster", () => {
     vi.mocked(manageClassRoster).mockRejectedValue(new Error("ROSTER_BLOCKED"));
     expect((await POST(request(), params)).status).toBe(409);
   });
+  it("reports exhausted concurrent retries as a Chinese 409 response", async () => {
+    vi.mocked(manageClassRoster).mockRejectedValue(new Error("ROSTER_CONCURRENT_CHANGE"));
+    const response = await POST(request(), params);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ success: false, error: {
+      code: "ROSTER_CONCURRENT_CHANGE", message: "其他操作正在修改名单，请稍后重新预览",
+    } });
+  });
   it("reports malformed JSON as a validation error", async () => {
     const invalid = new NextRequest("http://localhost/api/lms/classes/from/roster", { method: "POST", body: "{" });
     expect((await POST(invalid, params)).status).toBe(400);

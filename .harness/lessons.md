@@ -52,3 +52,14 @@
 - **Commit**: audit-2026-07 收尾 commit
 - **Status**: active
 
+
+---
+
+## L-005 · 原始 SQL 锁冲突的 Prisma 错误形状
+
+- **Symptom**: 同一个25人转班预览并发确认5次，数据只执行一次，但4个重复请求返回500。
+- **Root cause**: PostgreSQL `SELECT FOR UPDATE` 的序列化冲突由 Prisma 作为 `P2010` + `meta.code=40001` 返回；仅识别事务错误 `P2034` 的重试漏掉原始SQL路径。
+- **Detection**: 在冻结候选的隔离真实数据库同时发送5个相同确认，检查所有响应以及学生数、组数、成员数和审计数；普通mock和顺序重放不足以验证。
+- **Prevention**: 有限重试同时识别 `P2034` 与 `P2010` 的 PostgreSQL `40001` / `40P01`，耗尽明确409；其他原始SQL错误不吞掉。新增锁查询时保留真实并发验收。
+- **Commit**: PR #40 的转班并发重试修复。
+- **Status**: active

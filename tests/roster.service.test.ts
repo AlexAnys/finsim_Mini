@@ -171,6 +171,29 @@ describe("groups and concurrency", () => {
     await expect(manageClassRoster("from", teacher, transfer)).rejects.toThrow("ROSTER_CONCURRENT_CHANGE");
   });
 
+  it.each(["40001", "40P01"])("retries raw PostgreSQL conflict %s and returns a bounded conflict after three attempts", async (code) => {
+    const conflict = new Prisma.PrismaClientKnownRequestError("Raw query failed", {
+      code: "P2010", clientVersion: "6.19.3",
+      meta: { code, message: code === "40001" ? "could not serialize access due to concurrent update" : "deadlock detected" },
+    });
+    mock(prisma.$transaction).mockRejectedValueOnce(conflict).mockImplementation((callback) => callback(prisma));
+    await expect(manageClassRoster("from", teacher, transfer)).resolves.toMatchObject({ changeCount: 2 });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+
+    mock(prisma.$transaction).mockClear().mockRejectedValue(conflict);
+    await expect(manageClassRoster("from", teacher, transfer)).rejects.toThrow("ROSTER_CONCURRENT_CHANGE");
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry or disguise unrelated raw-query errors", async () => {
+    const invalidQuery = new Prisma.PrismaClientKnownRequestError("Raw query failed", {
+      code: "P2010", clientVersion: "6.19.3", meta: { code: "42601", message: "syntax error" },
+    });
+    mock(prisma.$transaction).mockRejectedValue(invalidQuery);
+    await expect(manageClassRoster("from", teacher, transfer)).rejects.toBe(invalidQuery);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
   it("does not continue after a partial row count, so the transaction can roll back", async () => {
     const preview = await manageClassRoster("from", teacher, transfer);
     mock(prisma.user.updateMany).mockResolvedValue({ count: 1 });
