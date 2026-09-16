@@ -27,10 +27,13 @@ export async function PATCH(request: NextRequest) {
     const ok = await compare(parsed.data.currentPassword, user.passwordHash);
     if (!ok) return error("INVALID_PASSWORD", "当前密码不正确", 400);
 
-    await prisma.user.update({
-      where: { id: user.id },
+    const updated = await prisma.user.updateMany({
+      where: { id: user.id, passwordHash: user.passwordHash },
       data: { passwordHash: await hash(parsed.data.newPassword, 12) },
     });
+    if (updated.count !== 1) {
+      return error("PASSWORD_CHANGED", "密码已在其他会话中更新，请使用最新密码重新登录", 409);
+    }
 
     return success({ updated: true });
   } catch (err) {
