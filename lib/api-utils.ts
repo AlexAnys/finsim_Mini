@@ -72,6 +72,24 @@ export function handleServiceError(err: unknown) {
     }
 
     if (err.message === "AI_TIMEOUT") return error("AI_TIMEOUT", "AI 处理超时，请稍后重试", 504);
+    const rosterErrors: Record<string, [string, number]> = {
+      ROSTER_STUDENT_MISMATCH: ["所选学生的班级已变化，请刷新名单后重新选择", 409],
+      ROSTER_PREVIEW_STALE: ["名单、分组或学习情况已变化，请重新预览", 409],
+      ROSTER_CONCURRENT_CHANGE: ["其他操作正在修改名单，请稍后重新预览", 409],
+      ROSTER_INVALID_INPUT: ["请选择有效的班级、学生和目标小组", 400],
+      ROSTER_BLOCKED: ["有测验已开始但未提交，请先完成或关闭对应任务，再重新预览", 409],
+      ROSTER_FILE_TOO_LARGE: ["名单文件不能超过 2 MB", 413],
+      ROSTER_FILE_TYPE: ["请上传 Excel（xlsx、xls）或 CSV 名单", 400],
+      ROSTER_EMPTY: ["名单为空，请填写学生信息后上传", 400],
+      ROSTER_FILE_INVALID: ["无法读取名单，请检查文件格式后重新上传", 400],
+      ROSTER_TOO_MANY_ROWS: ["每次最多导入 200 行，请拆分名单后上传", 400],
+      ROSTER_HEADERS_INVALID: ["请检查表头：须有姓名、邮箱，列名不能重复；可下载模板核对", 400],
+      ROSTER_PREVIEW_CHANGED: ["文件或导入设置已变化，请重新预览后确认", 409],
+    };
+    if (rosterErrors[err.message]) {
+      const [message, status] = rosterErrors[err.message];
+      return error(err.message, message, status);
+    }
     if (err.message === "AI_EVIDENCE_INVALID") return error("AI_EVIDENCE_INVALID", "AI 返回的评分证据不完整，请重试或人工批改", 502);
     if (err.message === "AI_PROVIDER_MODEL_MISMATCH") return error("AI_PROVIDER_MODEL_MISMATCH", "所选模型与服务商不匹配", 400);
     const inputErrors: Record<string, string> = {

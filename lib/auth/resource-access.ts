@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { assertCourseAccess } from "@/lib/auth/course-access";
+import type { Prisma } from "@prisma/client";
 
 /**
  * Resource-level access guards for by-id GET endpoints.
@@ -181,17 +182,19 @@ export async function assertTaskReadable(
 export async function assertClassAccessForTeacher(
   classId: string,
   user: UserLike,
+  db: Prisma.TransactionClient = prisma,
 ): Promise<void> {
   if (user.role === "admin") return;
   if (user.role !== "teacher") throw new Error("FORBIDDEN");
 
-  const cls = await prisma.class.findUnique({
+  const cls = await db.class.findUnique({
     where: { id: classId },
-    select: { id: true },
+    select: { id: true, createdBy: true },
   });
   if (!cls) throw new Error("CLASS_NOT_FOUND");
+  if (cls.createdBy === user.id) return;
 
-  const hit = await prisma.course.findFirst({
+  const hit = await db.course.findFirst({
     where: {
       OR: [
         { classId, createdBy: user.id },

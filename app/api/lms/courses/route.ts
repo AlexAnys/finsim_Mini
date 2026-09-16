@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth/guards";
+import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
 import { createCourse, getCoursesByTeacher, getCoursesByClass } from "@/lib/services/course.service";
 import { parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
@@ -23,6 +24,7 @@ export async function POST(request: NextRequest) {
       return validationError("请求参数错误", parsed.error.flatten());
     }
 
+    await assertClassAccessForTeacher(parsed.data.classId, result.session.user);
     const course = await createCourse({
       ...parsed.data,
       createdBy: result.session.user.id,

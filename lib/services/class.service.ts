@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { clampTake } from "@/lib/pagination";
+import { clampPage, clampTake } from "@/lib/pagination";
+import { managedClassWhere } from "@/lib/auth/class-scope";
 
 export async function createClass(input: {
   name: string;
@@ -41,17 +42,19 @@ export async function listRegistrationClasses(options: { take?: number } = {}) {
   });
 }
 
-export async function listClassesForStaff(options: { take?: number } = {}) {
+export async function listClassesForStaff(user: { id: string; role: string }, options: { take?: number; page?: number } = {}) {
   return prisma.class.findMany({
-    orderBy: { name: "asc" },
+    where: managedClassWhere(user),
+    orderBy: [{ name: "asc" }, { id: "asc" }],
     include: {
       _count: { select: { students: true } },
     },
     take: clampTake(options.take, 100, 200),
+    skip: (clampPage(options.page) - 1) * clampTake(options.take, 100, 200),
   });
 }
 
-export async function listClassMembers(classId: string, options: { take?: number } = {}) {
+export async function listClassMembers(classId: string, options: { take?: number; page?: number } = {}) {
   return prisma.user.findMany({
     where: { classId, role: "student" },
     select: {
@@ -61,7 +64,8 @@ export async function listClassMembers(classId: string, options: { take?: number
       avatarUrl: true,
       createdAt: true,
     },
-    orderBy: { name: "asc" },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
     take: clampTake(options.take, 100, 200),
+    skip: (clampPage(options.page) - 1) * clampTake(options.take, 100, 200),
   });
 }
