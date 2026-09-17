@@ -21,6 +21,7 @@ vi.mock("@/lib/auth/guards", () => ({
 vi.mock("@/lib/auth/course-access", () => ({
   assertCourseAccess: vi.fn(),
 }));
+vi.mock("@/lib/auth/resource-access", () => ({ assertClassAccessForTeacher: vi.fn() }));
 
 vi.mock("@/lib/auth/actor-role", () => ({
   getCourseActorRole: vi.fn().mockResolvedValue("owner"),
@@ -50,6 +51,7 @@ vi.mock("@/lib/db/prisma", () => ({
 
 import { requireRole, assertCourseAccess as assertCourseAccessFromGuards } from "@/lib/auth/guards";
 import { assertCourseAccess } from "@/lib/auth/course-access";
+import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
 import {
   createCourse,
   addCourseTeacher,
@@ -67,9 +69,19 @@ const COURSE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mk(assertClassAccessForTeacher).mockResolvedValue(undefined);
 });
 
 describe("POST /api/lms/courses", () => {
+  it("403: cannot gain class management by creating a course for an unmanaged class", async () => {
+    mk(requireRole).mockResolvedValue(mockAuthResult(fixtureUsers.teacher1));
+    mk(assertClassAccessForTeacher).mockRejectedValue(new Error("FORBIDDEN"));
+    const res = await coursesPOST(buildJsonRequest("/api/lms/courses", "POST", {
+      courseTitle: "越权课程", classId: fixtureClasses.classB.id,
+    }));
+    expect(res.status).toBe(403);
+    expect(createCourse).not.toHaveBeenCalled();
+  });
   it("200: teacher 创建 course 成功", async () => {
     mk(requireRole).mockResolvedValue(mockAuthResult(fixtureUsers.teacher1));
     mk(createCourse).mockResolvedValue({ id: COURSE_ID, courseTitle: "新课程" });
@@ -146,6 +158,14 @@ describe("POST /api/lms/courses/[id]/teachers (add collab)", () => {
 });
 
 describe("POST /api/lms/courses/[id]/classes", () => {
+  it("403: owning a course cannot grant management of an unrelated class", async () => {
+    mk(requireRole).mockResolvedValue(mockAuthResult(fixtureUsers.teacher1));
+    mk(assertCourseAccessFromGuards).mockResolvedValue(undefined);
+    mk(assertClassAccessForTeacher).mockRejectedValue(new Error("FORBIDDEN"));
+    const req = buildJsonRequest(`/api/lms/courses/${COURSE_ID}/classes`, "POST", { classId: fixtureClasses.classB.id });
+    expect((await classesPOST(req, makeRouteContext({ id: COURSE_ID }))).status).toBe(403);
+    expect(addCourseClass).not.toHaveBeenCalled();
+  });
   it("200: course owner 加 class 关联", async () => {
     mk(requireRole).mockResolvedValue(mockAuthResult(fixtureUsers.teacher1));
     mk(assertCourseAccessFromGuards).mockResolvedValue(undefined);

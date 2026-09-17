@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
 import { listClassMembers } from "@/lib/services/class.service";
-import { parseListTake } from "@/lib/pagination";
+import { clampPage, parseListTake } from "@/lib/pagination";
 import { success, handleServiceError } from "@/lib/api-utils";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +16,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { searchParams } = new URL(request.url);
     const members = await listClassMembers(id, {
       take: parseListTake(searchParams, 100, 200),
+      page: clampPage(searchParams.get("page")),
     });
     return success(members);
   } catch (err) {

@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, Pencil, Plus, Search, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
+import { BulkRosterDialog } from "@/components/teacher-roster/bulk-roster-dialog";
+import { ImportStudentsDialog } from "@/components/teacher-roster/import-students-dialog";
+import { loadRosterList } from "@/components/teacher-roster/load-list";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +56,11 @@ export default function TeacherGroupsPage() {
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState(ALL_GROUPS);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
-  const [bulkGroupId, setBulkGroupId] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [operationResult, setOperationResult] = useState("");
+  const [membersError, setMembersError] = useState("");
+  const memberRequest = useRef(0);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<StudentGroup | null>(null);
@@ -68,33 +75,35 @@ export default function TeacherGroupsPage() {
   const [creatingClass, setCreatingClass] = useState(false);
 
   const fetchClasses = useCallback(async () => {
-    const res = await fetch("/api/lms/classes");
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error?.message || "加载班级失败");
-    setClasses(json.data || []);
-    if (!selectedClassId && json.data?.[0]?.id) setSelectedClassId(json.data[0].id);
-  }, [selectedClassId]);
+    const rows = await loadRosterList<LmsClass>("/api/lms/classes");
+    setClasses(rows);
+    setSelectedClassId(current => current || rows[0]?.id || "");
+  }, []);
 
   const fetchGroups = useCallback(async () => {
-    const res = await fetch("/api/groups");
-    const json = await res.json();
-    if (json.success) setGroups(json.data || []);
+    setGroups(await loadRosterList<StudentGroup>("/api/groups"));
   }, []);
 
   const fetchMembers = useCallback(async (classId: string) => {
+    const request = ++memberRequest.current;
+    setMembers([]); setMembersError("");
     if (!classId) return;
     setMembersLoading(true);
     try {
-      const res = await fetch(`/api/lms/classes/${classId}/members`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || "加载成员失败");
-      setMembers(json.data || []);
-    } catch {
-      toast.error("加载班级成员失败");
+      const rows = await loadRosterList<ClassMember>(`/api/lms/classes/${classId}/members`);
+      if (request === memberRequest.current) setMembers(rows);
+    } catch (err) {
+      if (request === memberRequest.current) setMembersError(err instanceof Error ? err.message : "加载班级成员失败");
     } finally {
-      setMembersLoading(false);
+      if (request === memberRequest.current) setMembersLoading(false);
     }
   }, []);
+
+  async function refreshRoster(message?: string) {
+    if (message) { setOperationResult(message); setSelectedMemberIds(new Set()); }
+    const results = await Promise.allSettled([fetchClasses(), fetchGroups(), fetchMembers(selectedClassId)]);
+    if (results.some(result => result.status === "rejected")) toast.error("操作已完成，部分列表刷新失败，请刷新页面核对");
+  }
 
   useEffect(() => {
     async function init() {
@@ -110,9 +119,9 @@ export default function TeacherGroupsPage() {
   }, [fetchClasses, fetchGroups]);
 
   useEffect(() => {
-    if (selectedClassId) fetchMembers(selectedClassId);
+    fetchMembers(selectedClassId);
     setSelectedMemberIds(new Set());
-    setBulkGroupId("");
+    setOperationResult("");
   }, [fetchMembers, selectedClassId]);
 
   const selectedClass = classes.find((item) => item.id === selectedClassId) ?? null;
@@ -145,7 +154,7 @@ export default function TeacherGroupsPage() {
 
   function openCreate() {
     setDraftName("");
-    setDraftMemberIds(new Set());
+    setDraftMemberIds(new Set(selectedMemberIds));
     setCreateOpen(true);
   }
 
@@ -189,34 +198,6 @@ export default function TeacherGroupsPage() {
       }
       return next;
     });
-  }
-
-  async function bulkAssignMembers() {
-    if (!bulkGroupId || selectedMemberIds.size === 0) {
-      toast.error("请选择学生和目标分组");
-      return;
-    }
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/groups/${bulkGroupId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          addStudentIds: Array.from(selectedMemberIds),
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error?.message || "批量分组失败");
-        return;
-      }
-      toast.success("已加入目标分组");
-      setSelectedMemberIds(new Set());
-      setBulkGroupId("");
-      await fetchGroups();
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function saveCreate() {
@@ -361,7 +342,7 @@ export default function TeacherGroupsPage() {
           <h1 className="mt-1 text-3xl font-bold tracking-[-0.02em] text-ink">班级与分组管理</h1>
           <p className="mt-2 text-sm text-ink-4">先选班级，再管理学习分组和人员信息。</p>
         </div>
-        <Button onClick={openCreate} disabled={!selectedClassId}>
+        <Button onClick={openCreate} disabled={!selectedClassId || membersLoading || Boolean(membersError)}>
           <Plus className="mr-2 size-4" />
           新建分组
         </Button>
@@ -387,7 +368,8 @@ export default function TeacherGroupsPage() {
                   key={cls.id}
                   type="button"
                   onClick={() => {
-                    setSelectedClassId(cls.id);
+                    if (cls.id === selectedClassId) return;
+                    setMembers([]); setSelectedMemberIds(new Set()); setSelectedClassId(cls.id);
                     setGroupFilter(ALL_GROUPS);
                     setSearch("");
                   }}
@@ -460,7 +442,10 @@ export default function TeacherGroupsPage() {
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-base">人员信息</CardTitle>
-              {membersLoading && <Loader2 className="size-4 animate-spin text-ink-4" />}
+              <div className="flex items-center gap-2">
+                {membersLoading && <Loader2 className="size-4 animate-spin text-ink-4" />}
+                <Button size="sm" variant="outline" disabled={!selectedClassId} onClick={() => setImportOpen(true)}>批量导入学生</Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -483,31 +468,18 @@ export default function TeacherGroupsPage() {
 
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-paper-alt px-3 py-2">
               <Checkbox
+                disabled={membersLoading || Boolean(membersError) || filteredMembers.length === 0}
                 checked={allFilteredSelected}
                 onCheckedChange={toggleAllFiltered}
                 aria-label="选择当前筛选学生"
               />
               <span className="text-xs text-ink-4">
-                已选 <b className="text-ink">{selectedMemberIds.size}</b> 人
+                全选筛选结果 {filteredMembers.length} 人 · 已选 <b className="text-ink">{selectedMemberIds.size}</b> 人
               </span>
               <div className="ml-auto flex flex-wrap items-center gap-2">
-                <Select value={bulkGroupId || undefined} onValueChange={setBulkGroupId}>
-                  <SelectTrigger className="h-8 w-[170px] bg-surface text-xs">
-                    <SelectValue placeholder="选择目标分组" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classGroups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  className="h-8"
-                  onClick={bulkAssignMembers}
-                  disabled={saving || selectedMemberIds.size === 0 || !bulkGroupId}
-                >
-                  批量加入
+                <Button size="sm" className="h-8" onClick={() => setBulkOpen(true)}
+                  disabled={membersLoading || Boolean(membersError) || selectedMemberIds.size === 0}>
+                  批量管理
                 </Button>
                 <Button
                   size="sm"
@@ -521,6 +493,9 @@ export default function TeacherGroupsPage() {
               </div>
             </div>
 
+            {operationResult && <p role="status" className="rounded-md bg-brand-soft p-3 text-sm text-brand">{operationResult}</p>}
+            {selectedMemberIds.size > filteredMembers.filter(member => selectedMemberIds.has(member.id)).length && <p className="text-xs text-ink-4">已选人数包含被当前筛选隐藏的学生；批量操作会处理全部已选学生。</p>}
+            {membersError && <div role="alert" className="text-sm text-danger">{membersError}<Button variant="link" onClick={() => fetchMembers(selectedClassId)}>重新加载</Button></div>}
             <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
               {filteredMembers.map((member) => {
                 const groupsForMember = memberGroupMap.get(member.id) ?? [];
@@ -551,7 +526,7 @@ export default function TeacherGroupsPage() {
                   </div>
                 );
               })}
-              {filteredMembers.length === 0 && (
+              {!membersLoading && !membersError && filteredMembers.length === 0 && (
                 <div className="rounded-lg border border-dashed border-line bg-paper-alt py-10 text-center text-sm text-ink-4">
                   没有符合筛选条件的学生
                 </div>
@@ -560,6 +535,11 @@ export default function TeacherGroupsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {bulkOpen && selectedClass && <BulkRosterDialog sourceClass={selectedClass} classes={classes} groups={groups}
+        studentIds={Array.from(selectedMemberIds)} onClose={() => setBulkOpen(false)} onComplete={refreshRoster} />}
+      {importOpen && selectedClass && <ImportStudentsDialog classId={selectedClass.id} className={selectedClass.name}
+        onClose={() => setImportOpen(false)} onComplete={() => refreshRoster()} />}
 
       <Dialog open={createClassOpen} onOpenChange={setCreateClassOpen}>
         <DialogContent className="max-w-md">

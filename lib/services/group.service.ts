@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
-import { clampTake } from "@/lib/pagination";
+import { managedClassWhere } from "@/lib/auth/class-scope";
+import { clampPage, clampTake } from "@/lib/pagination";
 import type { Prisma } from "@prisma/client";
 
 type UserLike = { id: string; role: string; classId?: string | null };
@@ -22,47 +23,52 @@ async function assertStudentsInClass(
   }
 }
 
-export async function createGroup(data: {
+type CreateGroupInput = {
   user: UserLike;
   classId: string;
   name: string;
   type: "manual" | "auto_score_bucket";
   meta?: Record<string, unknown>;
   studentIds?: string[];
-}) {
-  await assertClassAccessForTeacher(data.classId, data.user);
-  return prisma.$transaction(async (tx) => {
-    await assertStudentsInClass(tx, data.classId, data.studentIds);
+};
 
-    const group = await tx.studentGroup.create({
-      data: {
-        teacherId: data.user.id,
-        classId: data.classId,
-        name: data.name,
-        type: data.type,
-        meta: (data.meta ?? undefined) as import("@prisma/client").Prisma.InputJsonValue | undefined,
-      },
-    });
-
-    if (data.studentIds?.length) {
-      await tx.studentGroupMember.createMany({
-        data: data.studentIds.map((studentId) => ({
-          groupId: group.id,
-          studentId,
-        })),
-      });
-    }
-
-    return group;
+/** Shared by the standalone form and roster dialog; repeated same-name creation reuses the group. */
+export async function createGroupInTransaction(tx: Prisma.TransactionClient, data: CreateGroupInput) {
+  await tx.$queryRaw`SELECT id FROM "Class" WHERE id = ${data.classId} FOR UPDATE`;
+  await assertClassAccessForTeacher(data.classId, data.user, tx);
+  await assertStudentsInClass(tx, data.classId, data.studentIds);
+  const name = data.name.trim();
+  if (!name) throw new Error("ROSTER_INVALID_INPUT");
+  const existing = await tx.studentGroup.findFirst({
+    where: { teacherId: data.user.id, classId: data.classId, name },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
+  const group = existing ?? await tx.studentGroup.create({
+    data: {
+      teacherId: data.user.id, classId: data.classId, name, type: data.type,
+      meta: (data.meta ?? undefined) as Prisma.InputJsonValue | undefined,
+    },
+  });
+  if (data.studentIds?.length) {
+    await tx.studentGroupMember.createMany({
+      data: [...new Set(data.studentIds)].map((studentId) => ({ groupId: group.id, studentId })),
+      skipDuplicates: true,
+    });
+  }
+  return group;
+}
+
+export async function createGroup(data: CreateGroupInput) {
+  await assertClassAccessForTeacher(data.classId, data.user);
+  return prisma.$transaction((tx) => createGroupInTransaction(tx, data));
 }
 
 export async function getGroupsByUser(
   user: UserLike,
-  options: { take?: number } = {},
+  options: { take?: number; page?: number } = {},
 ) {
   return prisma.studentGroup.findMany({
-    where: user.role === "admin" ? {} : { teacherId: user.id },
+    where: { ...(user.role === "admin" ? {} : { teacherId: user.id }), class: managedClassWhere(user) },
     include: {
       class: { select: { id: true, name: true } },
       members: {
@@ -72,8 +78,9 @@ export async function getGroupsByUser(
       },
       _count: { select: { members: true } },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     take: clampTake(options.take, 100, 200),
+    skip: (clampPage(options.page) - 1) * clampTake(options.take, 100, 200),
   });
 }
 
@@ -94,6 +101,8 @@ export async function updateGroup(
   await assertClassAccessForTeacher(group.classId, user);
 
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Class" WHERE id = ${group.classId} FOR UPDATE`;
+    await assertClassAccessForTeacher(group.classId, user, tx);
     await assertStudentsInClass(tx, group.classId, data.addStudentIds);
 
     if (data.name) {
@@ -140,5 +149,9 @@ export async function deleteGroupForUser(groupId: string, user: UserLike) {
     throw new Error("FORBIDDEN");
   }
   await assertClassAccessForTeacher(group.classId, user);
-  return prisma.studentGroup.delete({ where: { id: groupId } });
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Class" WHERE id = ${group.classId} FOR UPDATE`;
+    await assertClassAccessForTeacher(group.classId, user, tx);
+    return tx.studentGroup.delete({ where: { id: groupId } });
+  });
 }

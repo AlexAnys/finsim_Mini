@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { createGroup, getGroupsByUser } from "@/lib/services/group.service";
-import { parseListTake } from "@/lib/pagination";
+import { clampPage, parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 import { z } from "zod";
 
@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
       classId: result.session.user.classId,
     }, {
       take: parseListTake(searchParams, 100, 200),
+      page: clampPage(searchParams.get("page")),
     });
     return success(groups);
   } catch (err) {

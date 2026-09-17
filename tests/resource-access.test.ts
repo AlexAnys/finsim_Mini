@@ -349,6 +349,11 @@ describe("assertTaskReadable", () => {
 });
 
 describe("assertClassAccessForTeacher", () => {
+  it("class creator can manage a new class before any course is linked", async () => {
+    mk(prisma.class.findUnique).mockResolvedValue({ id: "cls-1", createdBy: "t1" });
+    await expect(assertClassAccessForTeacher("cls-1", { id: "t1", role: "teacher" })).resolves.toBeUndefined();
+    expect(prisma.course.findFirst).not.toHaveBeenCalled();
+  });
   it("admin bypasses", async () => {
     await assertClassAccessForTeacher("cls-1", {
       id: "admin-1",

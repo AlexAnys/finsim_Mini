@@ -52,3 +52,25 @@
 - **Commit**: audit-2026-07 收尾 commit
 - **Status**: active
 
+
+---
+
+## L-005 · 原始 SQL 锁冲突的 Prisma 错误形状
+
+- **Symptom**: 同一个25人转班预览并发确认5次，数据只执行一次，但4个重复请求返回500。
+- **Root cause**: PostgreSQL `SELECT FOR UPDATE` 的序列化冲突由 Prisma 作为 `P2010` + `meta.code=40001` 返回；仅识别事务错误 `P2034` 的重试漏掉原始SQL路径。
+- **Detection**: 在冻结候选的隔离真实数据库同时发送5个相同确认，检查所有响应以及学生数、组数、成员数和审计数；普通mock和顺序重放不足以验证。
+- **Prevention**: 有限重试同时识别 `P2034` 与 `P2010` 的 PostgreSQL `40001` / `40P01`，耗尽明确409；其他原始SQL错误不吞掉。新增锁查询时保留真实并发验收。
+- **Commit**: PR #40 的转班并发重试修复。
+- **Status**: active
+
+---
+
+## L-006 · 权限测试应拥有被修改的数据
+
+- **Symptom**: staging旧smoke删除既有课程的班级关系后，恢复关联被403拒绝，遗留基线变化。
+- **Root cause**: 老测试借用业务课程，且清理动作依赖刚刚被自己删除的授权关系；正确封堵自行挂班授权后，这种清理方式不再成立。
+- **Detection**: 保留删除成功和恢复403的trace/audit证据，核对当前staging版本与精确courseId/classId，不把权限限制放松为测试绿灯。
+- **Prevention**: 关联删除测试只操作本次创建且可彻底清理的空课程；恢复使用具有独立授权的管理员；finally核验创建者、唯一标题和精确关联集合后清理，不能修改其他既有课程来寻找测试条件。
+- **Commit**: PR #40 的staging隔离测试夹具修复。
+- **Status**: active

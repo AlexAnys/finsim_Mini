@@ -62,6 +62,17 @@ async function captureScreenshot(highlightEl?: Element | null): Promise<ShotResu
     const { domToJpeg } = await import("modern-screenshot");
     const node = document.documentElement;
     const opts = {
+      onCloneNode(cloned: Node) {
+        if (!(cloned instanceof Element)) return;
+        const passwords = cloned.querySelectorAll<HTMLInputElement>(
+          'input[type="password"], input[autocomplete~="current-password"], input[autocomplete~="new-password"]'
+        );
+        passwords.forEach((input) => {
+          input.value = "";
+          input.setAttribute("value", "");
+          input.type = "password";
+        });
+      },
       scale: 0.5, // 降采样：一半分辨率
       backgroundColor: "#ffffff",
       width: document.documentElement.clientWidth,

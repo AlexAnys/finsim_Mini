@@ -30,6 +30,7 @@ vi.mock("@/lib/services/task-instance.service", () => ({
 
 vi.mock("@/lib/db/prisma", () => {
   const tx = {
+    $queryRaw: vi.fn(),
     submission: { findMany: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     asyncJob: { updateMany: vi.fn() },
     auditLog: { create: vi.fn() },

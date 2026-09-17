@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRole, assertCourseAccess } from "@/lib/auth/guards";
+import { assertClassAccessForTeacher } from "@/lib/auth/resource-access";
 import { getCourseActorRole } from "@/lib/auth/actor-role";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { success, validationError, handleServiceError } from "@/lib/api-utils";
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const parsed = addSchema.safeParse(body);
     if (!parsed.success) return validationError("请提供有效的班级 ID", parsed.error.flatten());
 
+    await assertClassAccessForTeacher(parsed.data.classId, result.session.user);
     const actorRole = await getCourseActorRole(id, result.session.user.id, result.session.user.role);
     const cc = await addCourseClass(id, parsed.data.classId);
     await logAuditEvent({

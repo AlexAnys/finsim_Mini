@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/guards";
 import { createClass, listClassesForStaff } from "@/lib/services/class.service";
-import { parseListTake } from "@/lib/pagination";
+import { clampPage, parseListTake } from "@/lib/pagination";
 import { success, created, validationError, handleServiceError } from "@/lib/api-utils";
 
 export async function GET(request: NextRequest) {
@@ -11,8 +11,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const classes = await listClassesForStaff({
+    const classes = await listClassesForStaff(result.session.user, {
       take: parseListTake(searchParams, 100, 200),
+      page: clampPage(searchParams.get("page")),
     });
     return success(classes);
   } catch (err) {
