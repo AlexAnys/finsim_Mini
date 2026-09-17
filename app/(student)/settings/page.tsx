@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 
@@ -178,9 +179,11 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>当前密码</Label>
-              <Input
-                type="password"
+              <Label htmlFor="current-password">当前密码</Label>
+              <PasswordInput
+                id="current-password"
+                name="currentPassword"
+                visibilityLabel="当前密码"
                 value={currentPassword}
                 onChange={(event) => setCurrentPassword(event.target.value)}
                 autoComplete="current-password"
@@ -188,18 +191,22 @@ export default function SettingsPage() {
             </div>
             <Separator />
             <div className="space-y-2">
-              <Label>新密码</Label>
-              <Input
-                type="password"
+              <Label htmlFor="new-password">新密码</Label>
+              <PasswordInput
+                id="new-password"
+                name="newPassword"
+                visibilityLabel="新密码"
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
                 autoComplete="new-password"
               />
             </div>
             <div className="space-y-2">
-              <Label>确认新密码</Label>
-              <Input
-                type="password"
+              <Label htmlFor="confirm-password">确认新密码</Label>
+              <PasswordInput
+                id="confirm-password"
+                name="confirmPassword"
+                visibilityLabel="确认新密码"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 autoComplete="new-password"
